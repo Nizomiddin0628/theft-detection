@@ -1,0 +1,46 @@
+{% from "_icons.html" import icon, logo %}<!doctype html>
+<html lang="uz">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{ title }} · {{ app_name }}</title>
+<link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/static/style.css?v={{ version }}">
+</head>
+<body>
+<div class="app">
+  <aside class="side" id="side">
+    <div class="brand">{{ logo(34) }}<div><b>{{ app_name }}</b><span>Do'kon xavfsizligi</span></div></div>
+    <nav class="nav">
+      {% for key, href, label, ic in nav %}
+      <a href="{{ href }}" class="{{ 'on' if active == key else '' }}">{{ icon(ic) }}<span>{{ label }}</span>
+        {% if key == 'events' and pending %}<span class="badge" id="nav-pending">{{ pending }}</span>{% endif %}
+      </a>
+      {% endfor %}
+    </nav>
+    <div class="side-foot">
+      <div class="row" style="margin-bottom:6px"><span><span class="dot" id="tg-dot"></span>&nbsp; Telegram</span><span id="tg-text">…</span></div>
+      <div class="row" style="margin-bottom:10px"><span><span class="dot" id="cam-dot"></span>&nbsp; Kameralar</span><span id="cam-text">…</span></div>
+      <div class="row"><span>{{ icon('user', 14) }} {{ user }}</span><a href="/logout" style="color:#8fa3bd">{{ icon('logout', 14) }} Chiqish</a></div>
+      <div style="margin-top:8px;opacity:.7">v{{ version }}</div>
+    </div>
+  </aside>
+  <main class="main">
+    <div class="top">
+      <button class="btn ghost menu-btn" onclick="document.getElementById('side').classList.toggle('open')">{{ icon('menu') }}</button>
+      <div class="grow"><h1>{{ title }}</h1>{% block subtitle %}{% endblock %}</div>
+      {% block actions %}{% endblock %}
+    </div>
+    <div class="content">
+      {% if settings.sensitivity == 'demo' and active in ('dashboard', 'live') %}
+      <div class="note warn" style="margin-bottom:16px">{{ icon('zap') }}<div><b>Sinov (demo) rejimi yoqilgan.</b> Tizim juda sezgir — oddiy harakatlarga ham signal berishi mumkin. Do'konda ishlatishdan oldin <a href="/settings">Sozlamalar</a>dan "Oddiy" rejimga o'ting.</div></div>
+      {% endif %}
+      {% block content %}{% endblock %}
+    </div>
+  </main>
+</div>
+<div class="toasts" id="toasts"></div>
+<script src="/static/app.js?v={{ version }}"></script>
+{% block scripts %}{% endblock %}
+</body>
+</html>

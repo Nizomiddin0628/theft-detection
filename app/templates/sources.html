@@ -1,0 +1,95 @@
+{% extends "base.html" %}
+{% from "_icons.html" import icon %}
+{% block subtitle %}<div class="muted small">Kompyuter kamerasi, IP kameralar (RTSP) va video fayllar</div>{% endblock %}
+{% block content %}
+<div class="grid g3">
+  <div class="card span2">
+    <div class="card-h"><h2>Ulangan manbalar</h2><div class="grow"></div><button class="btn sm ghost" onclick="load()">{{ icon('refresh', 14) }}</button></div>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Nomi</th><th>Turi</th><th>Manzil</th><th>Holat</th><th>Tezlik</th><th title="Dastur ishga tushganda avtomatik yoqilsin">Avto</th><th></th></tr></thead>
+      <tbody id="rows"></tbody>
+    </table></div>
+  </div>
+  <div class="card">
+    <div class="card-h"><h2>Yangi manba qo'shish</h2></div>
+    <div class="card-b">
+      <form id="addf">
+        <div class="field"><label class="f">Turi</label>
+          <select name="kind" id="kind">
+            <option value="webcam">Kompyuter / USB kamera</option>
+            <option value="rtsp">IP kamera (RTSP / HTTP)</option>
+            <option value="file">Video fayl (kompyuterdagi yo'l)</option>
+          </select></div>
+        <div class="field"><label class="f">Nomi</label><input type="text" name="name" placeholder="Masalan: Kassa oldi, 2-qator"></div>
+        <div class="field"><label class="f" id="urilabel">Kamera raqami</label><input type="text" name="uri" id="uri" placeholder="0">
+          <div class="hint" id="urihint">Odatda o'rnatilgan kamera — 0, tashqi USB kamera — 1.</div></div>
+        <div class="field"><label class="switch"><input type="checkbox" name="start" checked> Hozir ishga tushirish</label></div>
+        <div class="field"><label class="switch"><input type="checkbox" name="enabled"> Dastur ochilganda avtomatik yoqish</label></div>
+        <button class="btn primary" style="width:100%;justify-content:center">{{ icon('plus', 16) }} Qo'shish</button>
+      </form>
+      <hr style="border:0;border-top:1px solid var(--line);margin:16px 0">
+      <button class="btn" style="width:100%;justify-content:center" onclick="probe(this)">{{ icon('search', 16) }} Kompyuterdagi kameralarni qidirish</button>
+      <div id="probe" class="small" style="margin-top:8px"></div>
+    </div>
+  </div>
+</div>
+<div class="card card-b prose" style="margin-top:16px">
+  <h2>IP kamera manzillari (namuna)</h2>
+  <ul>
+    <li><b>Hikvision:</b> <code>rtsp://login:parol@192.168.1.64:554/Streaming/Channels/102</code> (102 — yengil oqim, AI uchun yetarli)</li>
+    <li><b>Dahua / IMOU:</b> <code>rtsp://login:parol@192.168.1.108:554/cam/realmonitor?channel=1&amp;subtype=1</code></li>
+    <li><b>Uniview:</b> <code>rtsp://login:parol@IP:554/media/video2</code></li>
+    <li><b>Telefon (IP Webcam ilovasi):</b> <code>http://192.168.1.50:8080/video</code></li>
+  </ul>
+  <p>Kamera va kompyuter bitta tarmoqda bo'lishi kerak. AI uchun kameraning <b>sub-stream</b> (640–720p) oqimidan foydalaning — kompyuter yuklamasi kamayadi, aniqlik deyarli o'zgarmaydi.</p>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+const KIND = { webcam: "Veb-kamera", rtsp: "IP kamera", file: "Video fayl" };
+const HINT = {
+  webcam: ["Kamera raqami", "0", "Odatda o'rnatilgan kamera — 0, tashqi USB kamera — 1."],
+  rtsp: ["RTSP / HTTP manzil", "rtsp://admin:parol@192.168.1.64:554/Streaming/Channels/102", "Kamera login va parolini manzil ichida yozing."],
+  file: ["Fayl yo'li", "C:\\Videolar\\dokon.mp4", "Kompyuterdagi to'liq yo'l. Video oxiriga yetganda boshidan qayta o'ynaydi."],
+};
+document.getElementById("kind").onchange = (e) => { const h = HINT[e.target.value]; document.getElementById("urilabel").textContent = h[0]; document.getElementById("uri").placeholder = h[1]; document.getElementById("urihint").textContent = h[2]; };
+document.getElementById("addf").onsubmit = async (e) => {
+  e.preventDefault();
+  const f = new FormData(e.target);
+  const d = Object.fromEntries(f.entries());
+  d.start = f.get("start") ? "1" : "0"; d.enabled = f.get("enabled") ? "1" : "0";
+  await H.post("/api/sources", d);
+  H.toast("Manba qo'shildi", "ok"); e.target.reset(); load();
+};
+async function act(id, what) {
+  if (what === "delete" && !confirm("Manba o'chirilsinmi? (Hodisalar saqlanib qoladi)")) return;
+  const r = await H.post(`/api/sources/${id}/${what}`);
+  if (r && r.message && !r.ok) H.toast(H.esc(r.message), "alert");
+  setTimeout(load, 500);
+}
+async function auto(id, el) { await H.post(`/api/sources/${id}/autostart`, { enabled: el.checked ? "1" : "0" }); }
+async function load() {
+  const srcs = await H.api("/api/sources");
+  document.getElementById("rows").innerHTML = srcs.length ? srcs.map((s) => `
+    <tr><td><b>${H.esc(s.name)}</b></td><td>${KIND[s.kind] || s.kind}</td>
+      <td class="mono small" style="max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${H.esc(s.uri)}">${H.esc(s.uri.replace(/:\/\/([^:@]+):([^@]+)@/, "://$1:***@"))}</td>
+      <td><span class="dot ${s.running ? "on" : (s.state === "xato" ? "off" : "")}"></span> ${H.esc(s.state)}${s.error ? `<div class="small" style="color:#b42318">${H.esc(s.error)}</div>` : ""}</td>
+      <td class="num small">${s.running ? `AI ${s.fps_ai} / kamera ${s.fps_cam}` : "—"}</td>
+      <td><label class="switch"><input type="checkbox" ${s.enabled ? "checked" : ""} onchange="auto(${s.id}, this)"></label></td>
+      <td style="text-align:right;white-space:nowrap">
+        ${s.running ? `<button class="btn sm" onclick="act(${s.id},'stop')">■ To'xtatish</button>` : `<button class="btn sm primary" onclick="act(${s.id},'start')">▶ Yoqish</button>`}
+        <button class="btn sm ghost" onclick="act(${s.id},'delete')" title="O'chirish">✕</button></td></tr>`).join("")
+    : `<tr><td colspan="7" class="empty">Manba yo'q</td></tr>`;
+}
+async function probe(btn) {
+  btn.disabled = true;
+  document.getElementById("probe").textContent = "Qidirilmoqda… (bir necha soniya)";
+  try {
+    const r = await H.api("/api/webcam/probe");
+    document.getElementById("probe").innerHTML = r.cameras.length ? r.cameras.map((c) => `✅ Kamera <b>${c.index}</b> — ${H.esc(c.note)}`).join("<br>") : "Kamera topilmadi. Kamera ulanganini va boshqa dastur (Zoom, Teams) ishlatmayotganini tekshiring.";
+  } finally { btn.disabled = false; }
+}
+load();
+setInterval(load, 3000);
+</script>
+{% endblock %}

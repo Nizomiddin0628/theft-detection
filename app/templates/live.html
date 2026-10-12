@@ -1,0 +1,104 @@
+{% extends "base.html" %}
+{% from "_icons.html" import icon %}
+{% block subtitle %}<div class="muted small">Kameralardan real vaqtda tahlil: skelet, buyumlar va xavf darajasi</div>{% endblock %}
+{% block actions %}
+<div class="tabs" id="sens">
+  {% for key, p in presets.items() %}<button data-k="{{ key }}" class="{{ 'on' if settings.sensitivity == key else '' }}" title="{{ p.label }}">{{ {'demo':'Sinov','normal':'Oddiy','strict':'Qattiq'}[key] }}</button>{% endfor %}
+</div>
+<button class="btn primary" onclick="quickCam(this)">{{ icon('camera') }} Kompyuter kamerasi</button>
+{% endblock %}
+{% block content %}
+<div class="card" style="margin-bottom:16px">
+  <div class="card-h"><h2>Manbalar</h2><div class="grow"></div><a class="btn sm" href="/sources">{{ icon('plus', 14) }} Kamera qo'shish</a></div>
+  <div class="card-b"><div id="srcs" class="row"></div></div>
+</div>
+
+<div id="views" class="live-grid"></div>
+<div id="none" class="card empty hidden">
+  {{ icon('camera', 40) }}<h2 style="margin:6px 0">Hech qaysi kamera ishlamayapti</h2>
+  <p>Kompyuteringiz kamerasini yoqing yoki yuqoridagi ro'yxatdan manbani ishga tushiring.</p>
+  <button class="btn primary lg" onclick="quickCam(this)">{{ icon('camera') }} Kompyuter kamerasini yoqish</button>
+</div>
+
+<div class="grid g2" style="margin-top:16px">
+  <div class="card card-b">
+    <h2 style="margin-bottom:10px">Veb-kamera bilan qanday sinash mumkin?</h2>
+    <ol class="steps">
+      <li>Kameradan 1–2 metr uzoqroq turing — yelka va bel ko'rinsa, aniqlik yuqori bo'ladi.</li>
+      <li>Qo'lingizga telefon, shisha yoki olma oling, uni yuqoriga ko'tarib bir-ikki soniya ushlab turing.</li>
+      <li>Keyin buyumni cho'ntagingizga, ko'ylagingiz ichiga yoki sumkaga soling va qo'lni u yerda ~1 soniya ushlang.</li>
+      <li>Bir necha soniyadan keyin klip <a href="/events">Hodisalar</a>ga va Telegram botga tushadi.</li>
+    </ol>
+    <p class="hint">Stol oldida o'tirsangiz, faqat yuqori tana ko'rinadi. Shunda buyumni stol ostiga (kadrdan pastga) olib tushish ham signal beradi. Signal kelmasa, yuqorida <b>Sinov</b> rejimini tanlang.</p>
+  </div>
+  <div class="card card-b">
+    <h2 style="margin-bottom:10px">Ranglar nimani bildiradi?</h2>
+    <div class="legend" style="flex-direction:column;gap:8px">
+      <span><i style="background:#5ac86e"></i>Yashil — oddiy holat</span>
+      <span><i style="background:#fab428"></i>Sariq — shubha boshlanmoqda (xavf 25+)</span>
+      <span><i style="background:#eb3c3c"></i>Qizil — shubhali harakat (xavf 55+)</span>
+      <span><i style="background:#3cc8e6"></i>Moviy ramka — aniqlangan buyum (telefon, shisha...)</span>
+      <span><i style="background:#ffdc00"></i>Sariq nuqtalar — bilaklar (asosiy kuzatiladigan nuqta)</span>
+    </div>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+async function quickCam(btn) {
+  btn.disabled = true;
+  try { const r = await H.post("/api/webcam/quick"); H.toast(r.ok ? "Kamera yoqilmoqda… (birinchi marta 5–10 soniya olishi mumkin)" : r.message, r.ok ? "ok" : "alert"); load(); }
+  finally { btn.disabled = false; }
+}
+async function act(id, what) { await H.post(`/api/sources/${id}/${what}`); setTimeout(load, 400); }
+document.querySelectorAll("#sens button").forEach((b) => b.onclick = async () => {
+  await H.post("/api/settings", { sensitivity: b.dataset.k });
+  document.querySelectorAll("#sens button").forEach((x) => x.classList.toggle("on", x === b));
+  H.toast("Sezgirlik: " + b.textContent, "ok");
+});
+let viewKey = "";
+const KIND = { webcam: "Veb-kamera", rtsp: "IP kamera", file: "Video fayl" };
+async function load() {
+  const srcs = await H.api("/api/sources");
+  document.getElementById("srcs").innerHTML = srcs.length ? srcs.map((s) => `
+    <div class="card" style="padding:10px 12px;display:flex;align-items:center;gap:10px;box-shadow:none">
+      <span class="dot ${s.running ? "on" : (s.state === "xato" ? "off" : "")}"></span>
+      <div><b>${H.esc(s.name)}</b><div class="muted small">${KIND[s.kind] || s.kind} · ${H.esc(s.state)}</div></div>
+      ${s.running ? `<button class="btn sm" onclick="act(${s.id},'stop')">■ To'xtatish</button>` : `<button class="btn sm primary" onclick="act(${s.id},'start')">▶ Yoqish</button>`}
+    </div>`).join("") : `<span class="muted">Manba yo'q</span>`;
+  const run = srcs.filter((s) => s.running || s.state === "xato" || s.state === "qayta ulanmoqda");
+  const key = run.map((s) => s.id).join(",");
+  document.getElementById("none").classList.toggle("hidden", run.length > 0);
+  if (key !== viewKey) {
+    viewKey = key;
+    document.getElementById("views").innerHTML = run.map((s) => `
+      <div class="card">
+        <div class="card-h"><span class="live-dot"></span><h2>${H.esc(s.name)}</h2><div class="grow"></div>
+          <button class="btn sm" onclick="act(${s.id},'stop')">■ To'xtatish</button></div>
+        <div class="card-b">
+          <div class="video-box"><img src="/stream/${s.id}?t=${Date.now()}" alt=""></div>
+          <div class="grid g4" style="margin-top:12px;gap:10px">
+            <div><div class="muted small">Holat</div><b id="st-${s.id}">—</b></div>
+            <div><div class="muted small">Odamlar</div><b class="num" id="pp-${s.id}">—</b></div>
+            <div><div class="muted small">AI tezligi</div><b class="num" id="fp-${s.id}">—</b></div>
+            <div><div class="muted small">Eng yuqori xavf</div><b class="num" id="rk-${s.id}">—</b></div>
+          </div>
+          <div class="note danger hidden" id="er-${s.id}" style="margin-top:10px"></div>
+        </div></div>`).join("");
+  }
+  run.forEach((s) => {
+    const g = (p) => document.getElementById(p + s.id);
+    if (!g("st-")) return;
+    g("st-").textContent = s.state;
+    g("pp-").textContent = s.persons;
+    g("fp-").textContent = `${s.fps_ai} kadr/s (kamera ${s.fps_cam})`;
+    g("rk-").textContent = s.max_risk;
+    g("rk-").style.color = s.max_risk >= 55 ? "#b42318" : (s.max_risk >= 25 ? "#b45309" : "");
+    g("er-").classList.toggle("hidden", !s.error);
+    g("er-").textContent = s.error || "";
+  });
+}
+load();
+setInterval(load, 2000);
+</script>
+{% endblock %}

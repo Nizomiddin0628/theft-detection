@@ -1,0 +1,10 @@
+dokon_namuna_20s.mp4
+--------------------
+Manba: Intel IoT DevKit "sample-videos" — store-aisle-detection.mp4 (15–35-soniyalar qirqilgan)
+https://github.com/intel-iot-devkit/sample-videos
+Litsenziya: Creative Commons Attribution 4.0 International (CC BY 4.0)
+
+Bu oddiy xarid videosi (o'g'irlik yo'q). Undan quyidagicha foydalaning:
+  * "Oddiy" rejimda — signal bermasligi kerak (xato signal yo'qligini tekshirish)
+  * "Sinov" rejimida — 1 ta signal beradi (klip, Telegram va Tasdiq/Xato tugmalarini sinash uchun)
+Haqiqiy "yashirish" harakatini sinash uchun kompyuter kamerasi oldida o'zingiz harakat qiling.

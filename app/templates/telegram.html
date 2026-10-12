@@ -1,0 +1,98 @@
+{% extends "base.html" %}
+{% from "_icons.html" import icon %}
+{% block subtitle %}<div class="muted small">Shubhali hodisalar klip bilan telefoningizga keladi — Tasdiq / Xato tugmalari bilan</div>{% endblock %}
+{% block content %}
+<div class="grid g3">
+  <div class="card span2">
+    <div class="card-h"><h2>Botni ulash</h2></div>
+    <div class="card-b">
+      <ol class="steps">
+        <li>Telegramda botni oching: <a id="botlink" href="#" target="_blank" rel="noopener"><b id="botname">…</b></a></li>
+        <li><b>Start</b> tugmasini bosing yoki pastdagi havolani oching.</li>
+        <li>Botga quyidagi kodni yuboring:<br><span class="code-big" id="code" style="margin-top:8px">{{ settings.connect_code }}</span></li>
+        <li>Bot "✅ Ulandingiz!" deb javob beradi. Shundan keyin har bir shubhali hodisa klip bilan keladi.</li>
+      </ol>
+      <div class="row">
+        <a class="btn primary" id="deeplink" href="#" target="_blank" rel="noopener">{{ icon('send', 16) }} Botni kod bilan ochish</a>
+        <button class="btn" onclick="newCode()">{{ icon('refresh', 16) }} Yangi kod</button>
+        <button class="btn" onclick="testMsg(this)">Sinov xabari yuborish</button>
+        <button class="btn" onclick="demoAlert(this)">Oxirgi hodisani yuborish</button>
+      </div>
+      <p class="hint" style="margin-top:10px">Bir nechta qo'riqchi yoki menejer ulanishi mumkin — har biri kodni yuborsa yetarli. Kodni begonalarga bermang; kerak bo'lsa "Yangi kod" bilan almashtiring.</p>
+    </div>
+  </div>
+  <div class="card card-b">
+    <h2 style="margin-bottom:10px">Bot holati</h2>
+    <div class="row between small"><span>Holat</span><b id="bstatus">…</b></div>
+    <div class="row between small" style="margin-top:6px"><span>Yuborilgan xabarlar</span><b class="num" id="bsent">0</b></div>
+    <div class="row between small" style="margin-top:6px"><span>Navbatda</span><b class="num" id="bq">0</b></div>
+    <div id="berr" class="note danger hidden" style="margin-top:12px"></div>
+    <hr style="border:0;border-top:1px solid var(--line);margin:14px 0">
+    <form id="tgs">
+      <div class="field"><label class="switch"><input type="checkbox" name="telegram_enabled" {{ 'checked' if settings.telegram_enabled == '1' }}> Telegramga yuborish yoqilgan</label></div>
+      <div class="field"><label class="switch"><input type="checkbox" name="telegram_send_video" {{ 'checked' if settings.telegram_send_video == '1' }}> Video klip yuborish (o'chirilsa — faqat rasm)</label></div>
+      <div class="field"><label class="f">Minimal ball (bundan pastini yubormaslik)</label><input type="number" name="telegram_min_score" min="0" max="100" value="{{ settings.telegram_min_score }}"></div>
+      <button class="btn primary sm">Saqlash</button>
+    </form>
+  </div>
+</div>
+
+<div class="grid g3" style="margin-top:16px">
+  <div class="card span2">
+    <div class="card-h"><h2>Ulangan foydalanuvchilar</h2></div>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Ism</th><th>Username</th><th>Chat ID</th><th>Ulangan</th><th>Holat</th><th></th></tr></thead>
+      <tbody id="subs"></tbody>
+    </table></div>
+  </div>
+  <div class="card card-b">
+    <h2 style="margin-bottom:10px">Xabar qanday ko'rinadi</h2>
+    <div style="background:#e6ebf0;border-radius:12px;padding:12px">
+      <div style="background:#fff;border-radius:10px;overflow:hidden;font-size:13px">
+        <div style="background:#0b1320;aspect-ratio:16/9;display:grid;place-items:center;color:#94a3b8">▶ video klip</div>
+        <div style="padding:10px 12px;line-height:1.55">⚠️ <b>Shubhali harakat — tekshirib ko'ring</b><br>📷 Kamera: Kassa oldi<br>🎯 Turi: <b>Cho'ntakka solish</b><br>📊 Ball: <b>72/100</b><br><b>Sabablar:</b><br>• O'ng qo'l faol holatdan bel/cho'ntak sohasiga bordi<br>• Qo'lda 'shisha' ko'rindi, keyin ko'rinmay qoldi</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px;padding:0 6px 6px"><span style="background:#eef2f6;border-radius:6px;padding:7px;text-align:center">✅ Tasdiqlash</span><span style="background:#eef2f6;border-radius:6px;padding:7px;text-align:center">❌ Xato signal</span></div>
+      </div>
+    </div>
+    <p class="hint" style="margin-top:10px">Botdagi buyruqlar: /holat, /oxirgi, /tekshirilmagan, /stop, /yordam</p>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+async function load() {
+  const r = await H.api("/api/telegram");
+  const b = r.bot;
+  document.getElementById("botname").textContent = b.username ? "@" + b.username : (b.enabled ? "ulanmoqda…" : "token yo'q");
+  if (r.link) document.getElementById("botlink").href = r.link;
+  if (r.deep_link) document.getElementById("deeplink").href = r.deep_link;
+  document.getElementById("code").textContent = r.code;
+  const st = document.getElementById("bstatus");
+  st.textContent = b.status; st.style.color = b.status === "ishlayapti" ? "#15803d" : "#b42318";
+  document.getElementById("bsent").textContent = b.sent;
+  document.getElementById("bq").textContent = b.queue;
+  const er = document.getElementById("berr");
+  const hint = !b.enabled ? "TELEGRAM_BOT_TOKEN .env faylida berilmagan." :
+    (b.status === "token xato" ? "Token noto'g'ri. BotFather'dan yangi token olib, .env faylini yangilang va dasturni qayta ishga tushiring." :
+    (b.status === "tarmoq xatosi" ? "Telegram serveriga ulanib bo'lmadi. Internetni tekshiring (ba'zi tarmoqlarda Telegram API yopiq bo'lishi mumkin)." : b.error));
+  er.classList.toggle("hidden", b.status === "ishlayapti" || !hint);
+  er.textContent = hint || "";
+  document.getElementById("subs").innerHTML = r.subscribers.length ? r.subscribers.map((s) => `
+    <tr><td><b>${H.esc(s.name || "—")}</b></td><td>${s.username ? "@" + H.esc(s.username) : "—"}</td><td class="mono small">${s.chat_id}</td>
+    <td class="small muted">${s.created_str}</td><td>${s.active ? `<span class="badge on">faol</span>` : `<span class="badge">to'xtatgan</span>`}</td>
+    <td style="text-align:right"><button class="btn sm ghost" onclick="delSub(${s.chat_id})">✕</button></td></tr>`).join("")
+    : `<tr><td colspan="6" class="empty">Hali hech kim ulanmagan — yuqoridagi kodni botga yuboring.</td></tr>`;
+}
+async function newCode() { if (!confirm("Yangi kod yaratilsinmi? Eski kod endi ishlamaydi (ulanganlar ulanganicha qoladi).")) return; await H.post("/api/telegram/new-code"); load(); }
+async function testMsg(btn) { btn.disabled = true; try { const r = await H.post("/api/telegram/test"); H.toast(`Sinov xabari ${r.count} ta foydalanuvchiga yuborildi`, "ok"); } finally { btn.disabled = false; } }
+async function demoAlert(btn) { btn.disabled = true; try { const r = await H.post("/api/telegram/demo-alert"); H.toast(`Hodisa #${r.event_id} yuborilmoqda`, "ok"); } finally { btn.disabled = false; } }
+async function delSub(id) { if (confirm("Foydalanuvchi o'chirilsinmi?")) { await H.post(`/api/telegram/subscribers/${id}/delete`); load(); } }
+document.getElementById("tgs").onsubmit = async (e) => {
+  e.preventDefault();
+  const f = new FormData(e.target);
+  await H.post("/api/settings", { telegram_enabled: f.get("telegram_enabled") ? "1" : "0", telegram_send_video: f.get("telegram_send_video") ? "1" : "0", telegram_min_score: f.get("telegram_min_score") });
+  H.toast("Saqlandi", "ok");
+};
+load(); setInterval(load, 4000);
+</script>
+{% endblock %}

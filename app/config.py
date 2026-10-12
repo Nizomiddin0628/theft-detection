@@ -1,0 +1,103 @@
+"""Loyiha sozlamalari: yo'llar, .env qiymatlari va standart parametrlar."""
+from __future__ import annotations
+
+import os
+import secrets
+from pathlib import Path
+
+BASE_DIR = Path(__file__).resolve().parent.parent
+DATA_DIR = BASE_DIR / "data"
+CLIPS_DIR = DATA_DIR / "clips"
+UPLOADS_DIR = DATA_DIR / "uploads"
+POSES_DIR = DATA_DIR / "poses"
+LOGS_DIR = DATA_DIR / "logs"
+MODELS_DIR = BASE_DIR / "models"
+DB_PATH = DATA_DIR / "hushyor.db"
+
+for _d in (DATA_DIR, CLIPS_DIR, UPLOADS_DIR, POSES_DIR, LOGS_DIR, MODELS_DIR):
+    _d.mkdir(parents=True, exist_ok=True)
+
+
+def _load_dotenv() -> None:
+    """python-dotenv bo'lmasa ham ishlaydigan oddiy .env o'quvchi."""
+    env_file = BASE_DIR / ".env"
+    if not env_file.exists():
+        return
+    for raw in env_file.read_text(encoding="utf-8").splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        key = key.strip()
+        value = value.strip().strip('"').strip("'")
+        os.environ.setdefault(key, value)
+
+
+_load_dotenv()
+
+
+def env(key: str, default: str = "") -> str:
+    return os.environ.get(key, default)
+
+
+TELEGRAM_BOT_TOKEN = env("TELEGRAM_BOT_TOKEN")
+TELEGRAM_API_BASE = env("TELEGRAM_API_BASE", "https://api.telegram.org").rstrip("/")
+ADMIN_USER = env("ADMIN_USER", "admin")
+ADMIN_PASSWORD = env("ADMIN_PASSWORD", "admin123")
+HOST = env("HOST", "0.0.0.0")
+PORT = int(env("PORT", "8000"))
+PUBLIC_URL = env("PUBLIC_URL", "").rstrip("/")
+
+
+def _secret_key() -> str:
+    key = env("SECRET_KEY")
+    if key:
+        return key
+    key_file = DATA_DIR / ".secret_key"
+    if key_file.exists():
+        return key_file.read_text().strip()
+    key = secrets.token_hex(32)
+    key_file.write_text(key)
+    return key
+
+
+SECRET_KEY = _secret_key()
+
+POSE_MODEL = MODELS_DIR / "yolo11n-pose.onnx"
+DET_MODEL = MODELS_DIR / "yolo11n.onnx"
+
+# Sezgirlik rejimlari: chegara (0-100) va yashirish harakati davomiyligi (soniya)
+SENSITIVITY_PRESETS = {
+    "demo": {"threshold": 35, "dwell": 0.30, "label": "Sinov (demo) — eng sezgir"},
+    "normal": {"threshold": 60, "dwell": 0.45, "label": "Oddiy — do'kon uchun"},
+    "strict": {"threshold": 75, "dwell": 0.60, "label": "Qattiq — kam signal"},
+}
+
+DEFAULT_SETTINGS = {
+    "sensitivity": "normal",
+    "threshold": "60",
+    "dwell_sec": "0.45",
+    "pre_sec": "6",
+    "post_sec": "4",
+    "cooldown_sec": "15",
+    "ai_fps": "8",
+    "infer_size": "640",
+    "person_conf": "0.40",
+    "object_conf": "0.30",
+    "use_ml": "1",
+    "ml_weight": "20",
+    "signal_pocket": "1",
+    "signal_torso": "1",
+    "signal_bag": "1",
+    "signal_vanish": "1",
+    "signal_looking": "1",
+    "signal_offscreen": "1",
+    "telegram_enabled": "1",
+    "telegram_send_video": "1",
+    "telegram_min_score": "0",
+    "retention_days": "30",
+    "store_name": "Mening do'konim",
+}
+
+APP_NAME = "Hushyor AI"
+APP_VERSION = "1.0.0"

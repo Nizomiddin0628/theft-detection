@@ -1,0 +1,94 @@
+{% extends "base.html" %}
+{% from "_icons.html" import icon %}
+{% block subtitle %}<div class="muted small">Sezgirlik, klip uzunligi, AI parametrlari va signallar</div>{% endblock %}
+{% block content %}
+{% if saved %}<div class="note ok" style="margin-bottom:16px">{{ icon('check') }} Sozlamalar saqlandi. Ular darhol kuchga kiradi.</div>{% endif %}
+<form method="post" action="/api/settings" id="sf">
+<input type="hidden" name="_form" value="full">
+<input type="hidden" name="apply_preset" id="apply_preset" value="0">
+<div class="card">
+  <div class="card-h"><h2>Sezgirlik rejimi</h2></div>
+  <div class="card-b grid g3">
+    {% for key, p in presets.items() %}
+    <label class="preset {{ 'on' if settings.sensitivity == key }}">
+      <input type="radio" name="sensitivity" value="{{ key }}" {{ 'checked' if settings.sensitivity == key }} onchange="pickPreset('{{ key }}')">
+      <b>{{ p.label }}</b>
+      <span class="muted small">Chegara {{ p.threshold }} ball · zonada kamida {{ p.dwell }} s</span>
+      <div class="small" style="margin-top:6px">
+        {% if key == 'demo' %}Veb-kamera bilan sinash uchun. Har bir "qo'l cho'ntakka" harakati signal beradi.
+        {% elif key == 'normal' %}Do'kon uchun tavsiya. Yashirish + qo'shimcha dalil (buyum, model, atrofga qarash) kerak.
+        {% else %}Faqat aniq holatlar. Signallar kam, lekin ba'zilari o'tkazib yuborilishi mumkin.{% endif %}
+      </div>
+    </label>
+    {% endfor %}
+  </div>
+</div>
+
+<div class="grid g2" style="margin-top:16px">
+  <div class="card">
+    <div class="card-h"><h2>Signal va klip</h2></div>
+    <div class="card-b">
+      <div class="field"><label class="f">Signal chegarasi: <b id="thv">{{ settings.threshold|float|round|int }}</b> ball</label>
+        <input type="range" name="threshold" id="threshold" min="10" max="95" step="1" value="{{ settings.threshold|float|round|int }}" oninput="thv.textContent=this.value">
+        <div class="hint">Ball shundan oshganda signal beriladi. Ko'p xato signal bo'lsa — oshiring.</div></div>
+      <div class="field"><label class="f">Qo'l zonada turishi kerak bo'lgan vaqt (soniya)</label><input type="number" name="dwell_sec" id="dwell" step="0.05" min="0.1" max="3" value="{{ settings.dwell_sec }}"></div>
+      <div class="grid g2" style="gap:12px">
+        <div class="field"><label class="f">Klip: hodisadan oldin (s)</label><input type="number" name="pre_sec" min="1" max="20" value="{{ settings.pre_sec }}"></div>
+        <div class="field"><label class="f">Klip: hodisadan keyin (s)</label><input type="number" name="post_sec" min="1" max="20" value="{{ settings.post_sec }}"></div>
+      </div>
+      <div class="field"><label class="f">Bir odam uchun signallar orasidagi minimal vaqt (s)</label><input type="number" name="cooldown_sec" min="0" max="600" value="{{ settings.cooldown_sec }}"></div>
+      <div class="field"><label class="f">Do'kon nomi (Telegram xabarida ko'rinadi)</label><input type="text" name="store_name" value="{{ settings.store_name }}"></div>
+      <div class="field"><label class="f">Hodisalarni saqlash muddati (kun, 0 — cheksiz)</label><input type="number" name="retention_days" min="0" value="{{ settings.retention_days }}">
+        <div class="hint">Tasdiqlangan hodisalar o'chirilmaydi.</div></div>
+    </div>
+  </div>
+  <div class="card">
+    <div class="card-h"><h2>Signal turlari</h2></div>
+    <div class="card-b">
+      {% for key, label, hint in [
+        ('signal_pocket', "Cho'ntakka / belga solish", "Qo'l faol holatdan bel zonasiga tushib, u yerda turib qolsa"),
+        ('signal_torso', "Kiyim ichiga yashirish", "Qo'l qorin/ko'krak markaziga kirsa"),
+        ('signal_bag', "Sumka / ryukzakka solish", "Qo'l odam yonidagi sumka ichiga kirsa"),
+        ('signal_vanish', "Buyum yo'qolishi", "Qo'ldagi buyum yashirishdan keyin ko'rinmay qolsa (+20 ball)"),
+        ('signal_looking', "Atrofga qarash", "Bosh tez-tez u yoq-bu yoqqa burilsa (+10 ball)"),
+        ('signal_offscreen', "Qo'lni kadrdan yashirish", "Stol oldida — buyum bilan qo'l kadrdan pastga tushsa"),
+        ('use_ml', "AI xulq modeli", "Skelet harakatidan o'rganilgan model ehtimolini qo'shish")] %}
+      <div class="field"><label class="switch"><input type="checkbox" name="{{ key }}" {{ 'checked' if settings[key] == '1' }}> <span><b>{{ label }}</b><br><span class="muted small">{{ hint }}</span></span></label></div>
+      {% endfor %}
+      <div class="field"><label class="f">AI model og'irligi (maks. ball): <b id="mlw">{{ settings.ml_weight|float|round|int }}</b></label>
+        <input type="range" name="ml_weight" min="0" max="60" value="{{ settings.ml_weight|float|round|int }}" oninput="mlw.textContent=this.value"></div>
+    </div>
+  </div>
+</div>
+
+<div class="card" style="margin-top:16px">
+  <div class="card-h"><h2>AI ishlash tezligi</h2></div>
+  <div class="card-b grid g4">
+    <div class="field"><label class="f">AI kadr/soniya (har kamera)</label><input type="number" name="ai_fps" min="1" max="30" value="{{ settings.ai_fps }}"><div class="hint">Kompyuter sekin bo'lsa 4–5 qiling.</div></div>
+    <div class="field"><label class="f">Tahlil o'lchami</label><select name="infer_size">
+      {% for sz in [320, 416, 480, 640, 800] %}<option value="{{ sz }}" {{ 'selected' if settings.infer_size|float|int == sz }}>{{ sz }} px{{ ' (tavsiya)' if sz == 640 }}</option>{% endfor %}
+    </select><div class="hint">Kichikroq — tezroq, lekin uzoqdagi odamlar yomonroq ko'rinadi.</div></div>
+    <div class="field"><label class="f">Odam ishonch chegarasi</label><input type="number" name="person_conf" step="0.05" min="0.1" max="0.95" value="{{ settings.person_conf }}"></div>
+    <div class="field"><label class="f">Buyum ishonch chegarasi</label><input type="number" name="object_conf" step="0.05" min="0.1" max="0.95" value="{{ settings.object_conf }}"></div>
+  </div>
+</div>
+<div class="row" style="margin-top:16px">
+  <button class="btn primary lg">{{ icon('check', 16) }} Saqlash</button>
+  <span class="muted small">Telegram sozlamalari — <a href="/telegram">Telegram</a> bo'limida.</span>
+</div>
+</form>
+{% endblock %}
+{% block scripts %}
+<script>
+const PRESETS = {{ presets|tojson }};
+function pickPreset(k) {
+  document.getElementById("apply_preset").value = "1";
+  document.getElementById("threshold").value = PRESETS[k].threshold;
+  document.getElementById("thv").textContent = PRESETS[k].threshold;
+  document.getElementById("dwell").value = PRESETS[k].dwell;
+  document.querySelectorAll(".preset").forEach((p) => p.classList.toggle("on", p.querySelector("input").checked));
+}
+document.getElementById("threshold").addEventListener("input", () => document.getElementById("apply_preset").value = "0");
+document.getElementById("dwell").addEventListener("input", () => document.getElementById("apply_preset").value = "0");
+</script>
+{% endblock %}

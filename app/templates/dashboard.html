@@ -1,0 +1,77 @@
+{% extends "base.html" %}
+{% from "_icons.html" import icon %}
+{% block subtitle %}<div class="muted small">{{ settings.store_name }} · bugungi holat</div>{% endblock %}
+{% block actions %}
+<button class="btn primary" onclick="quickCam(this)">{{ icon('camera') }} Kompyuter kamerasini yoqish</button>
+<a class="btn" href="/upload">{{ icon('upload') }} Video yuklash</a>
+{% endblock %}
+{% block content %}
+<div id="tg-warn" class="note warn hidden" style="margin-bottom:16px">{{ icon('send') }}<div><b>Telegram hali ulanmagan.</b> Shubhali hodisalar telefoningizga kelishi uchun <a href="/telegram">Telegram bo'limi</a>dagi kodni botga yuboring.</div></div>
+
+<div class="grid g5">
+  <div class="card kpi"><div class="label">{{ icon('alert', 14) }} Bugungi hodisalar</div><div class="value" id="k-today">—</div><div class="sub">barcha kameralar</div></div>
+  <div class="card kpi alert"><div class="label">{{ icon('clock', 14) }} Tekshirilmagan</div><div class="value" id="k-pending">—</div><div class="sub">qo'riqchi javobini kutmoqda</div></div>
+  <div class="card kpi bad"><div class="label">{{ icon('check', 14) }} Tasdiqlangan</div><div class="value" id="k-ok">—</div><div class="sub">bugun, haqiqiy holat</div></div>
+  <div class="card kpi"><div class="label">{{ icon('x', 14) }} Xato signal</div><div class="value" id="k-no">—</div><div class="sub">bugun</div></div>
+  <div class="card kpi ok"><div class="label">{{ icon('shield', 14) }} Signal aniqligi</div><div class="value" id="k-prec">—</div><div class="sub" id="k-prec-sub">tasdiq / (tasdiq + xato)</div></div>
+</div>
+
+<div class="grid g3" style="margin-top:16px">
+  <div class="card span2">
+    <div class="card-h"><h2>Faol kameralar</h2><div class="grow"></div><a class="btn sm" href="/live">{{ icon('eye', 14) }} Jonli kuzatuv</a></div>
+    <div class="card-b"><div id="cams" class="grid g2"></div></div>
+  </div>
+  <div class="card">
+    <div class="card-h"><h2>Bugun soatlar bo'yicha</h2></div>
+    <div class="card-b"><div id="hours"></div>
+      <div class="hint">Har bir ustun — shu soatda aniqlangan shubhali hodisalar soni.</div></div>
+  </div>
+</div>
+
+<div class="card" style="margin-top:16px">
+  <div class="card-h"><h2>Oxirgi hodisalar</h2><div class="grow"></div><a class="btn sm" href="/events">Hammasi {{ icon('chev-r', 14) }}</a></div>
+  <div class="card-b"><div id="latest" class="ev-grid"></div></div>
+</div>
+
+<div class="grid g3" style="margin-top:16px">
+  <div class="card card-b"><h3>1. Kamerani ulang</h3><p class="muted small" style="margin-top:6px">Kompyuter kamerasi, IP kamera (RTSP) yoki video faylni <a href="/sources">Kameralar</a> bo'limida qo'shing.</p></div>
+  <div class="card card-b"><h3>2. Telegramni ulang</h3><p class="muted small" style="margin-top:6px">Botga ulanish kodini yuboring — klip va sabablar telefoningizga keladi.</p></div>
+  <div class="card card-b"><h3>3. Javob bering</h3><p class="muted small" style="margin-top:6px">Har bir signalni ✅ yoki ❌ bilan belgilang. Javoblaringizdan <a href="/model">AI model</a> o'rganadi.</p></div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+async function quickCam(btn) {
+  btn.disabled = true;
+  try { const r = await H.post("/api/webcam/quick"); H.toast(r.ok ? "Kamera yoqilmoqda…" : r.message, r.ok ? "ok" : "alert"); if (r.ok) setTimeout(() => location.href = "/live", 600); }
+  finally { btn.disabled = false; }
+}
+let camsKey = "";
+document.addEventListener("summary", (e) => {
+  const s = e.detail;
+  document.getElementById("k-today").textContent = s.today;
+  document.getElementById("k-pending").textContent = s.pending;
+  document.getElementById("k-ok").textContent = s.today_ok;
+  document.getElementById("k-no").textContent = s.today_no;
+  document.getElementById("k-prec").textContent = H.pct(s.precision);
+  document.getElementById("k-prec-sub").textContent = s.reviewed ? `${s.reviewed} ta javob asosida` : "hali javob yo'q";
+  document.getElementById("tg-warn").classList.toggle("hidden", !!s.subs);
+  H.bars(document.getElementById("hours"), [...Array(24).keys()].map((h) => String(h).padStart(2, "0")),
+    [{ name: "hodisa", color: "#d97706", values: s.hours }], { height: 200, maxLabels: 8 });
+  document.getElementById("latest").innerHTML = s.latest.length ? s.latest.map(H.evCard).join("")
+    : `<div class="empty">Hozircha hodisa yo'q. Kamerani yoqing yoki video yuklang.</div>`;
+  const run = s.sources.filter((x) => x.running);
+  const key = run.map((x) => x.id).join(",");
+  const box = document.getElementById("cams");
+  if (key !== camsKey) {
+    camsKey = key;
+    box.innerHTML = run.length ? run.map((c) => `
+      <div><div class="video-box"><img data-src="/api/sources/${c.id}/snapshot.jpg" alt=""><div class="overlay"><span class="badge"><span class="live-dot"></span> ${H.esc(c.name)}</span></div></div>
+      <div class="row between small" style="margin-top:6px"><span class="muted" id="cs-${c.id}"></span><a href="/live">Kattalashtirish</a></div></div>`).join("")
+      : `<div class="empty span2">Hech qaysi kamera ishlamayapti.<br><br><button class="btn primary" onclick="quickCam(this)">Kompyuter kamerasini yoqish</button></div>`;
+  }
+  run.forEach((c) => { const el = document.getElementById("cs-" + c.id); if (el) el.textContent = `${c.persons} odam · AI ${c.fps_ai} kadr/s · xavf ${c.max_risk}`; });
+  box.querySelectorAll("img[data-src]").forEach((img) => img.src = img.dataset.src + "?t=" + Date.now());
+});
+</script>
+{% endblock %}

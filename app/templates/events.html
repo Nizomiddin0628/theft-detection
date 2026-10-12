@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% from "_icons.html" import icon %}
+{% block subtitle %}<div class="muted small">Har bir signalni ko'rib chiqing: tasdiqlang yoki xato deb belgilang</div>{% endblock %}
+{% block actions %}
+<a class="btn" href="/api/export/events.csv">{{ icon('download') }} CSV (Excel)</a>
+{% endblock %}
+{% block content %}
+<div class="card" style="margin-bottom:16px">
+  <div class="card-b row" style="gap:12px">
+    <div class="tabs" id="st">
+      <button data-s="" class="on">Hammasi</button>
+      <button data-s="yangi">Tekshirilmagan</button>
+      <button data-s="tasdiqlangan">Tasdiqlangan</button>
+      <button data-s="rad_etilgan">Xato signal</button>
+    </div>
+    <select id="src" style="width:auto;min-width:180px">
+      <option value="">Barcha kameralar</option>
+      {% for s in sources %}<option>{{ s }}</option>{% endfor %}
+    </select>
+    <select id="days" style="width:auto">
+      <option value="0">Barcha vaqt</option><option value="1">Oxirgi 24 soat</option><option value="7">7 kun</option><option value="30">30 kun</option>
+    </select>
+    <input type="text" id="q" placeholder="#ID" style="width:110px">
+    <div class="grow" style="flex:1"></div>
+    <span class="muted small" id="total"></span>
+  </div>
+  <div id="jobnote" class="note hidden" style="margin:0 16px 16px"></div>
+</div>
+<div id="list" class="ev-grid"></div>
+<div class="row" style="justify-content:center;margin-top:18px"><button class="btn hidden" id="more">Yana ko'rsatish</button></div>
+{% endblock %}
+{% block scripts %}
+<script>
+const qs = new URLSearchParams(location.search);
+const state = { status: qs.get("status") || "", source: "", days: 0, q: "", job: Number(qs.get("job") || 0), page: 1 };
+if (state.job) { const n = document.getElementById("jobnote"); n.classList.remove("hidden"); n.innerHTML = `Faqat video tahlili #${state.job} hodisalari ko'rsatilmoqda. <a href="/events">Hammasini ko'rish</a>`; }
+document.querySelectorAll("#st button").forEach((b) => { b.classList.toggle("on", b.dataset.s === state.status); b.onclick = () => { state.status = b.dataset.s; document.querySelectorAll("#st button").forEach((x) => x.classList.toggle("on", x === b)); reload(); }; });
+document.getElementById("src").onchange = (e) => { state.source = e.target.value; reload(); };
+document.getElementById("days").onchange = (e) => { state.days = Number(e.target.value); reload(); };
+let qt; document.getElementById("q").oninput = (e) => { clearTimeout(qt); qt = setTimeout(() => { state.q = e.target.value; reload(); }, 300); };
+document.getElementById("more").onclick = () => { state.page++; load(true); };
+function reload() { state.page = 1; load(false); }
+async function load(append) {
+  const p = new URLSearchParams({ status: state.status, source: state.source, days: state.days, q: state.q, job: state.job, page: state.page, per: 24 });
+  const r = await H.api("/api/events?" + p);
+  const html = r.items.map(H.evCard).join("");
+  const box = document.getElementById("list");
+  box.innerHTML = append ? box.innerHTML + html : (html || `<div class="card empty" style="grid-column:1/-1">Hodisa topilmadi</div>`);
+  document.getElementById("total").textContent = `Jami: ${r.total}`;
+  document.getElementById("more").classList.toggle("hidden", r.page * r.per >= r.total);
+}
+reload();
+let lastSeen = 0;
+document.addEventListener("summary", (e) => { if (lastSeen && e.detail.last_id > lastSeen && state.page === 1) reload(); lastSeen = e.detail.last_id; });
+</script>
+{% endblock %}

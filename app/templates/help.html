@@ -1,0 +1,72 @@
+{% extends "base.html" %}
+{% from "_icons.html" import icon %}
+{% block subtitle %}<div class="muted small">Tizim qanday ishlaydi, qanday sinaladi va nimalarga e'tibor berish kerak</div>{% endblock %}
+{% block content %}
+<div class="grid g3">
+  <div class="card card-b prose span2">
+    <h2>Tizim nima qiladi?</h2>
+    <p>Hushyor AI do'kon kameralarini kuzatadi va odam mahsulotni <b>cho'ntakka, kiyim ichiga yoki sumkaga yashirganga o'xshash</b> harakat qilsa, o'sha lahzaning qisqa video klipini avtomatik kesib, Telegram botga va web panelga yuboradi. Qo'riqchi klipni ko'rib, rostan shunday bo'lganmi — o'zi qaror qiladi.</p>
+    <div class="note warn">{{ icon('shield') }}<div><b>Tizim hech kimni ayblamaydi.</b> U faqat "tekshirib ko'ring" deydi. Mijozni to'xtatish yoki ayblash haqidagi qaror faqat videoni ko'rgan odam tomonidan, qonun doirasida qabul qilinadi.</div></div>
+
+    <h2>Tez boshlash (5 daqiqa)</h2>
+    <ol>
+      <li><b>Telegram:</b> <a href="/telegram">Telegram bot</a> bo'limidagi 6 xonali kodni botga yuboring.</li>
+      <li><b>Kamera:</b> <a href="/live">Jonli kuzatuv</a> → "Kompyuter kamerasi" tugmasi. Kompyuter kamerangiz yonadi va ekranda skelet chiziqlari paydo bo'ladi.</li>
+      <li><b>Sinab ko'ring:</b> telefon yoki shishani qo'lga oling, ko'tarib turing, keyin cho'ntakka soling va qo'lni ~1 soniya u yerda ushlang.</li>
+      <li><b>Natija:</b> ~5–10 soniyadan keyin klip Telegramga keladi. ✅ yoki ❌ bosing.</li>
+      <li><b>Video bilan sinash:</b> <a href="/upload">Video tahlili</a> bo'limiga istalgan videoni yuklang.</li>
+    </ol>
+
+    <h2>Qanday ishlaydi (texnik)</h2>
+    <ol>
+      <li>Kamera oqimi o'qiladi va har bir kadr oxirgi {{ (settings.pre_sec|float + settings.post_sec|float + 4)|int }} soniyalik xotiraga (halqali bufer) yoziladi.</li>
+      <li>AI sekundiga {{ settings.ai_fps }} marta: odamlarni va 17 ta tana nuqtasini (YOLO11-pose), qo'ldagi buyumlar va sumkalarni (YOLO11) topadi.</li>
+      <li>Har bir odamga raqam beriladi va qo'llarining harakati kuzatiladi: polkaga uzatildimi, buyum ushladimi, keyin bel/cho'ntak, qorin yoki sumka zonasiga bordimi, buyum yo'qoldimi.</li>
+      <li>Dalillar ballarga aylanadi (0–100). Yurib ketayotgan odam yoki orqa tomondan ko'rinish kabi holatlar ballni kamaytiradi. Ball {{ settings.threshold }} dan oshsa — signal.</li>
+      <li>Signal bo'lganda xotiradan {{ settings.pre_sec }} s oldingi va {{ settings.post_sec }} s keyingi kadrlar olinib, belgilangan odam qizil ramkada ko'rsatilgan MP4 klip yasaladi.</li>
+      <li>Klip, rasm va sabablar Telegramga yuboriladi. Qo'riqchining javobi bazaga yoziladi va keyinchalik modelni qayta o'qitishda ishlatiladi.</li>
+    </ol>
+
+    <h2>Aniqlikni oshirish bo'yicha maslahatlar</h2>
+    <ul>
+      <li>Kamerani 2,5–3,5 m balandlikka, polka qatorlari bo'ylab, odamni old yoki yon tomondan ko'radigan qilib o'rnating. Tepadan to'g'ri pastga qaragan kamera skeletni yomon ko'radi.</li>
+      <li>Odam kadrda kamida 1/6 balandlikda ko'rinsin (juda uzoq bo'lmasin).</li>
+      <li>Yorug'lik yetarli bo'lsin, kameraga quyosh yoki lampa to'g'ridan-to'g'ri tushmasin.</li>
+      <li>Birinchi 1–2 hafta "Oddiy" rejimda ishlating va barcha signallarga javob bering, keyin <a href="/model">modelni qayta o'qiting</a>.</li>
+    </ul>
+
+    <h2>Cheklovlar (rostini aytsak)</h2>
+    <ul>
+      <li>Boshlang'ich AI model sintetik ma'lumotlarda o'qitilgan. Haqiqiy do'konda u xato qilishi mumkin — shuning uchun har bir signalni odam tekshiradi.</li>
+      <li>Polkadagi mahsulotlarning ko'pchiligini (paket, quti, shokolad) standart model "buyum" sifatida tanimaydi. Tizim asosan qo'l harakatiga tayanadi.</li>
+      <li>Kassa va self-checkout firibgarligi (skanerlanmagan mahsulot) bu versiyada yo'q — buning uchun kassa (POS) tizimi bilan integratsiya kerak.</li>
+      <li>Oddiy kompyuter protsessorida 1–3 ta kamera ishlaydi. Ko'p kamera uchun NVIDIA GPU li server kerak.</li>
+    </ul>
+
+    <h2>Maxfiylik va qonun</h2>
+    <ul>
+      <li>Tizim yuzni tanimaydi va shaxsni aniqlamaydi. Barcha videolar faqat shu kompyuterda saqlanadi, Telegramga faqat signal klipi ketadi.</li>
+      <li>Do'konga "Videokuzatuv olib boriladi" degan ogohlantirish qo'ying.</li>
+      <li>O'zbekistonda shaxsga doir ma'lumotlarni qayta ishlash qonun bilan tartibga solinadi — videolarni saqlash muddati va kimlar ko'rishi haqida yurist bilan maslahatlashing.</li>
+    </ul>
+  </div>
+  <div class="stack">
+    <div class="card card-b prose">
+      <h2>Ko'p beriladigan savollar</h2>
+      <p><b>Kamera yonmayapti?</b><br>Zoom, Teams kabi dasturlarni yoping. macOS da: Tizim sozlamalari → Maxfiylik → Kamera → Terminal/Python ga ruxsat bering. <a href="/sources">Kameralar</a>da "Kameralarni qidirish" ni bosing.</p>
+      <p><b>Telegramga xabar kelmayapti?</b><br><a href="/telegram">Telegram</a> sahifasida holat "ishlayapti" va kamida bitta obunachi borligini tekshiring. "Sinov xabari" ni bosing.</p>
+      <p><b>Signal juda ko'p?</b><br><a href="/settings">Sozlamalar</a>da "Oddiy" yoki "Qattiq" rejimni tanlang yoki chegarani oshiring.</p>
+      <p><b>Signal kelmayapti?</b><br>"Sinov" rejimini yoqing, kameradan uzoqroq turing (yelka va bel ko'rinsin), harakatni sekinroq va aniqroq qiling.</p>
+      <p><b>Kompyuter qiziyapti / sekin?</b><br>Sozlamalarda AI kadr/soniyani 4–5 ga, tahlil o'lchamini 480 px ga tushiring.</p>
+    </div>
+    <div class="card card-b prose">
+      <h2>Klaviatura</h2>
+      <p>Hodisa sahifasida: <span class="kbd">T</span> — tasdiqlash, <span class="kbd">X</span> — xato signal, <span class="kbd">←</span> <span class="kbd">→</span> — oldingi/keyingi hodisa.</p>
+    </div>
+    <div class="card card-b prose">
+      <h2>Fayllar qayerda?</h2>
+      <p><code>data/clips</code> — kliplar va rasmlar<br><code>data/uploads</code> — yuklangan videolar<br><code>data/hushyor.db</code> — baza<br><code>models/</code> — AI modellar<br><code>data/logs/app.log</code> — jurnal</p>
+    </div>
+  </div>
+</div>
+{% endblock %}

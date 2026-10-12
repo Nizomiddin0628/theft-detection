@@ -1,0 +1,127 @@
+{% extends "base.html" %}
+{% from "_icons.html" import icon %}
+{% block subtitle %}<div class="muted small">Qanday ishlaydi, qanchalik aniq va qanday qayta o'qitiladi</div>{% endblock %}
+{% block content %}
+<div class="grid g3">
+  <div class="card span2">
+    <div class="card-h"><h2>Faol xulq modeli</h2><div class="grow"></div><span class="badge info" id="mver">—</span></div>
+    <div class="card-b">
+      <div class="grid g5" id="metrics"></div>
+      <div id="datanote" class="note warn" style="margin-top:14px"></div>
+      <h3 style="margin:16px 0 6px">Xatti-harakat turlari bo'yicha aniqlik (sinov to'plami)</h3>
+      <div id="perbeh"></div>
+    </div>
+  </div>
+  <div class="card">
+    <div class="card-h"><h2>Qayta o'qitish</h2></div>
+    <div class="card-b">
+      <div class="row between small" style="margin-bottom:6px"><span>Qo'riqchi tasdiqlagan</span><b class="num" id="fbok">0</b></div>
+      <div class="row between small" style="margin-bottom:12px"><span>Xato deb belgilangan</span><b class="num" id="fbno">0</b></div>
+      <form id="trainf">
+        <div class="field"><label class="f">Sintetik namunalar soni</label><input type="number" name="synthetic" value="3000" min="0" max="20000" step="500">
+          <div class="hint">Haqiqiy javoblar ko'paygach, buni kamaytirish mumkin.</div></div>
+        <div class="field"><label class="f">PoseLift dataseti papkasi (ixtiyoriy)</label><input type="text" name="poselift" placeholder="C:\data\PoseLift">
+          <div class="hint">Haqiqiy do'kon o'g'irliklari skeletlari (153 video). <a href="https://github.com/TeCSAR-UNCC/PoseLift" target="_blank" rel="noopener">Yuklab olish</a></div></div>
+        <div class="field"><label class="switch"><input type="checkbox" name="feedback" checked> Qo'riqchi javoblarini qo'shish</label></div>
+        <button class="btn primary" style="width:100%;justify-content:center" id="trainbtn">{{ icon('cpu', 16) }} O'qitishni boshlash</button>
+      </form>
+    </div>
+  </div>
+</div>
+
+<div class="card" style="margin-top:16px" id="logcard">
+  <div class="card-h"><h2>O'qitish jurnali</h2><div class="grow"></div><span id="trun" class="badge">kutmoqda</span></div>
+  <div class="card-b"><div class="console" id="tlog" style="height:200px">O'qitish boshlanganda jarayon shu yerda ko'rinadi.</div></div>
+</div>
+
+<div class="card" style="margin-top:16px">
+  <div class="card-h"><h2>Model versiyalari</h2></div>
+  <div class="table-wrap"><table>
+    <thead><tr><th>#</th><th>Sana</th><th>Ma'lumotlar</th><th>Namunalar</th><th>Aniqlik</th><th>Precision</th><th>Recall</th><th>F1</th><th>AUC</th><th></th></tr></thead>
+    <tbody id="vers"></tbody>
+  </table></div>
+</div>
+
+<div class="card card-b prose" style="margin-top:16px">
+  <h2>Tizim qanday qaror qiladi?</h2>
+  <ol>
+    <li><b>Odamni topish va skelet:</b> YOLO11n-pose har kadrda odamlarni va 17 ta tana nuqtasini topadi (<span id="prov"></span>).</li>
+    <li><b>Kuzatish:</b> har odamga doimiy raqam beriladi (#1, #2...), shunda uning harakat tarixi saqlanadi.</li>
+    <li><b>Buyumlar:</b> YOLO11n qo'ldagi buyumlarni (telefon, shisha, stakan, meva, kitob...) va sumka/ryukzaklarni topadi. Buyum qo'l bilan <i>birga harakatlansa</i>gina "ushlangan" hisoblanadi.</li>
+    <li><b>Qoidalar:</b> qo'l faol holatdan (polkaga uzatilgan, buyum ushlagan) bel/cho'ntak, qorin (kiyim ichi), sumka zonasiga borib, u yerda turib qolsa — shubha. Tirsak burchagi osilib turgan qo'lni cho'ntakka kirgan qo'ldan ajratadi.</li>
+    <li><b>Xulq modeli:</b> oxirgi 2,5 soniyalik skelet harakatidan {{ n_features }} ta belgi hisoblanib, Gradient Boosting modeli "shubhali" ehtimolini beradi.</li>
+    <li><b>Ball:</b> barcha dalillar qo'shiladi (yurib ketayotgan odam, orqa tomondan ko'rinish kabi qarshi dalillar ayiriladi). Ball chegaradan ({{ settings.threshold }}) oshsa — klip kesiladi va Telegramga yuboriladi.</li>
+  </ol>
+  <h2>Muhim: model haqida rostini aytsak</h2>
+  <p>Boshlang'ich model <b>sintetik</b> (kompyuterda yaratilgan) skelet harakatlarida o'qitilgan, chunki ochiq internetda haqiqiy do'kon o'g'irligi videolari deyarli yo'q. Sintetik sinovdagi yuqori aniqlik haqiqiy do'konda ham shunday bo'ladi degani emas. Haqiqiy aniqlik qo'riqchi javoblari bilan o'lchanadi — <a href="/reports">Hisobotlar</a>dagi "Signal aniqligi" ko'rsatkichiga qarang.</p>
+  <p>Eng to'g'ri yo'l: tizimni 1–2 hafta ishlatib, har bir signalga ✅/❌ javob bering, keyin shu sahifada qayta o'qiting. Har bir javob haqiqiy do'koningiz sharoitidagi namuna bo'lib qoladi.</p>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+const fmt = (v) => v === null || v === undefined ? "—" : (v * 100).toFixed(1) + "%";
+const BEH = { pocket: "Cho'ntakka solish", waistband: "Shim beliga", shirt: "Ko'ylak ichiga", bag: "Sumkaga", offscreen: "Kadrdan pastga",
+  idle: "Turish", walk: "Yurish", reach_return: "Polkaga qo'l uzatish", inspect_putback: "Ko'rib joyiga qo'yish", phone_call: "Telefonda gaplashish",
+  head_touch: "Boshni qashish", arms_crossed: "Qo'l qovushtirish", hands_in_pockets: "Qo'llar cho'ntakda", look_phone: "Telefonga qarash", basket: "Savatga solish", brief_touch: "Belga qisqa tegish" };
+const POS = ["pocket", "waistband", "shirt", "bag", "offscreen"];
+function metricTiles(m) {
+  const items = [["Aniqlik", m.accuracy], ["Precision", m.precision], ["Recall", m.recall], ["F1", m.f1], ["ROC-AUC", m.roc_auc]];
+  return items.map(([k, v]) => `<div class="card kpi" style="box-shadow:none"><div class="label">${k}</div><div class="value" style="font-size:22px">${fmt(v)}</div></div>`).join("");
+}
+async function load() {
+  const r = await H.api("/api/model");
+  document.getElementById("fbok").textContent = r.feedback.ok;
+  document.getElementById("fbno").textContent = r.feedback.no;
+  document.getElementById("prov").textContent = "qurilma: " + (r.providers || []).join(", ");
+  const act = r.versions.find((v) => v.is_active) || (r.bundled ? { metrics: r.bundled.metrics, data_desc: r.bundled.data, path: r.bundled.path, created_str: r.bundled.version } : null);
+  if (act) {
+    document.getElementById("mver").textContent = act.path;
+    const m = (act.metrics || {}).overall || {};
+    document.getElementById("metrics").innerHTML = metricTiles(m);
+    const d = act.data_desc || {};
+    const parts = Object.entries(d).map(([k, v]) => `${k}: <b>${v}</b>`).join(", ");
+    const realN = (d["PoseLift"] || 0) + (d["qo'riqchi javoblari"] || 0);
+    const n = document.getElementById("datanote");
+    n.className = "note " + (realN >= 50 ? "ok" : "warn");
+    n.innerHTML = `<div>O'qitish ma'lumotlari — ${parts || "—"}.<br>` + (realN >= 50
+      ? "Haqiqiy do'kon ma'lumotlari ham qo'shilgan — natijalar ishonchliroq."
+      : (realN ? `Haqiqiy namunalar hali kam (${realN} ta). Kamida 50 ta tasdiqlangan/rad etilgan hodisa to'planganda qayta o'qiting. Hozirgi raqamlar asosan sintetik sinov to'plamida o'lchangan.`
+               : "Faqat sintetik ma'lumot — yuqoridagi raqamlar sintetik sinov to'plamida o'lchangan. Haqiqiy do'konda aniqlikni qo'riqchi javoblari ko'rsatadi.")) + `</div>`;
+    const pb = (act.metrics || {}).per_behavior_accuracy || {};
+    const ents = Object.entries(pb).sort((a, b) => (POS.includes(b[0]) - POS.includes(a[0])) || a[0].localeCompare(b[0]));
+    document.getElementById("perbeh").innerHTML = ents.map(([k, v]) => `
+      <div class="bd-row" style="grid-template-columns:1fr 200px 56px"><span>${POS.includes(k) ? "🔴" : "🟢"} ${H.esc(BEH[k] || k)}</span>
+      <span class="bd-bar"><i style="width:${v * 100}%;background:${POS.includes(k) ? "#d97706" : "#0e7c6b"}"></i></span><b class="num" style="text-align:right">${Math.round(v * 100)}%</b></div>`).join("") || `<div class="muted small">—</div>`;
+  } else {
+    document.getElementById("metrics").innerHTML = `<div class="muted">Faol model yo'q — tizim faqat qoidalar asosida ishlaydi.</div>`;
+  }
+  document.getElementById("vers").innerHTML = r.versions.length ? r.versions.map((v) => {
+    const m = (v.metrics || {}).overall || {};
+    const d = Object.entries(v.data_desc || {}).map(([k, x]) => `${k}: ${x}`).join(", ");
+    return `<tr><td>${v.id}</td><td>${v.created_str}</td><td class="small">${H.esc(d)}</td><td class="num">${v.n_samples} (${v.n_pos} shubhali)</td>
+      <td class="num">${fmt(m.accuracy)}</td><td class="num">${fmt(m.precision)}</td><td class="num">${fmt(m.recall)}</td><td class="num">${fmt(m.f1)}</td><td class="num">${fmt(m.roc_auc)}</td>
+      <td style="text-align:right">${v.is_active ? `<span class="badge on">faol</span>` : (v.exists ? `<button class="btn sm" onclick="activate(${v.id})">Faollashtirish</button>` : `<span class="muted small">fayl yo'q</span>`)}</td></tr>`;
+  }).join("") : `<tr><td colspan="10" class="muted">Bu kompyuterda hali o'qitilmagan (dastur bilan kelgan boshlang'ich model ishlatilmoqda)</td></tr>`;
+}
+async function activate(id) { await H.post(`/api/model/${id}/activate`); H.toast("Model faollashtirildi", "ok"); load(); }
+document.getElementById("trainf").onsubmit = async (e) => {
+  e.preventDefault();
+  const f = new FormData(e.target);
+  await H.post("/api/model/train", { synthetic: f.get("synthetic"), poselift: f.get("poselift"), feedback: f.get("feedback") ? "1" : "0" });
+  H.toast("O'qitish boshlandi", "ok");
+  poll();
+};
+let pt;
+async function poll() {
+  const s = await H.api("/api/model/train/status");
+  const b = document.getElementById("trun");
+  b.textContent = s.running ? "o'qitilmoqda…" : (s.error ? "xato" : (s.result ? "tayyor" : "kutmoqda"));
+  b.className = "badge " + (s.running ? "info" : (s.error ? "tasdiqlangan" : (s.result ? "on" : "")));
+  document.getElementById("trainbtn").disabled = s.running;
+  if (s.logs.length) { const c = document.getElementById("tlog"); c.textContent = s.logs.join("\n"); c.scrollTop = c.scrollHeight; }
+  clearTimeout(pt);
+  if (s.running) pt = setTimeout(poll, 1000); else if (s.result) load();
+}
+load(); poll();
+</script>
+{% endblock %}

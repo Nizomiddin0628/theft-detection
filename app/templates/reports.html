@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+{% from "_icons.html" import icon %}
+{% block subtitle %}<div class="muted small">Signallar dinamikasi, aniqlik va qo'riqchi javob tezligi</div>{% endblock %}
+{% block actions %}
+<div class="tabs" id="rng"><button data-d="7">7 kun</button><button data-d="14" class="on">14 kun</button><button data-d="30">30 kun</button><button data-d="90">90 kun</button></div>
+<a class="btn" href="/api/export/events.csv">{{ icon('download') }} CSV</a>
+{% endblock %}
+{% block content %}
+<div class="grid g5">
+  <div class="card kpi"><div class="label">Jami signallar</div><div class="value" id="r-total">—</div></div>
+  <div class="card kpi bad"><div class="label">Tasdiqlangan</div><div class="value" id="r-ok">—</div></div>
+  <div class="card kpi"><div class="label">Xato signal</div><div class="value" id="r-no">—</div></div>
+  <div class="card kpi ok"><div class="label">Signal aniqligi</div><div class="value" id="r-prec">—</div><div class="sub">tasdiq / javob berilganlar</div></div>
+  <div class="card kpi"><div class="label">Javob vaqti (mediana)</div><div class="value" id="r-rev">—</div><div class="sub">signaldan qarorgacha</div></div>
+</div>
+<div class="card" style="margin-top:16px">
+  <div class="card-h"><h2>Kunlar bo'yicha</h2><div class="grow"></div>
+    <div class="legend"><span><i style="background:#b42318"></i>Tasdiqlangan</span><span><i style="background:#94a3b8"></i>Xato signal</span><span><i style="background:#d97706"></i>Tekshirilmagan</span></div></div>
+  <div class="card-b"><div id="daily"></div></div>
+</div>
+<div class="grid g3" style="margin-top:16px">
+  <div class="card"><div class="card-h"><h2>Turlari bo'yicha</h2></div><div class="card-b" id="kinds"></div></div>
+  <div class="card"><div class="card-h"><h2>Kameralar bo'yicha</h2></div><div class="card-b" id="srcs"></div></div>
+  <div class="card"><div class="card-h"><h2>Ball tahlili</h2></div><div class="card-b">
+    <div class="row between small"><span>O'rtacha ball — tasdiqlanganlar</span><b class="num" id="s-ok">—</b></div>
+    <div class="row between small" style="margin-top:8px"><span>O'rtacha ball — xato signallar</span><b class="num" id="s-no">—</b></div>
+    <p class="hint" style="margin-top:12px">Agar xato signallarning bali ham yuqori bo'lsa, <a href="/settings">chegarani</a> oshiring yoki <a href="/model">modelni qayta o'qiting</a>.</p>
+  </div></div>
+</div>
+<div class="card" style="margin-top:16px">
+  <div class="card-h"><h2>Kun soatlari bo'yicha (qaysi vaqtda ko'proq)</h2></div>
+  <div class="card-b"><div id="hours"></div></div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+let days = 14;
+document.querySelectorAll("#rng button").forEach((b) => b.onclick = () => { days = Number(b.dataset.d); document.querySelectorAll("#rng button").forEach((x) => x.classList.toggle("on", x === b)); load(); });
+async function load() {
+  const r = await H.api("/api/reports?days=" + days);
+  document.getElementById("r-total").textContent = r.total;
+  document.getElementById("r-ok").textContent = r.ok;
+  document.getElementById("r-no").textContent = r.no;
+  document.getElementById("r-prec").textContent = H.pct(r.precision);
+  document.getElementById("r-rev").textContent = r.median_review_min === null ? "—" : (r.median_review_min < 1 ? Math.round(r.median_review_min * 60) + " s" : r.median_review_min.toFixed(1) + " daq");
+  document.getElementById("s-ok").textContent = r.avg_score_ok ? r.avg_score_ok.toFixed(0) : "—";
+  document.getElementById("s-no").textContent = r.avg_score_no ? r.avg_score_no.toFixed(0) : "—";
+  H.bars(document.getElementById("daily"), r.daily.map((d) => d.day), [
+    { name: "Tasdiqlangan", color: "#b42318", values: r.daily.map((d) => d.tasdiqlangan) },
+    { name: "Xato signal", color: "#94a3b8", values: r.daily.map((d) => d.rad_etilgan) },
+    { name: "Tekshirilmagan", color: "#d97706", values: r.daily.map((d) => d.yangi) }], { height: 240 });
+  H.hbars(document.getElementById("kinds"), Object.entries(r.by_kind).sort((a, b) => b[1] - a[1]), "#d97706");
+  H.hbars(document.getElementById("srcs"), Object.entries(r.by_source).sort((a, b) => b[1] - a[1]).slice(0, 8), "#0e7c6b");
+  H.bars(document.getElementById("hours"), [...Array(24).keys()].map((h) => String(h).padStart(2, "0") + ":00"), [{ name: "signal", color: "#0e7c6b", values: r.hours }], { height: 200, maxLabels: 12 });
+}
+load();
+</script>
+{% endblock %}

@@ -1,0 +1,115 @@
+{% extends "base.html" %}
+{% from "_icons.html" import icon %}
+{% block subtitle %}<div class="muted small">Internetdan olingan yoki telefonda yozilgan videoni yuklab, shubhali lahzalarni toping</div>{% endblock %}
+{% block content %}
+<div class="grid g3">
+  <div class="card span2">
+    <div class="card-h"><h2>Video yuklash</h2></div>
+    <div class="card-b">
+      <label class="drop" id="drop">
+        <input type="file" id="file" accept="video/*,.mp4,.avi,.mov,.mkv,.webm,.m4v">
+        {{ icon('film', 40) }}
+        <h2 style="margin:8px 0 4px">Videoni shu yerga tashlang yoki bosing</h2>
+        <div class="muted small">MP4, AVI, MOV, MKV, WEBM · 2 GB gacha</div>
+      </label>
+      <div id="upbar" class="hidden" style="margin-top:12px"><div class="row between small"><span id="upname"></span><span id="uppct"></span></div><div class="bar"><i id="upi" style="width:0"></i></div></div>
+      <div class="row" style="margin-top:14px">
+        <label class="switch"><input type="radio" name="mode" value="fast" checked style="appearance:auto;width:auto;height:auto">&nbsp;<b>Tez tahlil</b> <span class="muted small">— butun videoni tezda ko'rib chiqadi (tavsiya)</span></label>
+      </div>
+      <div class="row" style="margin-top:6px">
+        <label class="switch"><input type="radio" name="mode" value="live" style="appearance:auto;width:auto;height:auto">&nbsp;<b>Jonli rejim</b> <span class="muted small">— video kamera kabi real vaqtda o'ynaydi (Jonli kuzatuvda ko'rinadi)</span></label>
+      </div>
+      <hr style="border:0;border-top:1px solid var(--line);margin:18px 0">
+      <label class="f">Yoki internetdagi to'g'ridan-to'g'ri video havolasi (.mp4)</label>
+      <div class="row" style="flex-wrap:nowrap"><input type="url" id="url" placeholder="https://.../video.mp4"><button class="btn primary" onclick="fromUrl(this)">{{ icon('download', 16) }} Yuklash</button></div>
+      <div class="hint">YouTube/Instagram havolalari ishlamaydi — avval videoni kompyuterga yuklab oling.</div>
+    </div>
+  </div>
+  <div class="card">
+    <div class="card-h"><h2>Tahlil jarayoni</h2></div>
+    <div class="card-b">
+      <div class="video-box"><img id="jobprev" alt=""></div>
+      <div class="hint" id="jobprev-t">Tahlil boshlanganda kadrlar shu yerda ko'rinadi.</div>
+      <div class="note" style="margin-top:12px">{{ icon('info') }}<div class="small">Har bir shubhali lahza uchun avtomatik ravishda <b>{{ settings.pre_sec }} s oldin</b> va <b>{{ settings.post_sec }} s keyin</b>gi qism kesib olinadi va Telegramga yuboriladi.</div></div>
+    </div>
+  </div>
+</div>
+
+<div class="card" style="margin-top:16px">
+  <div class="card-h"><h2>Tahlillar</h2><div class="grow"></div><button class="btn sm ghost" onclick="loadJobs()">{{ icon('refresh', 14) }} Yangilash</button></div>
+  <div class="table-wrap"><table>
+    <thead><tr><th>#</th><th>Fayl</th><th>Holat</th><th style="width:22%">Jarayon</th><th>Hodisalar</th><th>Davomiylik</th><th>Vaqt</th><th></th></tr></thead>
+    <tbody id="jobs"></tbody>
+  </table></div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+const drop = document.getElementById("drop"), fileIn = document.getElementById("file");
+["dragenter", "dragover"].forEach((e) => drop.addEventListener(e, (ev) => { ev.preventDefault(); drop.classList.add("over"); }));
+["dragleave", "drop"].forEach((e) => drop.addEventListener(e, (ev) => { ev.preventDefault(); drop.classList.remove("over"); }));
+drop.addEventListener("drop", (ev) => { if (ev.dataTransfer.files[0]) upload(ev.dataTransfer.files[0]); });
+fileIn.addEventListener("change", () => { if (fileIn.files[0]) upload(fileIn.files[0]); });
+const mode = () => document.querySelector("input[name=mode]:checked").value;
+
+function upload(f) {
+  const fd = new FormData();
+  fd.append("file", f);
+  fd.append("mode", mode());
+  document.getElementById("upbar").classList.remove("hidden");
+  document.getElementById("upname").textContent = f.name;
+  const xhr = new XMLHttpRequest();
+  xhr.open("POST", "/api/upload");
+  xhr.upload.onprogress = (e) => { if (e.lengthComputable) { const p = Math.round(e.loaded / e.total * 100); document.getElementById("upi").style.width = p + "%"; document.getElementById("uppct").textContent = p + "%"; } };
+  xhr.onload = () => {
+    let r = {}; try { r = JSON.parse(xhr.responseText); } catch (e) {}
+    if (xhr.status === 200) {
+      if (r.mode === "live") { H.toast("Video jonli rejimda o'ynamoqda", "ok"); setTimeout(() => location.href = "/live", 700); }
+      else { H.toast("Yuklandi, tahlil boshlandi", "ok"); watch(r.job_id); loadJobs(); }
+    } else H.toast("⚠️ " + H.esc(r.detail || "Yuklashda xato"), "alert");
+    fileIn.value = "";
+  };
+  xhr.send(fd);
+}
+async function fromUrl(btn) {
+  const url = document.getElementById("url").value.trim();
+  if (!url) return;
+  btn.disabled = true;
+  try {
+    const r = await H.post("/api/upload-url", { url, mode: mode() });
+    H.toast("Yuklab olinmoqda…");
+    const t = setInterval(async () => {
+      const s = await H.api("/api/upload-url/" + r.key);
+      if (s.status === "tayyor") { clearInterval(t); btn.disabled = false; H.toast("Yuklandi", "ok"); if (s.job_id) watch(s.job_id); else location.href = "/live"; loadJobs(); }
+      else if (s.status === "xato") { clearInterval(t); btn.disabled = false; H.toast("⚠️ " + H.esc(s.error), "alert", 8000); }
+    }, 1500);
+  } catch (e) { btn.disabled = false; }
+}
+let watching = 0;
+function watch(id) {
+  watching = id;
+  document.getElementById("jobprev").src = `/stream/job/${id}?t=${Date.now()}`;
+  document.getElementById("jobprev-t").textContent = `Tahlil #${id}`;
+}
+const ST = { navbatda: "", ishlanmoqda: "info", tayyor: "on", xato: "tasdiqlangan", toxtatildi: "" };
+async function loadJobs() {
+  const jobs = await H.api("/api/jobs");
+  const run = jobs.find((j) => j.status === "ishlanmoqda");
+  if (run && run.id !== watching) watch(run.id);
+  document.getElementById("jobs").innerHTML = jobs.length ? jobs.map((j) => `
+    <tr><td class="muted">${j.id}</td><td><b>${H.esc(j.filename)}</b>${j.error ? `<div class="small" style="color:#b42318">${H.esc(j.error)}</div>` : ""}</td>
+      <td><span class="badge ${ST[j.status] || ""}">${H.esc(j.status)}</span></td>
+      <td><div class="bar"><i style="width:${j.progress || 0}%"></i></div><div class="small muted">${Math.round(j.progress || 0)}%</div></td>
+      <td><b class="num">${j.events_count || 0}</b></td>
+      <td class="num">${j.duration ? H.fmtDur(j.duration) : "—"}</td><td class="muted small">${j.created_str}</td>
+      <td style="text-align:right;white-space:nowrap">
+        ${j.events_count ? `<a class="btn sm" href="/events?job=${j.id}">Hodisalar</a>` : ""}
+        ${(j.status === "ishlanmoqda" || j.status === "navbatda") ? `<button class="btn sm" onclick="stopJob(${j.id})">To'xtatish</button>` : `<button class="btn sm ghost" title="O'chirish" onclick="delJob(${j.id})">✕</button>`}
+      </td></tr>`).join("") : `<tr><td colspan="8" class="empty">Hali video yuklanmagan</td></tr>`;
+}
+async function stopJob(id) { await H.post(`/api/jobs/${id}/stop`); loadJobs(); }
+async function delJob(id) { if (confirm("Tahlil yozuvi va yuklangan video o'chirilsinmi? (Hodisalar qoladi)")) { await H.post(`/api/jobs/${id}/delete`); loadJobs(); } }
+loadJobs();
+setInterval(loadJobs, 2500);
+</script>
+{% endblock %}
