@@ -81,6 +81,21 @@ CREATE TABLE IF NOT EXISTS jobs (
     frames INTEGER,
     error TEXT
 );
+CREATE TABLE IF NOT EXISTS notify_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    event_id INTEGER,
+    channel TEXT,                 -- telegram | email | web | sms
+    stage TEXT,                   -- alert (rasm) | clip (video) | full
+    chat_id INTEGER,
+    t_event REAL,                 -- hodisa aniqlangan devor vaqti
+    t_queued REAL,                -- navbatga tushgan vaqt
+    t_sent REAL,                  -- API javob qaytargan vaqt
+    tg_date REAL,                 -- Telegram xabarga qo'ygan vaqt (soniya)
+    ok INTEGER,
+    error TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_notify_sent ON notify_log(t_sent);
+CREATE INDEX IF NOT EXISTS idx_notify_event ON notify_log(event_id);
 CREATE TABLE IF NOT EXISTS model_versions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     created_at REAL,
@@ -128,6 +143,9 @@ EXTRA_COLUMNS = {
         "susp_start": "REAL",   # shubhali harakat boshlangan vaqt (jonli: unix vaqt, fayl: video soniyasi)
         "susp_end": "REAL",     # signal berilgan vaqt
         "clip_start": "REAL",   # klipning birinchi kadri vaqti (shu bilan klip ichidagi o'rin topiladi)
+        "t_detect": "REAL",     # hodisa aniqlangan devor vaqti (kechikish o'lchovi uchun)
+        "claimed_by": "TEXT",   # "Ko'ryapman" bosgan qo'riqchi
+        "claimed_at": "REAL",
     },
 }
 

@@ -27,7 +27,7 @@ from .ai.manager import archive_feedback, delete_event_files, get_manager
 from .config import (ADMIN_PASSWORD, ADMIN_USER, APP_NAME, APP_VERSION, BASE_DIR, CLIPS_DIR, DATA_DIR,
                      MODELS_DIR, SECRET_KEY, SENSITIVITY_PRESETS, UPLOADS_DIR)
 from .logutil import MEMORY_LOG, get_logger, setup_logging
-from .telegram_bot import KIND_UZ, get_bot, susp_info
+from .telegram_bot import KIND_UZ, get_bot, latency_stats, susp_info
 
 log = get_logger("web")
 APP_DIR = Path(__file__).resolve().parent
@@ -634,6 +634,7 @@ async def api_review(request: Request, event_id: int):
     if status == "yangi":
         db.update_event(event_id, reviewed_by=None, reviewed_at=None)
     get_bot().refresh_event(event_id)
+    get_manager().emit("update", event_id)
     return {"ok": True, "event": event_public(db.get_event(event_id))}
 
 
@@ -660,7 +661,7 @@ def api_event_resend(event_id: int):
     bot = get_bot()
     if not bot.token:
         raise HTTPException(400, "Telegram token berilmagan")
-    bot.q.put(("event", event_id, None))
+    bot.resend_event(event_id)
     return {"ok": True}
 
 
@@ -821,6 +822,58 @@ def api_model_activate(version_id: int):
     return {"ok": True}
 
 
+# ----------------------------------------------------------------------------- signal tezligi
+@app.get("/api/latency")
+def api_latency(hours: float = 24):
+    """Hodisa aniqlangandan xabar yetkazilguncha bo'lgan vaqt (soniya), kanal va bosqich bo'yicha."""
+    hours = max(0.1, min(hours, 24 * 30))
+    recent = db.rows("SELECT n.*, e.kind, e.source_name FROM notify_log n LEFT JOIN events e ON e.id = n.event_id "
+                     "ORDER BY n.id DESC LIMIT 30")
+    for r in recent:
+        r["latency"] = round(r["t_sent"] - r["t_event"], 2) if r.get("t_event") and r.get("t_sent") else None
+        r["time_str"] = time.strftime("%H:%M:%S", time.localtime(r["t_sent"])) if r.get("t_sent") else ""
+    return {"hours": hours, "stats": latency_stats(hours), "recent": recent, "target_sec": 5}
+
+
+@app.get("/api/sse")
+async def api_events_stream(request: Request):
+    """Web panel uchun jonli oqim (SSE): yangi hodisa, klip tayyor, holat o'zgardi — darhol."""
+    loop = asyncio.get_running_loop()
+    q: asyncio.Queue = asyncio.Queue(maxsize=200)
+
+    def put(data: str) -> None:
+        if not q.full():
+            q.put_nowait(data)
+
+    def listener(kind: str, ev: dict) -> None:
+        try:
+            data = json.dumps({"kind": kind, "event": event_public(ev)}, ensure_ascii=False, default=str)
+            loop.call_soon_threadsafe(put, data)
+        except Exception:
+            pass
+
+    mgr = get_manager()
+    mgr.listeners.append(listener)
+
+    async def gen():
+        try:
+            yield "retry: 3000\n\n"
+            while True:
+                if await request.is_disconnected():
+                    break
+                try:
+                    data = await asyncio.wait_for(q.get(), timeout=15)
+                    yield f"event: ev\ndata: {data}\n\n"
+                except asyncio.TimeoutError:
+                    yield ": ping\n\n"
+        finally:
+            if listener in mgr.listeners:
+                mgr.listeners.remove(listener)
+
+    return StreamingResponse(gen(), media_type="text/event-stream",
+                             headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"})
+
+
 # ----------------------------------------------------------------------------- Telegram
 @app.get("/api/telegram")
 def api_telegram():
@@ -863,7 +916,7 @@ def api_demo_alert():
     ev = db.row("SELECT id FROM events ORDER BY id DESC LIMIT 1")
     if not ev:
         raise HTTPException(400, "Hali hodisa yo'q")
-    get_bot().q.put(("event", ev["id"], None))
+    get_bot().resend_event(ev["id"])
     return {"ok": True, "event_id": ev["id"]}
 
 
@@ -871,9 +924,9 @@ def api_demo_alert():
 NUMERIC = {"threshold": (0, 100), "dwell_sec": (0.1, 3), "pre_sec": (1, 30), "post_sec": (1, 30),
            "cooldown_sec": (0, 600), "ai_fps": (1, 30), "infer_size": (320, 1280), "person_conf": (0.1, 0.95),
            "object_conf": (0.1, 0.95), "ml_weight": (0, 60), "telegram_min_score": (0, 100),
-           "retention_days": (0, 3650)}
+           "retention_days": (0, 3650), "camera_alert_sec": (15, 3600)}
 FLAGS = ["use_ml", "signal_pocket", "signal_torso", "signal_bag", "signal_vanish", "signal_looking",
-         "signal_offscreen", "telegram_enabled", "telegram_send_video", "personal_items"]
+         "signal_offscreen", "telegram_enabled", "telegram_send_video", "personal_items", "camera_alerts"]
 
 
 @app.get("/api/settings")
@@ -947,5 +1000,12 @@ def api_system():
     info["sources"] = get_manager().source_info()
     info["telegram"] = get_bot().info()
     info["logs"] = list(MEMORY_LOG)[-150:]
+    info["camera_health"] = [{"source_id": sid, **h} for sid, h in get_manager().health.items()]
+    try:
+        from .ai.engine import ai_threads
+
+        info["ai_threads"] = ai_threads()
+    except Exception:
+        pass
     info["base_dir"] = str(BASE_DIR)
     return info

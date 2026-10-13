@@ -42,14 +42,19 @@ def susp_label(ts: float, live: bool) -> str:
     return f"video {int(m)}:{s:04.1f}"
 
 
+def alert_banner(alert: dict, live: bool) -> str:
+    s0 = float(alert.get("susp_start", alert["t"]))
+    return (f"TEKSHIRING: {alert['kind_label']} | ball {alert['score']:.0f} | "
+            f"shubha: {susp_label(s0, live)}")
+
+
 def make_pending(ev_id: int, alert: dict, t: float, pre: float, post: float, live: bool) -> "PendingClip":
     s0 = float(alert.get("susp_start", t))
     s1 = float(alert.get("susp_end", t))
     # Klip shubhali harakat boshlanishidan kamida `pre` soniya oldin boshlanadi
     t_start = min(t, s0) - pre
-    banner = (f"TEKSHIRING: {alert['kind_label']} | ball {alert['score']:.0f} | "
-              f"shubha: {susp_label(s0, live)}")
-    return PendingClip(ev_id, t, t_start, t + post, alert["track_id"], banner, alert["box"], live, s0, s1)
+    return PendingClip(ev_id, t, t_start, t + post, alert["track_id"], alert_banner(alert, live), alert["box"],
+                       live, s0, s1)
 
 
 def open_capture(kind: str, uri: str) -> cv2.VideoCapture:
@@ -288,7 +293,7 @@ class SourceWorker(threading.Thread):
                 self.last_preview_t = now
             if self.loop_no == 0:
                 for a in alerts:
-                    self._on_alert(a, ft)
+                    self._on_alert(a, ft, frame, ann)
             self._flush_pending(ft)
             n += 1
             now = time.time()
@@ -303,10 +308,12 @@ class SourceWorker(threading.Thread):
         if self.state not in ("xato", "tugadi"):
             self.state = "to'xtatildi"
 
-    def _on_alert(self, alert: dict, t: float):
+    def _on_alert(self, alert: dict, t: float, frame: np.ndarray | None = None, ann: tuple | None = None):
         self.alerts += 1
         pre, post = clip_window()
-        ev_id = self.manager.create_event(alert, source=self.src, job_id=None, video_time=None)
+        snap = None if frame is None else {"frame": frame, "ann": ann, "banner": alert_banner(alert, True),
+                                           "time_text": annotate.wall_clock(t)}
+        ev_id = self.manager.create_event(alert, source=self.src, job_id=None, video_time=None, snapshot=snap)
         self.pending.append(make_pending(ev_id, alert, t, pre, post, live=True))
 
     def _flush_pending(self, t: float, force: bool = False):
@@ -378,7 +385,9 @@ class FileJob(threading.Thread):
                         self.latest_jpeg = preview_jpeg(frame, ann, f"video {t:5.1f} s")
                     for a in alerts:
                         self.events += 1
-                        ev_id = self.manager.create_event(a, source=src, job_id=jid, video_time=t)
+                        snap = {"frame": frame, "ann": ann, "banner": alert_banner(a, False),
+                                "time_text": f"video {t:6.1f} s"}
+                        ev_id = self.manager.create_event(a, source=src, job_id=jid, video_time=t, snapshot=snap)
                         pending.append(make_pending(ev_id, a, t, pre, post, live=False))
                 else:
                     ring.push(frame, t, time.time())

@@ -1,15 +1,23 @@
-"""Telegram bot: shubhali hodisa klipini yuboradi, qo'riqchi Tasdiq / Rad tugmasini bosadi.
+"""Telegram bot: shubhali hodisa haqida darhol xabar, keyin shu xabarga klip qo'shiladi.
 
-Long polling ishlatiladi — tashqi IP yoki webhook kerak emas, oddiy kompyuterda ishlaydi.
-Ulanish: web paneldagi 6 xonali kodni botga yuboring (yoki /start KOD).
+Ish tartibi (signal tezligi uchun):
+  1. Hodisa aniqlangan zahoti — o'sha kadrning rasmi, sabablar va tugmalar (bir necha soniyada).
+  2. Klip tayyor bo'lgach — o'sha xabardagi rasm `editMessageMedia` bilan videoga almashadi.
+  3. Qo'riqchi ✅ / ❌ / 👀 bosadi — barcha obunachilardagi xabar yangilanadi.
+
+Har bir yuborish `notify_log` jadvaliga vaqtlari bilan yoziladi — panelda kechikish (p50/p95) ko'rinadi.
+Long polling ishlatiladi — tashqi IP yoki webhook kerak emas. Ulanish: web paneldagi 6 xonali kod.
 """
 from __future__ import annotations
 
 import html
+import itertools
 import json
 import queue
 import threading
 import time
+from collections import defaultdict
+from concurrent.futures import ThreadPoolExecutor, wait
 from pathlib import Path
 
 import httpx
@@ -25,10 +33,20 @@ KIND_UZ = {"pocket": "Cho'ntakka solish", "torso": "Kiyim ichiga yashirish", "ba
 STATUS_UZ = {"yangi": "🟡 Tekshirilmagan", "tasdiqlangan": "✅ Tasdiqlangan",
              "rad_etilgan": "❌ Xato signal"}
 
+# Navbat ustuvorligi: kichik raqam — birinchi
+PRIO_ALERT, PRIO_CLIP, PRIO_REFRESH, PRIO_TEXT = 0, 1, 2, 3
+# Bitta chatga ketma-ket so'rovlar orasidagi eng kam vaqt (Telegram: shaxsiy chat ~1/s, guruh 20/daqiqa)
+MIN_GAP_PRIVATE = 0.05
+MIN_GAP_GROUP = 1.0
+VIDEO_LIMIT = 49_000_000     # Bot API orqali video 50 MB gacha
+PHOTO_LIMIT = 9_500_000      # rasm 10 MB gacha
+
 HELP = (
     "🛡 <b>Hushyor AI — do'kon qo'riqchisi boti</b>\n\n"
-    "Kamerada shubhali harakat aniqlansa, men shu yerga qisqa video klip va sabablarini yuboraman. "
-    "Siz videoni ko'rib <b>✅ Tasdiqlash</b> yoki <b>❌ Xato signal</b> tugmasini bosasiz.\n\n"
+    "Kamerada shubhali harakat aniqlansa, darhol shu yerga rasm va sabablar keladi, bir necha soniyadan "
+    "keyin o'sha xabarga video klip qo'shiladi. Videoni ko'rib <b>✅ Tasdiqlash</b> yoki "
+    "<b>❌ Xato signal</b> tugmasini bosing. <b>👀 Ko'ryapman</b> — boshqalarga siz shug'ullanayotganingizni "
+    "bildiradi.\n\n"
     "Buyruqlar:\n"
     "/holat — kameralar va bugungi statistika\n"
     "/oxirgi — oxirgi 5 ta hodisa\n"
@@ -84,6 +102,10 @@ def susp_info(ev: dict) -> dict:
     return {"susp_label": label, "susp_offset": offset, "susp_dur": dur}
 
 
+def event_time(ev: dict) -> float:
+    """Hodisa aniqlangan devor vaqti (kechikish shu vaqtdan o'lchanadi)."""
+    return float(ev.get("t_detect") or ev.get("created_at") or time.time())
+
 
 class TelegramBot:
     def __init__(self, token: str = TELEGRAM_BOT_TOKEN, api_base: str = TELEGRAM_API_BASE):
@@ -95,18 +117,48 @@ class TelegramBot:
         self.last_ok = 0.0
         self.sent = 0
         self.stop_evt = threading.Event()
-        self.q: "queue.Queue[tuple]" = queue.Queue()
-        self.client = httpx.Client(timeout=httpx.Timeout(40.0, connect=10.0))
+        self.q: "queue.PriorityQueue[tuple]" = queue.PriorityQueue()
+        self._seq = itertools.count()
+        # Doimiy ulanishlar (keep-alive): har xabar uchun qaytadan TLS ulanish ochilmaydi
+        self.client = httpx.Client(timeout=httpx.Timeout(40.0, connect=10.0),
+                                   limits=httpx.Limits(max_connections=32, max_keepalive_connections=16))
+        # Ikki alohida pool: vazifalar (hodisa, klip, yangilash) va ular ichidagi har chatga yuborish.
+        # Bitta pool bo'lsa, vazifalar ichki yuborishlarni kutib qolib, bir-birini to'sib qo'yishi mumkin.
+        self.pool = ThreadPoolExecutor(max_workers=6, thread_name_prefix="tg-task")
+        self.io_pool = ThreadPoolExecutor(max_workers=16, thread_name_prefix="tg-io")
+        self._chat_locks: dict[int, threading.Lock] = defaultdict(threading.Lock)
+        self._chat_next: dict[int, float] = {}
+        self._alert_done: dict[int, threading.Event] = {}
         self._threads: list[threading.Thread] = []
         self.manager = None
 
     # ------------------------------------------------------------------ API
     def api(self, method: str, data: dict | None = None, files: dict | None = None,
-            timeout: float = 30.0, retries: int = 2) -> dict:
+            timeout: float = 30.0, retries: int = 2, chat_id: int | None = None) -> dict:
+        """Bot API chaqiruvi. chat_id berilsa — shu chat uchun navbat va tezlik cheklovi qo'llanadi."""
+        if chat_id is None:
+            return self._call(method, data, files, timeout, retries)
+        # Qulf faqat navbatdagi vaqt oralig'ini band qilish uchun: so'rovning o'zi qulfsiz ketadi,
+        # shuning uchun katta video yuklanayotganda ham shu chatga yangi signal rasmi kutib qolmaydi
+        cid = int(chat_id)
+        gap = MIN_GAP_GROUP if cid < 0 else MIN_GAP_PRIVATE
+        with self._chat_locks[cid]:
+            start = max(time.time(), self._chat_next.get(cid, 0.0))
+            self._chat_next[cid] = start + gap
+        wait_s = start - time.time()
+        if wait_s > 0:
+            time.sleep(wait_s)
+        return self._call(method, data, files, timeout, retries)
+
+    def _call(self, method: str, data: dict | None, files: dict | None, timeout: float, retries: int) -> dict:
         url = f"{self.api_base}/bot{self.token}/{method}"
-        for attempt in range(retries + 1):
+        attempt, waits_429 = 0, 0
+        while True:
             try:
                 if files:
+                    for f in files.values():   # qayta urinishda fayl boshidan o'qilsin
+                        if len(f) > 1 and hasattr(f[1], "seek"):
+                            f[1].seek(0)
                     r = self.client.post(url, data=data or {}, files=files, timeout=timeout)
                 else:
                     r = self.client.post(url, json=data or {}, timeout=timeout)
@@ -114,22 +166,23 @@ class TelegramBot:
             except (httpx.HTTPError, ValueError) as e:
                 self.last_error = f"Tarmoq xatosi: {e.__class__.__name__}"
                 if attempt < retries:
-                    time.sleep(1.5 * (attempt + 1))
+                    attempt += 1
+                    time.sleep(0.8 * attempt)
                     continue
                 raise
             if res.get("ok"):
                 self.last_ok = time.time()
                 return res
-            if r.status_code == 429:
-                wait = float(res.get("parameters", {}).get("retry_after", 3))
-                time.sleep(min(wait, 30))
+            if r.status_code == 429 and waits_429 < 3:
+                waits_429 += 1
+                wait_s = float(res.get("parameters", {}).get("retry_after", 2))
+                time.sleep(min(wait_s, 30))
                 continue
             self.last_error = res.get("description", "noma'lum xato")
-            if r.status_code in (400, 401, 403, 404):
+            if r.status_code in (400, 401, 403, 404) or attempt >= retries:
                 return res
-            if attempt < retries:
-                time.sleep(1.0)
-        return {"ok": False, "description": self.last_error}
+            attempt += 1
+            time.sleep(0.8)
 
     # ---------------------------------------------------------------- start
     def start(self) -> None:
@@ -138,7 +191,7 @@ class TelegramBot:
             log.warning("TELEGRAM_BOT_TOKEN berilmagan — bot ishlamaydi")
             return
         t1 = threading.Thread(target=self._poll_loop, daemon=True, name="tg-poll")
-        t2 = threading.Thread(target=self._send_loop, daemon=True, name="tg-send")
+        t2 = threading.Thread(target=self._dispatch_loop, daemon=True, name="tg-send")
         self._threads = [t1, t2]
         t1.start()
         t2.start()
@@ -203,16 +256,25 @@ class TelegramBot:
                     if "message" in upd:
                         self._on_message(upd["message"])
                     elif "callback_query" in upd:
-                        self._on_callback(upd["callback_query"])
+                        # Tugma bosilishi pool'da: sekin tarmoq polling'ni to'xtatmasin
+                        self.pool.submit(self._safe, self._on_callback, upd["callback_query"])
                 except Exception:
                     log.exception("Telegram yangilanishini qayta ishlashda xato")
+
+    @staticmethod
+    def _safe(fn, *args):
+        try:
+            return fn(*args)
+        except Exception:
+            log.exception("Telegram vazifasida xato")
+            return None
 
     # ------------------------------------------------------------- handlers
     def _reply(self, chat_id: int, text: str, markup: dict | None = None) -> dict:
         data = {"chat_id": chat_id, "text": text, "parse_mode": "HTML", "disable_web_page_preview": True}
         if markup:
             data["reply_markup"] = markup
-        return self.api("sendMessage", data)
+        return self.api("sendMessage", data, chat_id=chat_id)
 
     def _is_sub(self, chat_id: int) -> bool:
         return bool(db.scalar("SELECT 1 FROM subscribers WHERE chat_id=? AND active=1", (chat_id,)))
@@ -281,6 +343,10 @@ class TelegramBot:
             icon = "🟢" if s.get("running") else "⚪️"
             extra = f" · {s['persons']} odam · AI {s['fps_ai']} kadr/s" if s.get("running") else ""
             lines.append(f"{icon} {esc(s['name'])} — {esc(s['state'])}{extra}")
+        lat = latency_stats(hours=24)
+        a = lat.get("telegram/alert")
+        if a and a["n"]:
+            lines += ["", f"⏱ Signal tezligi (24 soat): o'rtacha {a['p50']:.1f} s, 95% holatda ≤ {a['p95']:.1f} s"]
         return "\n".join(lines)
 
     def _last_text(self, sql: str, title: str) -> str:
@@ -298,30 +364,51 @@ class TelegramBot:
         user = cb.get("from", {})
         who = user.get("first_name") or user.get("username") or str(user.get("id"))
         chat_id = cb.get("message", {}).get("chat", {}).get("id")
+
+        def answer(text: str = "", alert: bool = False):
+            payload = {"callback_query_id": cb["id"]}
+            if text:
+                payload["text"] = text
+                payload["show_alert"] = alert
+            self.api("answerCallbackQuery", payload)
+
         if not chat_id or not self._is_sub(chat_id):
-            self.api("answerCallbackQuery", {"callback_query_id": cb["id"], "text": "Ruxsat yo'q"})
+            answer("Ruxsat yo'q")
             return
         try:
             action, ev_id = data.split(":")
             ev_id = int(ev_id)
         except ValueError:
-            self.api("answerCallbackQuery", {"callback_query_id": cb["id"]})
-            return
-        status = {"ok": "tasdiqlangan", "no": "rad_etilgan"}.get(action)
-        if not status:
+            answer()
             return
         ev = db.get_event(ev_id)
         if not ev:
-            self.api("answerCallbackQuery", {"callback_query_id": cb["id"], "text": "Hodisa topilmadi"})
+            answer("Hodisa topilmadi")
             return
-        db.review_event(ev_id, status, f"Telegram: {who}")
-        txt = "✅ Tasdiqlandi. Rahmat!" if status == "tasdiqlangan" else "❌ Xato signal deb belgilandi. Rahmat!"
-        self.api("answerCallbackQuery", {"callback_query_id": cb["id"], "text": txt})
+        if action in ("ok", "no"):
+            status = "tasdiqlangan" if action == "ok" else "rad_etilgan"
+            db.review_event(ev_id, status, f"Telegram: {who}")
+            answer("✅ Tasdiqlandi. Rahmat!" if status == "tasdiqlangan" else "❌ Xato signal deb belgilandi. Rahmat!")
+            log.info("Hodisa #%d: %s (%s)", ev_id, status, who)
+        elif action == "see":
+            if ev.get("claimed_by") and ev["claimed_by"] != who:
+                answer(f"{ev['claimed_by']} allaqachon ko'ryapti")
+                return
+            db.update_event(ev_id, claimed_by=who, claimed_at=time.time())
+            answer("👀 Boshqalarga siz ko'rayotganingiz ko'rsatildi")
+        elif action == "undo":
+            db.update_event(ev_id, status="yangi", reviewed_by=None, reviewed_at=None)
+            answer("↩️ Qaror bekor qilindi — qaytadan tanlang")
+            log.info("Hodisa #%d: qaror bekor qilindi (%s)", ev_id, who)
+        else:
+            answer()
+            return
         self.refresh_event(ev_id)
-        log.info("Hodisa #%d: %s (%s)", ev_id, status, who)
+        if self.manager is not None:
+            self.manager.emit("update", ev_id)
 
-    # --------------------------------------------------------------- sending
-    def _caption(self, ev: dict) -> str:
+    # --------------------------------------------------------------- matnlar
+    def _caption(self, ev: dict, clip_pending: bool = False) -> str:
         store = db.get_setting("store_name", "")
         when = fmt_time(ev["created_at"])
         if ev.get("video_time") is not None:
@@ -346,115 +433,317 @@ class TelegramBot:
         ]
         for r in reasons[:6]:
             lines.append(f"• {esc(r)}")
-        lines += ["", f"🆔 Hodisa #{ev['id']}", "<i>Bu ayblov emas — videoni ko'rib, o'zingiz qaror qiling.</i>"]
+        lines += ["", f"🆔 Hodisa #{ev['id']}"]
+        if clip_pending:
+            lines.append("⏳ <i>Video klip tayyorlanmoqda — bir necha soniyada shu xabarga qo'shiladi</i>")
+        lines.append("<i>Bu ayblov emas — videoni ko'rib, o'zingiz qaror qiling.</i>")
+        if ev.get("status") == "yangi" and ev.get("claimed_by"):
+            lines += ["", f"👀 <b>Ko'ryapti:</b> {esc(ev['claimed_by'])}, {fmt_time(ev.get('claimed_at'))[-8:]}"]
         if ev.get("status") and ev["status"] != "yangi":
             mark = "✅ TASDIQLANDI" if ev["status"] == "tasdiqlangan" else "❌ XATO SIGNAL"
             lines += ["", f"<b>{mark}</b> — {esc(ev.get('reviewed_by'))}, {fmt_time(ev.get('reviewed_at'))}"]
         cap = "\n".join(lines)
-        return cap[:1020]
+        if len(cap) > 1024:
+            # HTML teglarni buzmaslik uchun sabablar qisqartiriladi, matn o'rtasidan kesilmaydi
+            lines = [ln for ln in lines if not ln.startswith("• ")][:]
+            cap = "\n".join(lines)[:1024]
+        return cap
 
     def _markup(self, ev: dict) -> dict:
         rows = []
         if ev.get("status", "yangi") == "yangi":
             rows.append([{"text": "✅ Tasdiqlash", "callback_data": f"ok:{ev['id']}"},
                          {"text": "❌ Xato signal", "callback_data": f"no:{ev['id']}"}])
+            if not ev.get("claimed_by"):
+                rows.append([{"text": "👀 Ko'ryapman", "callback_data": f"see:{ev['id']}"}])
+        else:
+            rows.append([{"text": "↩️ Qarorni o'zgartirish", "callback_data": f"undo:{ev['id']}"}])
         if PUBLIC_URL and "localhost" not in PUBLIC_URL and "127.0.0.1" not in PUBLIC_URL:
             rows.append([{"text": "🔗 Panelda ochish", "url": f"{PUBLIC_URL}/events/{ev['id']}"}])
         return {"inline_keyboard": rows}
 
-    def notify_event(self, event_id: int) -> None:
-        if not self.token:
-            return
-        if not db.flag("telegram_enabled"):
-            return
+    # ---------------------------------------------------------- navbatga qo'yish
+    def _enqueue(self, prio: int, kind: str, a, b=None) -> None:
+        self.q.put((prio, next(self._seq), kind, a, b, time.time()))
+
+    def _enabled_for(self, event_id: int) -> dict | None:
+        if not self.token or not db.flag("telegram_enabled"):
+            return None
         ev = db.get_event(event_id)
         if not ev or ev["score"] < db.fnum("telegram_min_score", 0):
+            return None
+        return ev
+
+    def notify_alert(self, event_id: int) -> None:
+        """Hodisa aniqlangan zahoti: rasm + sabablar + tugmalar (klipni kutmasdan)."""
+        if self._enabled_for(event_id) is None:
             return
-        self.q.put(("event", event_id, None))
+        if len(self._alert_done) > 500:   # klipi kelmay qolgan eski hodisalar xotiradan tozalanadi
+            for k in [k for k, e in self._alert_done.items() if e.is_set()]:
+                self._alert_done.pop(k, None)
+        self._alert_done[event_id] = threading.Event()
+        self._enqueue(PRIO_ALERT, "alert", event_id)
+
+    def notify_clip(self, event_id: int) -> None:
+        """Klip tayyor: avval yuborilgan xabarlardagi rasm videoga almashadi."""
+        if self._enabled_for(event_id) is None:
+            return
+        self._enqueue(PRIO_CLIP, "clip", event_id)
+
+    def notify_event(self, event_id: int) -> None:
+        """Eski usul (qayta yuborish): bor narsa bilan to'liq xabar."""
+        if self._enabled_for(event_id) is None:
+            return
+        self._enqueue(PRIO_ALERT, "full", event_id)
+
+    def resend_event(self, event_id: int) -> None:
+        if self.token:
+            self._enqueue(PRIO_ALERT, "full", event_id)
+
+    def send_text_all(self, text: str) -> int:
+        subs = db.rows("SELECT chat_id FROM subscribers WHERE active=1") if self.token else []
+        for s in subs:
+            self._enqueue(PRIO_ALERT, "text", s["chat_id"], text)
+        return len(subs)
 
     def send_test(self) -> int:
         subs = db.rows("SELECT chat_id FROM subscribers WHERE active=1")
         for s in subs:
-            self.q.put(("text", s["chat_id"], "🧪 Sinov xabari: Hushyor AI ↔ Telegram aloqasi ishlayapti ✅"))
+            self._enqueue(PRIO_TEXT, "text", s["chat_id"], "🧪 Sinov xabari: Hushyor AI ↔ Telegram aloqasi ishlayapti ✅")
         return len(subs)
 
     def refresh_event(self, event_id: int) -> None:
         """Hodisa holati o'zgarganda (Telegram yoki web orqali) barcha xabarlarni yangilash."""
-        self.q.put(("refresh", event_id, None))
+        self._enqueue(PRIO_REFRESH, "refresh", event_id)
 
-    def _send_loop(self) -> None:
+    def _dispatch_loop(self) -> None:
+        """Navbatdan olib, pool'da parallel bajaradi — bitta sekin xabar boshqalarini kutdirmaydi."""
         while not self.stop_evt.is_set():
             try:
-                kind, a, b = self.q.get(timeout=1.0)
+                prio, _, kind, a, b, t_q = self.q.get(timeout=1.0)
             except queue.Empty:
                 continue
-            try:
-                if kind == "event":
-                    self._send_event(a)
-                elif kind == "text":
-                    self._reply(a, b)
-                elif kind == "refresh":
-                    self._refresh(a)
-            except Exception:
-                log.exception("Telegram yuborishda xato")
+            fn = {"alert": self._send_alert, "clip": self._send_clip, "full": self._send_full,
+                  "refresh": self._refresh, "text": self._send_text}.get(kind)
+            if fn:
+                self.pool.submit(self._safe, fn, a, b, t_q)
 
-    def _send_event(self, event_id: int) -> None:
+    # --------------------------------------------------------------- yuborish
+    def _log(self, event_id, stage, chat_id, t_event, t_queued, t_sent, res, err="") -> None:
+        ok = bool(res and res.get("ok"))
+        tg_date = None
+        if ok and isinstance(res.get("result"), dict):
+            tg_date = res["result"].get("date")
+        try:
+            db.execute("INSERT INTO notify_log(event_id, channel, stage, chat_id, t_event, t_queued, t_sent, tg_date, "
+                       "ok, error) VALUES(?,?,?,?,?,?,?,?,?,?)",
+                       (event_id, "telegram", stage, chat_id, t_event, t_queued, t_sent, tg_date, int(ok),
+                        (err or (res or {}).get("description") or "")[:300] if not ok else None))
+        except Exception:
+            log.exception("notify_log yozilmadi")
+
+    def _subs(self) -> list[int]:
+        return [s["chat_id"] for s in db.rows("SELECT chat_id FROM subscribers WHERE active=1")]
+
+    def _photo_bytes(self, ev: dict) -> bytes | None:
+        thumb = CLIPS_DIR / ev["thumb_path"] if ev.get("thumb_path") else None
+        if thumb and thumb.exists() and thumb.stat().st_size < PHOTO_LIMIT:
+            return thumb.read_bytes()
+        return None
+
+    def _send_alert(self, event_id: int, _b, t_q: float) -> None:
+        done = self._alert_done.setdefault(event_id, threading.Event())
+        try:
+            ev = db.get_event(event_id)
+            subs = self._subs()
+            if not ev or not subs:
+                if ev and not subs:
+                    log.info("Telegram obunachisi yo'q — hodisa #%d yuborilmadi", event_id)
+                return
+            cap = self._caption(ev, clip_pending=bool(db.flag("telegram_send_video")))
+            markup = json.dumps(self._markup(ev))
+            photo = self._photo_bytes(ev)
+            t_ev = event_time(ev)
+
+            def one(chat_id: int):
+                res, kind = None, "photo"
+                try:
+                    if photo:
+                        res = self.api("sendPhoto", {"chat_id": str(chat_id), "caption": cap, "parse_mode": "HTML",
+                                                     "reply_markup": markup},
+                                       files={"photo": (f"hodisa_{event_id}.jpg", photo, "image/jpeg")},
+                                       timeout=30, chat_id=chat_id)
+                    if not res or not res.get("ok"):
+                        kind = "text"
+                        res = self.api("sendMessage", {"chat_id": chat_id, "text": cap, "parse_mode": "HTML",
+                                                       "reply_markup": json.loads(markup)}, chat_id=chat_id)
+                except Exception as e:
+                    self._log(event_id, "alert", chat_id, t_ev, t_q, time.time(), None, str(e))
+                    return
+                t_sent = time.time()
+                self._log(event_id, "alert", chat_id, t_ev, t_q, t_sent, res)
+                if res and res.get("ok"):
+                    db.execute("INSERT OR REPLACE INTO tg_messages(event_id, chat_id, message_id, kind) "
+                               "VALUES(?,?,?,?)", (event_id, chat_id, res["result"]["message_id"], kind))
+                    self.sent += 1
+                else:
+                    log.warning("Hodisa #%d yuborilmadi (%s): %s", event_id, chat_id, self.last_error)
+
+            # Rasm kichik (~100 KB) — barcha chatlarga parallel yuboriladi
+            futs = [self.io_pool.submit(self._safe, one, c) for c in subs]
+            wait(futs, timeout=60)
+            db.update_event(event_id, telegram_sent=1)
+        finally:
+            done.set()
+
+    def _send_clip(self, event_id: int, _b, t_q: float) -> None:
+        done = self._alert_done.get(event_id)
+        if done is not None:
+            done.wait(60)   # rasm xabarlari yuborilib bo'lishini kutish (message_id kerak)
         ev = db.get_event(event_id)
         if not ev:
             return
-        subs = db.rows("SELECT chat_id FROM subscribers WHERE active=1")
-        if not subs:
-            log.info("Telegram obunachisi yo'q — hodisa #%d yuborilmadi", event_id)
+        msgs = db.rows("SELECT * FROM tg_messages WHERE event_id=?", (event_id,))
+        if not msgs:
+            self._send_full(event_id, None, t_q)
+            return
+        clip = CLIPS_DIR / ev["clip_path"] if ev.get("clip_path") else None
+        use_video = (db.flag("telegram_send_video") and clip is not None and clip.exists()
+                     and clip.stat().st_size < VIDEO_LIMIT)
+        if not use_video:
+            self._refresh(event_id, None, t_q)   # "klip tayyorlanmoqda" yozuvi olib tashlanadi
+            return
+        cap = self._caption(ev)
+        markup = self._markup(ev)
+        thumb = CLIPS_DIR / ev["thumb_path"] if ev.get("thumb_path") else None
+        small = _small_jpeg(thumb) if thumb and thumb.exists() else None
+        t_ev = event_time(ev)
+        file_id: list[str] = []
+
+        def media(ref: str) -> str:
+            m = {"type": "video", "media": ref, "caption": cap, "parse_mode": "HTML", "supports_streaming": True}
+            if small and ref.startswith("attach://"):
+                m["thumbnail"] = "attach://thumb"
+            return json.dumps(m)
+
+        def edit(m: dict, upload: bool):
+            chat_id = m["chat_id"]
+            try:
+                if upload:
+                    with open(clip, "rb") as fv:
+                        files = {"clip": (clip.name, fv, "video/mp4")}
+                        if small:
+                            files["thumb"] = ("thumb.jpg", small, "image/jpeg")
+                        res = self.api("editMessageMedia", {"chat_id": str(chat_id), "message_id": str(m["message_id"]),
+                                                            "media": media("attach://clip"),
+                                                            "reply_markup": json.dumps(markup)},
+                                       files=files, timeout=120, chat_id=chat_id)
+                else:
+                    res = self.api("editMessageMedia", {"chat_id": chat_id, "message_id": m["message_id"],
+                                                        "media": json.loads(media(file_id[0])),
+                                                        "reply_markup": markup}, chat_id=chat_id)
+                if not res or not res.get("ok"):
+                    # Matnli xabarga media qo'shib bo'lmasa — klip javob sifatida alohida yuboriladi
+                    if file_id:
+                        res = self.api("sendVideo", {"chat_id": chat_id, "video": file_id[0],
+                                                     "caption": f"🎬 Hodisa #{event_id} klipi",
+                                                     "reply_to_message_id": m["message_id"]}, chat_id=chat_id)
+                    else:
+                        with open(clip, "rb") as fv:
+                            res = self.api("sendVideo", {"chat_id": str(chat_id), "caption": f"🎬 Hodisa #{event_id} klipi",
+                                                         "reply_to_message_id": str(m["message_id"]),
+                                                         "supports_streaming": "true"},
+                                           files={"video": (clip.name, fv, "video/mp4")}, timeout=120, chat_id=chat_id)
+                else:
+                    db.execute("UPDATE tg_messages SET kind='video' WHERE event_id=? AND chat_id=?", (event_id, chat_id))
+                self._log(event_id, "clip", chat_id, t_ev, t_q, time.time(), res)
+                if res and res.get("ok") and not file_id:
+                    v = (res.get("result") or {}).get("video") if isinstance(res.get("result"), dict) else None
+                    if v and v.get("file_id"):
+                        file_id.append(v["file_id"])
+            except Exception as e:
+                self._log(event_id, "clip", chat_id, t_ev, t_q, time.time(), None, str(e))
+
+        # Video katta — bir marta yuklanadi, qolgan chatlarga file_id bilan (parallel)
+        edit(msgs[0], upload=True)
+        rest = msgs[1:]
+        if rest:
+            futs = [self.io_pool.submit(self._safe, edit, m, not file_id) for m in rest]
+            wait(futs, timeout=180)
+        self._alert_done.pop(event_id, None)
+
+    def _send_full(self, event_id: int, _b, t_q: float) -> None:
+        """Bor narsa bilan bitta xabar (qayta yuborish yoki rasm bosqichi o'tkazib yuborilgan bo'lsa)."""
+        ev = db.get_event(event_id)
+        subs = self._subs()
+        if not ev or not subs:
             return
         cap = self._caption(ev)
         markup = json.dumps(self._markup(ev))
         clip = CLIPS_DIR / ev["clip_path"] if ev.get("clip_path") else None
+        send_video = db.flag("telegram_send_video") and clip and clip.exists() and clip.stat().st_size < VIDEO_LIMIT
+        photo = self._photo_bytes(ev)
         thumb = CLIPS_DIR / ev["thumb_path"] if ev.get("thumb_path") else None
-        send_video = db.flag("telegram_send_video") and clip and clip.exists() and clip.stat().st_size < 49_000_000
-        small_thumb = _small_jpeg(thumb) if thumb and thumb.exists() else None
-        for s in subs:
+        small = _small_jpeg(thumb) if thumb and thumb.exists() else None
+        t_ev = event_time(ev)
+        file_id: list[str] = []
+        for chat_id in subs:
             res, kind = None, None
-            if send_video:
-                with open(clip, "rb") as fv:
-                    files = {"video": (clip.name, fv, "video/mp4")}
-                    if small_thumb:
-                        files["thumbnail"] = ("thumb.jpg", small_thumb, "image/jpeg")
-                    res = self.api("sendVideo", {"chat_id": str(s["chat_id"]), "caption": cap, "parse_mode": "HTML",
-                                                 "supports_streaming": "true", "reply_markup": markup},
-                                   files=files, timeout=120)
-                kind = "video"
-            if (not res or not res.get("ok")) and thumb and thumb.exists():
-                with open(thumb, "rb") as fp:
-                    res = self.api("sendPhoto", {"chat_id": str(s["chat_id"]), "caption": cap, "parse_mode": "HTML",
+            try:
+                if send_video:
+                    kind = "video"
+                    if file_id:
+                        res = self.api("sendVideo", {"chat_id": chat_id, "video": file_id[0], "caption": cap,
+                                                     "parse_mode": "HTML", "reply_markup": json.loads(markup)},
+                                       chat_id=chat_id)
+                    else:
+                        with open(clip, "rb") as fv:
+                            files = {"video": (clip.name, fv, "video/mp4")}
+                            if small:
+                                files["thumbnail"] = ("thumb.jpg", small, "image/jpeg")
+                            res = self.api("sendVideo", {"chat_id": str(chat_id), "caption": cap, "parse_mode": "HTML",
+                                                         "supports_streaming": "true", "reply_markup": markup},
+                                           files=files, timeout=120, chat_id=chat_id)
+                        v = (res or {}).get("result", {}).get("video") if res and res.get("ok") else None
+                        if v:
+                            file_id.append(v["file_id"])
+                if (not res or not res.get("ok")) and photo:
+                    kind = "photo"
+                    res = self.api("sendPhoto", {"chat_id": str(chat_id), "caption": cap, "parse_mode": "HTML",
                                                  "reply_markup": markup},
-                                   files={"photo": (thumb.name, fp, "image/jpeg")}, timeout=60)
-                kind = "photo"
-            if not res or not res.get("ok"):
-                res = self.api("sendMessage", {"chat_id": s["chat_id"], "text": cap, "parse_mode": "HTML",
-                                               "reply_markup": json.loads(markup)})
-                kind = "text"
+                                   files={"photo": (f"hodisa_{event_id}.jpg", photo, "image/jpeg")}, chat_id=chat_id)
+                if not res or not res.get("ok"):
+                    kind = "text"
+                    res = self.api("sendMessage", {"chat_id": chat_id, "text": cap, "parse_mode": "HTML",
+                                                   "reply_markup": json.loads(markup)}, chat_id=chat_id)
+            except Exception as e:
+                self._log(event_id, "full", chat_id, t_ev, t_q, time.time(), None, str(e))
+                continue
+            self._log(event_id, "full", chat_id, t_ev, t_q, time.time(), res)
             if res and res.get("ok"):
-                mid = res["result"]["message_id"]
                 db.execute("INSERT OR REPLACE INTO tg_messages(event_id, chat_id, message_id, kind) VALUES(?,?,?,?)",
-                           (event_id, s["chat_id"], mid, kind))
+                           (event_id, chat_id, res["result"]["message_id"], kind))
                 self.sent += 1
-            else:
-                log.warning("Hodisa #%d yuborilmadi (%s): %s", event_id, s["chat_id"], self.last_error)
         db.update_event(event_id, telegram_sent=1)
 
-    def _refresh(self, event_id: int) -> None:
+    def _send_text(self, chat_id: int, text: str, _t_q: float) -> None:
+        self._reply(chat_id, text)
+
+    def _refresh(self, event_id: int, _b=None, _t_q: float = 0.0) -> None:
         ev = db.get_event(event_id)
         if not ev:
             return
-        cap = self._caption(ev)
         markup = self._markup(ev)
         for m in db.rows("SELECT * FROM tg_messages WHERE event_id=?", (event_id,)):
+            pending = m["kind"] == "photo" and bool(db.flag("telegram_send_video")) and not ev.get("clip_path")
+            cap = self._caption(ev, clip_pending=pending)
             if m["kind"] == "text":
                 self.api("editMessageText", {"chat_id": m["chat_id"], "message_id": m["message_id"], "text": cap,
-                                             "parse_mode": "HTML", "reply_markup": markup})
+                                             "parse_mode": "HTML", "reply_markup": markup}, chat_id=m["chat_id"])
             else:
                 self.api("editMessageCaption", {"chat_id": m["chat_id"], "message_id": m["message_id"],
-                                                "caption": cap, "parse_mode": "HTML", "reply_markup": markup})
+                                                "caption": cap, "parse_mode": "HTML", "reply_markup": markup},
+                         chat_id=m["chat_id"])
 
     def info(self) -> dict:
         return {
@@ -462,6 +751,39 @@ class TelegramBot:
             "username": (self.me or {}).get("username"), "name": (self.me or {}).get("first_name"),
             "last_ok": self.last_ok, "sent": self.sent, "queue": self.q.qsize(),
         }
+
+
+def _pct(vals: list[float], p: float) -> float:
+    if not vals:
+        return 0.0
+    vals = sorted(vals)
+    k = max(0, min(len(vals) - 1, int(round(p / 100 * (len(vals) - 1)))))
+    return vals[k]
+
+
+def latency_stats(hours: float = 24, channel: str | None = None) -> dict:
+    """Kanal va bosqich bo'yicha kechikish: hodisa aniqlangandan xabar yetkazilguncha (soniya)."""
+    since = time.time() - hours * 3600
+    sql = "SELECT channel, stage, ok, t_event, t_queued, t_sent, tg_date FROM notify_log WHERE t_sent>=?"
+    params: list = [since]
+    if channel:
+        sql += " AND channel=?"
+        params.append(channel)
+    out: dict = {}
+    groups: dict = defaultdict(list)
+    for r in db.rows(sql, params):
+        groups[f"{r['channel']}/{r['stage']}"].append(r)
+    for key, rs in groups.items():
+        oks = [r for r in rs if r["ok"] and r["t_event"]]
+        lat = [r["t_sent"] - r["t_event"] for r in oks]
+        queue_wait = [r["t_sent"] - r["t_queued"] for r in oks if r["t_queued"]]
+        # Telegram server vaqti bilan farq (kompyuter soati noto'g'ri bo'lsa ko'rinadi)
+        skew = [r["tg_date"] - r["t_sent"] for r in oks if r["tg_date"]]
+        out[key] = {"n": len(rs), "ok": len(oks), "p50": _pct(lat, 50), "p95": _pct(lat, 95),
+                    "max": max(lat) if lat else 0.0, "send_p95": _pct(queue_wait, 95),
+                    "within_5s": (sum(1 for x in lat if x <= 5.0) / len(lat)) if lat else None,
+                    "clock_skew": (sum(skew) / len(skew)) if skew else None}
+    return out
 
 
 _bot: TelegramBot | None = None

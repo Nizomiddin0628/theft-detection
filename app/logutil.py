@@ -37,10 +37,13 @@ def setup_logging() -> None:
     root.setLevel(logging.INFO)
     fh = RotatingFileHandler(LOGS_DIR / "app.log", maxBytes=2_000_000, backupCount=3, encoding="utf-8")
     fh.setFormatter(fmt)
-    sh = logging.StreamHandler()
-    sh.setFormatter(fmt)
     root.addHandler(fh)
-    root.addHandler(sh)
+    import sys
+
+    if sys.stderr is not None:   # pythonw.exe (oynasiz) rejimida konsol yo'q
+        sh = logging.StreamHandler()
+        sh.setFormatter(fmt)
+        root.addHandler(sh)
     root.addHandler(_MemoryHandler())
 
 

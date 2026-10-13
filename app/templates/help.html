@@ -13,7 +13,7 @@
       <li><b>Telegram:</b> <a href="/telegram">Telegram bot</a> bo'limidagi 6 xonali kodni botga yuboring.</li>
       <li><b>Kamera:</b> <a href="/live">Jonli kuzatuv</a> → "Kompyuter kamerasi" tugmasi. Kompyuter kamerangiz yonadi va ekranda skelet chiziqlari paydo bo'ladi.</li>
       <li><b>Sinab ko'ring:</b> telefon yoki shishani qo'lga oling, ko'tarib turing, keyin cho'ntakka soling va qo'lni ~1 soniya u yerda ushlang.</li>
-      <li><b>Natija:</b> ~5–10 soniyadan keyin klip Telegramga keladi. ✅ yoki ❌ bosing.</li>
+      <li><b>Natija:</b> 1–2 soniyada Telegramga rasm va tugmalar keladi, klip tayyor bo'lgach (~{{ settings.post_sec|float|round|int + 3 }} s) o'sha xabardagi rasm videoga almashadi. ✅ yoki ❌ bosing.</li>
       <li><b>Video bilan sinash:</b> <a href="/upload">Video tahlili</a> bo'limiga istalgan videoni yuklang.</li>
     </ol>
 
@@ -24,7 +24,7 @@
       <li>Har bir odamga raqam beriladi va qo'llarining harakati kuzatiladi: polkaga uzatildimi, buyum ushladimi, keyin bel/cho'ntak, qorin yoki sumka zonasiga bordimi, buyum yo'qoldimi.</li>
       <li>Dalillar ballarga aylanadi (0–100). Yurib ketayotgan odam yoki orqa tomondan ko'rinish kabi holatlar ballni kamaytiradi. Ball {{ settings.threshold }} dan oshsa — signal.</li>
       <li>Signal bo'lganda xotiradan {{ settings.pre_sec }} s oldingi va {{ settings.post_sec }} s keyingi kadrlar olinib, belgilangan odam qizil ramkada ko'rsatilgan MP4 klip yasaladi.</li>
-      <li>Klip, rasm va sabablar Telegramga yuboriladi. Qo'riqchining javobi bazaga yoziladi va keyinchalik modelni qayta o'qitishda ishlatiladi.</li>
+      <li>Signal lahzasidagi rasm, sabablar va tugmalar Telegramga darhol yuboriladi; klip tayyor bo'lgach o'sha xabarga qo'shiladi. Har xabarning kechikishi <a href="/telegram">Telegram</a> sahifasida "Signal tezligi" bo'limida ko'rinadi. Qo'riqchining javobi bazaga yoziladi va keyinchalik modelni qayta o'qitishda ishlatiladi.</li>
     </ol>
 
     <h2>Aniqlikni oshirish bo'yicha maslahatlar</h2>

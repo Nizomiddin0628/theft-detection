@@ -36,10 +36,11 @@ async function load() {
   document.getElementById("disk").textContent = r.disk_free_gb + " GB";
   document.getElementById("upl").textContent = "yuklangan videolar: " + r.uploads_mb + " MB";
   const rows = [["Versiya", r.app], ["Python", r.python], ["OT", r.os], ["OpenCV", r.opencv], ["ONNX Runtime", r.onnxruntime || "—"],
-    ["AI qurilmalari", (r.providers || []).join(", ")], ["Klip kodlovchi (ffmpeg)", r.ffmpeg ? "✅ bor (H.264)" : "⚠️ yo'q — zaxira kodlovchi"],
+    ["AI qurilmalari", (r.providers || []).join(", ")], ["AI oqimlari", r.ai_threads ? r.ai_threads + " ta (qolgan yadrolar Windows va kameralar uchun)" : "—"], ["Klip kodlovchi (ffmpeg)", r.ffmpeg ? "✅ bor (H.264)" : "⚠️ yo'q — zaxira kodlovchi"],
     ["Telegram", r.telegram.status + (r.telegram.username ? " (@" + r.telegram.username + ")" : "")], ["Papka", r.base_dir]];
   document.getElementById("info").innerHTML = rows.map(([k, v]) => `<tr><td class="muted">${k}</td><td style="word-break:break-all">${H.esc(v)}</td></tr>`).join("");
-  document.getElementById("srcs").innerHTML = r.sources.length ? r.sources.map((s) => `<tr><td><b>${H.esc(s.name)}</b></td><td><span class="dot ${s.running ? "on" : ""}"></span> ${H.esc(s.state)}</td>
+  const down = {}; (r.camera_health || []).forEach((h) => { down[h.source_id] = h; });
+  document.getElementById("srcs").innerHTML = r.sources.length ? r.sources.map((s) => `<tr><td><b>${H.esc(s.name)}</b></td><td><span class="dot ${down[s.id] ? "off" : (s.running ? "on" : "")}"></span> ${H.esc(s.state)}${down[s.id] ? `<div class="small" style="color:#b42318">${H.esc(down[s.id].reason)} · ${H.fmtDur(Date.now() / 1000 - down[s.id].since)}</div>` : ""}</td>
     <td class="num">${s.fps_cam}</td><td class="num">${s.fps_ai}</td><td class="num">${s.persons}</td><td class="num">${s.alerts}</td><td>${s.running ? H.fmtDur(s.uptime) : "—"}</td></tr>`).join("")
     : `<tr><td colspan="7" class="muted">Manba yo'q</td></tr>`;
   if (document.getElementById("auto").checked) {

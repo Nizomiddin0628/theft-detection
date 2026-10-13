@@ -98,19 +98,38 @@ def main(video: str):
             ok("Klip yuklanadi (MP4)", r.status_code == 200 and r.content[4:8] == b"ftyp", f"{len(r.content)} bayt")
             r = c.get(f"/events/{ev['id']}")
             ok("Hodisa sahifasi", r.status_code == 200 and "Ball tarkibi" in r.text)
-            wait(lambda: tg.calls("sendVideo"), 30, what="sendVideo")
-            sv = tg.calls("sendVideo")[0]
-            ok("Telegramga video yuborildi", sv["files"].get("video", {}).get("size", 0) > 1000,
-               f"{sv['files']['video']['size']} bayt, thumb={'thumbnail' in sv['files']}")
-            ok("Xabarda tugmalar bor", "Tasdiqlash" in sv["data"].get("reply_markup", ""))
-            ok("Xabarda sabablar bor", "Sabablar" in sv["data"].get("caption", ""))
-            first_ev = int(sv["data"]["reply_markup"].split("ok:")[1].split('"')[0])
+            # Avval rasm (darhol), keyin o'sha xabarga video (editMessageMedia)
+            wait(lambda: tg.calls("sendPhoto"), 30, what="sendPhoto")
+            sp = tg.calls("sendPhoto")[0]
+            ok("Telegramga darhol rasm yuborildi", sp["files"].get("photo", {}).get("size", 0) > 1000,
+               f"{sp['files']['photo']['size']} bayt")
+            ok("Xabarda tugmalar bor (✅ ❌ 👀)", all(x in sp["data"].get("reply_markup", "")
+                                                   for x in ("Tasdiqlash", "Xato signal", "Ko'ryapman")))
+            ok("Xabarda sabablar bor", "Sabablar" in sp["data"].get("caption", ""))
+            ok("Xabarda shubhali lahza vaqti bor", "Shubhali lahza" in sp["data"].get("caption", ""))
+            wait(lambda: [x for x in tg.calls("editMessageMedia") if x["files"].get("clip")], 60, what="editMessageMedia")
+            em = [x for x in tg.calls("editMessageMedia") if x["files"].get("clip")][0]
+            ok("Klip o'sha xabarga qo'shildi (editMessageMedia)", em["files"]["clip"]["size"] > 1000,
+               f"{em['files']['clip']['size']} bayt, {em['t'] - sp['t']:.1f} s keyin")
+            lat = c.get("/api/latency").json()
+            a_st = lat["stats"].get("telegram/alert", {})
+            ok("Kechikish o'lchandi (rasm, p95)", a_st.get("ok", 0) >= 1, f"p95 {a_st.get('p95', 0):.2f} s")
+            first_ev = int(sp["data"]["reply_markup"].split("ok:")[1].split('"')[0])
+            # 👀 Ko'ryapman
+            tg.callback(111, f"see:{first_ev}")
+            wait(lambda: db.get_event(first_ev).get("claimed_by"), 20, what="see")
+            ok("👀 Ko'ryapman tugmasi", db.get_event(first_ev)["claimed_by"] == "Qorovul")
             # Telegram tugmasi orqali tasdiqlash
             tg.callback(111, f"ok:{first_ev}")
             wait(lambda: db.get_event(first_ev)["status"] == "tasdiqlangan", 20, what="callback")
             ok("Telegram tugmasi — tasdiqlash", True, db.get_event(first_ev)["reviewed_by"])
-            wait(lambda: tg.calls("editMessageCaption"), 20, what="xabarni yangilash")
-            ok("Telegram xabari yangilandi", "TASDIQLANDI" in tg.calls("editMessageCaption")[-1]["data"]["caption"])
+            wait(lambda: any("TASDIQLANDI" in x["data"].get("caption", "") for x in tg.calls("editMessageCaption")),
+                 20, what="xabarni yangilash")
+            ok("Telegram xabari yangilandi", True)
+            # ↩️ Qarorni o'zgartirish
+            tg.callback(111, f"undo:{first_ev}")
+            wait(lambda: db.get_event(first_ev)["status"] == "yangi", 20, what="undo")
+            ok("↩️ Qarorni o'zgartirish", db.get_event(first_ev)["reviewed_by"] is None)
             # Web orqali rad etish
             if evs["total"] > 1:
                 other = [e for e in evs["items"] if e["id"] != first_ev][0]["id"]

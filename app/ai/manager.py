@@ -10,7 +10,7 @@ from pathlib import Path
 from .. import db
 from ..config import CLIPS_DIR, FEEDBACK_DIR, POSES_DIR, UPLOADS_DIR
 from ..logutil import get_logger
-from .clipper import make_clip
+from .clipper import make_clip, make_snapshot
 from .worker import FileJob, PendingClip, SourceWorker
 
 log = get_logger("manager")
@@ -23,10 +23,25 @@ class Manager:
         self.job_queue: "queue.Queue[int]" = queue.Queue()
         self.lock = threading.RLock()
         self.notifier = None          # Telegram bot (keyinroq ulanadi)
-        self.listeners: list = []     # yangi hodisa haqida xabar oluvchilar (SSE)
+        self.listeners: list = []     # hodisa xabarlarini oluvchilar (web panel SSE): fn(kind, event)
         self._job_thread = threading.Thread(target=self._job_loop, daemon=True, name="jobs")
         self._job_thread.start()
         self._last_cleanup = 0.0
+        self.health: dict[int, dict] = {}   # kamera holati: {source_id: {"since", "alerted", "reason"}}
+        self._health_thread = threading.Thread(target=self._health_loop, daemon=True, name="health")
+        self._health_thread.start()
+
+    # ---------------- Xabar tarqatish ----------------
+    def emit(self, kind: str, event_or_id) -> None:
+        """Web panelga (SSE) hodisa haqida darhol xabar: new | clip | update."""
+        ev = db.get_event(event_or_id) if isinstance(event_or_id, int) else event_or_id
+        if not ev:
+            return
+        for fn in list(self.listeners):
+            try:
+                fn(kind, ev)
+            except Exception:
+                pass
 
     # ---------------- Manbalar ----------------
     def start_source(self, source_id: int) -> tuple[bool, str]:
@@ -118,7 +133,14 @@ class Manager:
                 self.jobs.pop(jid, None)
 
     # ---------------- Hodisalar ----------------
-    def create_event(self, alert: dict, source: dict, job_id: int | None, video_time: float | None) -> int:
+    def create_event(self, alert: dict, source: dict, job_id: int | None, video_time: float | None,
+                     snapshot: dict | None = None) -> int:
+        """Hodisani yozadi va DARHOL xabar beradi (klipni kutmasdan).
+
+        snapshot: {"frame", "ann", "banner", "time_text"} — signal lahzasidagi kadr; undan rasm tayyorlanadi
+        va Telegram'ga birinchi bo'lib shu rasm ketadi. Klip keyin finish_clip'da qo'shiladi.
+        """
+        now = time.time()
         ev_id = db.insert_event({
             "source_id": source.get("id"),
             "source_name": source.get("name"),
@@ -134,8 +156,18 @@ class Manager:
             "ml_prob": alert.get("ml_prob"),
             "susp_start": alert.get("susp_start"),
             "susp_end": alert.get("susp_end", alert.get("t")),
+            # Jonli kamerada alert["t"] — kadr olingan devor vaqti; video faylda — hodisa yaratilgan vaqt
+            "t_detect": float(alert["t"]) if video_time is None else now,
             "status": "yangi",
         })
+        if snapshot is not None:
+            try:
+                name = f"ev{ev_id:05d}_{time.strftime('%Y%m%d_%H%M%S')}_snap.jpg"
+                if make_snapshot(snapshot["frame"], snapshot.get("ann"), alert["track_id"], snapshot.get("banner", ""),
+                                 snapshot.get("time_text"), CLIPS_DIR / name):
+                    db.update_event(ev_id, thumb_path=name)
+            except Exception:
+                log.exception("Hodisa #%d rasmini tayyorlab bo'lmadi", ev_id)
         pose_path = POSES_DIR / f"event_{ev_id:05d}.json"
         pose_path.write_text(json.dumps({
             "event_id": ev_id, "track_id": alert["track_id"], "t_event": alert["t"],
@@ -143,6 +175,13 @@ class Manager:
         db.update_event(ev_id, pose_path=pose_path.name)
         log.info("Hodisa #%d: %s, ball %.0f (%s)", ev_id, alert["kind_label"], alert["score"],
                  source.get("name"))
+        # Klipni kutmasdan: web panelga va Telegram'ga darhol
+        self.emit("new", ev_id)
+        if self.notifier is not None:
+            try:
+                self.notifier.notify_alert(ev_id)
+            except Exception:
+                log.exception("Telegramga darhol xabar berishda xato")
         return ev_id
 
     def finish_clip(self, p: PendingClip, frames: list) -> None:
@@ -153,20 +192,73 @@ class Manager:
         except Exception:
             log.exception("Klip yaratishda xato (hodisa #%d)", p.event_id)
             res = {"clip": None, "thumb": None, "crop": None, "clip_start": None}
-        db.update_event(p.event_id, clip_path=res["clip"], thumb_path=res["thumb"], crop_path=res["crop"],
-                        clip_start=res.get("clip_start"))
-        ev = db.get_event(p.event_id)
-        for fn in list(self.listeners):
-            try:
-                fn(ev)
-            except Exception:
-                pass
+        old = db.get_event(p.event_id) or {}
+        upd = {"clip_path": res["clip"], "crop_path": res["crop"], "clip_start": res.get("clip_start")}
+        if res["thumb"]:
+            upd["thumb_path"] = res["thumb"]
+            # Signal lahzasidagi tezkor rasm endi kerak emas — klipdan olingan rasm bilan almashadi
+            if old.get("thumb_path") and old["thumb_path"] != res["thumb"]:
+                (CLIPS_DIR / old["thumb_path"]).unlink(missing_ok=True)
+        db.update_event(p.event_id, **upd)
+        self.emit("clip", p.event_id)
         if self.notifier is not None:
             try:
-                self.notifier.notify_event(p.event_id)
+                self.notifier.notify_clip(p.event_id)
             except Exception:
-                log.exception("Telegramga yuborishda xato")
+                log.exception("Telegramga klip yuborishda xato")
         self._cleanup()
+
+    def _health_loop(self) -> None:
+        """Kamera uzilsa yoki ishdan chiqsa — belgilangan vaqtdan keyin Telegram'ga xabar, tiklansa — yana xabar."""
+        while True:
+            time.sleep(5)
+            try:
+                self._health_check()
+            except Exception:
+                log.exception("Kamera holatini tekshirishda xato")
+
+    def _health_check(self) -> None:
+        now = time.time()
+        alert_sec = db.fnum("camera_alert_sec", 60)
+        enabled = db.flag("camera_alerts")
+        seen = set()
+        for sid, w in list(self.workers.items()):
+            if w.src.get("kind") == "file":
+                continue   # video fayl tugashi — nosozlik emas
+            seen.add(sid)
+            reason = None
+            if not w.is_alive():
+                reason = "dastur ichida manba to'xtab qoldi"
+            elif w.state in ("xato", "qayta ulanmoqda"):
+                reason = w.error or w.state
+            elif now - w.started_at > 20 and w.latest_t and now - w.latest_t > 15:
+                reason = "kameradan kadr kelmayapti"
+            h = self.health.get(sid)
+            if reason:
+                if h is None:
+                    self.health[sid] = h = {"since": now, "alerted": False, "reason": reason, "name": w.src["name"]}
+                h["reason"] = reason
+                if not h["alerted"] and now - h["since"] >= alert_sec:
+                    h["alerted"] = True
+                    log.warning("Kamera ishlamayapti: %s (%s)", w.src["name"], reason)
+                    if enabled and self.notifier is not None:
+                        from ..telegram_bot import esc
+                        self.notifier.send_text_all(
+                            f"📷 <b>Kamera ishlamayapti:</b> {esc(w.src['name'])}\n"
+                            f"Sabab: {esc(reason)}\n"
+                            f"Qachondan: {time.strftime('%H:%M:%S', time.localtime(h['since']))}")
+            elif h is not None:
+                self.health.pop(sid, None)
+                if h["alerted"]:
+                    secs = now - h["since"]
+                    dur = f"{secs / 60:.0f} daqiqa" if secs >= 90 else f"{secs:.0f} soniya"
+                    log.info("Kamera tiklandi: %s (%s)", w.src["name"], dur)
+                    if enabled and self.notifier is not None:
+                        from ..telegram_bot import esc
+                        self.notifier.send_text_all(f"✅ <b>Kamera tiklandi:</b> {esc(w.src['name'])} "
+                                                    f"({dur} ishlamadi)")
+        for sid in [s for s in self.health if s not in seen]:
+            self.health.pop(sid, None)   # foydalanuvchi o'zi to'xtatgan manba
 
     def _cleanup(self) -> None:
         """Eski hodisa fayllarini o'chirish (sozlamadagi kun soniga ko'ra)."""

@@ -1,8 +1,13 @@
-"""Sinov uchun soxta Telegram Bot API serveri (internet kerak emas)."""
+"""Sinov uchun soxta Telegram Bot API serveri (internet kerak emas).
+
+Tarmoqni taqlid qilish (ixtiyoriy): MOCK_TG_DELAY — har so'rovga qo'shimcha kechikish (soniya),
+MOCK_TG_BW — yuklash tezligi (bayt/soniya; video yuklash vaqti shunga qarab hisoblanadi).
+"""
 from __future__ import annotations
 
 import asyncio
 import json
+import os
 import threading
 import time
 
@@ -50,6 +55,11 @@ async def method(token: str, method: str, request: Request):
             data = await request.json()
         except Exception:
             data = {}
+    delay = float(os.environ.get("MOCK_TG_DELAY", "0") or 0)
+    bw = float(os.environ.get("MOCK_TG_BW", "0") or 0)
+    up = sum(f["size"] for f in files.values())
+    if delay or (bw and up):
+        await asyncio.sleep(delay + (up / bw if bw else 0))
     CALLS.append({"method": method, "token": token, "data": data, "files": files, "t": time.time()})
     if method == "getMe":
         return {"ok": True, "result": {"id": 42, "is_bot": True, "first_name": "Hushyor", "username": "hushyor_test_bot"}}
@@ -61,9 +71,30 @@ async def method(token: str, method: str, request: Request):
                 return {"ok": True, "result": res}
             await asyncio.sleep(0.1)
         return {"ok": True, "result": []}
+    now = int(time.time())
     if method in ("sendMessage", "sendVideo", "sendPhoto"):
         _mid[0] += 1
-        return {"ok": True, "result": {"message_id": _mid[0], "chat": {"id": int(data.get("chat_id", 0))}}}
+        res = {"message_id": _mid[0], "date": now, "chat": {"id": int(data.get("chat_id", 0))}}
+        if method == "sendPhoto":
+            res["photo"] = [{"file_id": f"photo{_mid[0]}", "width": 320, "height": 180}]
+        if method == "sendVideo":
+            res["video"] = {"file_id": f"video{_mid[0]}"}
+        return {"ok": True, "result": res}
+    if method == "editMessageMedia":
+        media = data.get("media")
+        if isinstance(media, str):
+            try:
+                media = json.loads(media)
+            except ValueError:
+                media = {}
+        ref = (media or {}).get("media", "")
+        if ref.startswith("attach://") and ref[9:] not in files:
+            return {"ok": False, "error_code": 400, "description": "Bad Request: attached file not found"}
+        fid = ref if ref and not ref.startswith("attach://") else f"video_edit{_uid[0]}"
+        return {"ok": True, "result": {"message_id": int(data.get("message_id", 0)), "date": now,
+                                       "chat": {"id": int(data.get("chat_id", 0))}, "video": {"file_id": fid}}}
+    if method in ("editMessageCaption", "editMessageText"):
+        return {"ok": True, "result": {"message_id": int(data.get("message_id", 0)), "date": now}}
     return {"ok": True, "result": True}
 
 

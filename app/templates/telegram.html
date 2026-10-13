@@ -32,8 +32,26 @@
       <div class="field"><label class="switch"><input type="checkbox" name="telegram_enabled" {{ 'checked' if settings.telegram_enabled == '1' }}> Telegramga yuborish yoqilgan</label></div>
       <div class="field"><label class="switch"><input type="checkbox" name="telegram_send_video" {{ 'checked' if settings.telegram_send_video == '1' }}> Video klip yuborish (o'chirilsa — faqat rasm)</label></div>
       <div class="field"><label class="f">Minimal ball (bundan pastini yubormaslik)</label><input type="number" name="telegram_min_score" min="0" max="100" value="{{ settings.telegram_min_score }}"></div>
+      <div class="field"><label class="switch"><input type="checkbox" name="camera_alerts" {{ 'checked' if settings.camera_alerts == '1' }}> Kamera uzilsa xabar berish</label></div>
+      <div class="field"><label class="f">Kamera necha soniya ishlamasa xabar (s)</label><input type="number" name="camera_alert_sec" min="15" max="3600" value="{{ settings.camera_alert_sec|float|round|int }}"></div>
       <button class="btn primary sm">Saqlash</button>
     </form>
+  </div>
+</div>
+
+<div class="card" style="margin-top:16px">
+  <div class="card-h"><h2>Signal tezligi</h2><div class="grow"></div><span class="muted small">hodisa aniqlangandan Telegram'ga yetguncha · maqsad: 5 s</span></div>
+  <div class="card-b">
+    <div class="grid g4" id="lat-kpis">
+      <div class="kpi"><div class="label">Birinchi xabar (rasm), median</div><div class="value" id="lat-p50">—</div><div class="sub" id="lat-n"></div></div>
+      <div class="kpi"><div class="label">Birinchi xabar, 95%</div><div class="value" id="lat-p95">—</div><div class="sub" id="lat-in5"></div></div>
+      <div class="kpi"><div class="label">Video klip, 95%</div><div class="value" id="lat-clip">—</div><div class="sub">klip shu xabarga qo'shiladi</div></div>
+      <div class="kpi"><div class="label">Kompyuter soati</div><div class="value" id="lat-skew">—</div><div class="sub">Telegram vaqti bilan farq</div></div>
+    </div>
+    <div class="table-wrap" style="margin-top:12px"><table class="small">
+      <thead><tr><th>Vaqt</th><th>Hodisa</th><th>Bosqich</th><th>Chat</th><th>Kechikish</th><th>Natija</th></tr></thead>
+      <tbody id="lat-rows"></tbody>
+    </table></div>
   </div>
 </div>
 
@@ -51,10 +69,10 @@
       <div style="background:#fff;border-radius:10px;overflow:hidden;font-size:13px">
         <div style="background:#0b1320;aspect-ratio:16/9;display:grid;place-items:center;color:#94a3b8">▶ video klip</div>
         <div style="padding:10px 12px;line-height:1.55">⚠️ <b>Shubhali harakat — tekshirib ko'ring</b><br>📷 Kamera: Kassa oldi<br>🎯 Turi: <b>Cho'ntakka solish</b><br>📊 Ball: <b>72/100</b><br><b>Sabablar:</b><br>• O'ng qo'l faol holatdan bel/cho'ntak sohasiga bordi<br>• Qo'lda 'shisha' ko'rindi, keyin ko'rinmay qoldi</div>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px;padding:0 6px 6px"><span style="background:#eef2f6;border-radius:6px;padding:7px;text-align:center">✅ Tasdiqlash</span><span style="background:#eef2f6;border-radius:6px;padding:7px;text-align:center">❌ Xato signal</span></div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px;padding:0 6px 6px"><span style="background:#eef2f6;border-radius:6px;padding:7px;text-align:center">✅ Tasdiqlash</span><span style="background:#eef2f6;border-radius:6px;padding:7px;text-align:center">❌ Xato signal</span><span style="grid-column:1/-1;background:#eef2f6;border-radius:6px;padding:7px;text-align:center">👀 Ko'ryapman</span></div>
       </div>
     </div>
-    <p class="hint" style="margin-top:10px">Botdagi buyruqlar: /holat, /oxirgi, /tekshirilmagan, /stop, /yordam</p>
+    <p class="hint" style="margin-top:10px">Avval rasm va tugmalar darhol keladi, bir necha soniyadan keyin o'sha xabardagi rasm video klipga almashadi. Botdagi buyruqlar: /holat, /oxirgi, /tekshirilmagan, /stop, /yordam</p>
   </div>
 </div>
 {% endblock %}
@@ -90,9 +108,32 @@ async function delSub(id) { if (confirm("Foydalanuvchi o'chirilsinmi?")) { await
 document.getElementById("tgs").onsubmit = async (e) => {
   e.preventDefault();
   const f = new FormData(e.target);
-  await H.post("/api/settings", { telegram_enabled: f.get("telegram_enabled") ? "1" : "0", telegram_send_video: f.get("telegram_send_video") ? "1" : "0", telegram_min_score: f.get("telegram_min_score") });
+  await H.post("/api/settings", { telegram_enabled: f.get("telegram_enabled") ? "1" : "0", telegram_send_video: f.get("telegram_send_video") ? "1" : "0", telegram_min_score: f.get("telegram_min_score"),
+    camera_alerts: f.get("camera_alerts") ? "1" : "0", camera_alert_sec: f.get("camera_alert_sec") });
   H.toast("Saqlandi", "ok");
 };
-load(); setInterval(load, 4000);
+const sec = (v) => (v === null || v === undefined) ? "—" : v.toFixed(1) + " s";
+const STAGE = { alert: "rasm", clip: "klip", full: "to'liq" };
+async function loadLatency() {
+  const r = await H.api("/api/latency?hours=24");
+  if (!r) return;
+  const a = r.stats["telegram/alert"] || r.stats["telegram/full"], c = r.stats["telegram/clip"];
+  const p95 = document.getElementById("lat-p95");
+  document.getElementById("lat-p50").textContent = a && a.ok ? sec(a.p50) : "—";
+  p95.textContent = a && a.ok ? sec(a.p95) : "—";
+  p95.style.color = a && a.ok ? (a.p95 <= r.target_sec ? "#15803d" : "#b42318") : "";
+  document.getElementById("lat-n").textContent = a ? `${a.ok} ta xabar, 24 soat` : "hali xabar yo'q";
+  document.getElementById("lat-in5").textContent = a && a.within_5s !== null ? `${Math.round(a.within_5s * 100)}% — 5 s ichida` : "";
+  document.getElementById("lat-clip").textContent = c && c.ok ? sec(c.p95) : "—";
+  const skew = a && a.clock_skew !== null ? a.clock_skew : null;
+  const sk = document.getElementById("lat-skew");
+  sk.textContent = skew === null ? "—" : (Math.abs(skew) <= 2 ? "to'g'ri" : `${skew > 0 ? "+" : ""}${skew.toFixed(0)} s`);
+  sk.style.color = skew !== null && Math.abs(skew) > 2 ? "#b42318" : "";
+  document.getElementById("lat-rows").innerHTML = r.recent.length ? r.recent.map((x) => `<tr><td>${H.esc(x.time_str)}</td>
+    <td><a href="/events/${x.event_id}">#${x.event_id}</a></td><td>${STAGE[x.stage] || H.esc(x.stage)}</td><td class="mono">${x.chat_id}</td>
+    <td class="num" style="color:${x.latency !== null && x.latency > r.target_sec ? "#b42318" : ""}">${sec(x.latency)}</td>
+    <td>${x.ok ? "✅" : "⚠️ " + H.esc(x.error || "")}</td></tr>`).join("") : `<tr><td colspan="6" class="empty">Hali xabar yuborilmagan</td></tr>`;
+}
+load(); loadLatency(); setInterval(load, 4000); setInterval(loadLatency, 5000);
 </script>
 {% endblock %}

@@ -79,9 +79,9 @@ def _decode(f: BufFrame) -> np.ndarray:
     return cv2.imdecode(np.frombuffer(f.jpeg, np.uint8), cv2.IMREAD_COLOR)
 
 
-def render_frames(frames: list[BufFrame], highlight: int | None, banner: str,
-                  live: bool, susp: tuple[float, float] | None = None) -> list[np.ndarray]:
-    out = []
+def iter_rendered(frames: list[BufFrame], highlight: int | None, banner: str,
+                  live: bool, susp: tuple[float, float] | None = None):
+    """Kadrlarni birma-bir chizib beradi (hammasini xotiraga yig'maydi — 20 s klip ~370 MB bo'lardi)."""
     t0, t1 = frames[0].t, frames[-1].t
     for f in frames:
         img = _decode(f)
@@ -96,27 +96,40 @@ def render_frames(frames: list[BufFrame], highlight: int | None, banner: str,
             annotate.draw(img, [], [], {}, banner=banner, time_text=tt)
         if susp is not None:
             annotate.draw_timeline(img, f.t, t0, t1, susp[0], susp[1])
-        out.append(img)
-    return out
+        yield img
 
 
-def write_mp4(images: list[np.ndarray], path: Path, fps: float) -> bool:
-    if not images:
+def render_frames(frames: list[BufFrame], highlight: int | None, banner: str,
+                  live: bool, susp: tuple[float, float] | None = None) -> list[np.ndarray]:
+    return list(iter_rendered(frames, highlight, banner, live, susp))
+
+
+def write_mp4(images, path: Path, fps: float) -> bool:
+    """H.264 MP4 yozish. images — ro'yxat yoki har chaqirilganda yangi iterator qaytaradigan funksiya
+    (ffmpeg ishlamasa, zaxira yozuvchi uchun kadrlar qaytadan chiziladi)."""
+    make_iter = images if callable(images) else (lambda: iter(images))
+    it = make_iter()
+    first = next(it, None)
+    if first is None:
         return False
-    h, w = images[0].shape[:2]
+    h, w = first.shape[:2]
     w2, h2 = w // 2 * 2, h // 2 * 2
     exe = ffmpeg_exe()
     fps = max(1.0, min(30.0, fps))
+
+    def fit(img):
+        return cv2.resize(img, (w2, h2)) if img.shape[0] != h2 or img.shape[1] != w2 else img
+
     if exe:
         cmd = [exe, "-y", "-loglevel", "error", "-f", "rawvideo", "-pix_fmt", "bgr24", "-s", f"{w2}x{h2}",
                "-r", f"{fps:.3f}", "-i", "-", "-c:v", "libx264", "-preset", "veryfast", "-crf", "26",
-               "-pix_fmt", "yuv420p", "-movflags", "+faststart", str(path)]
+               "-threads", "2", "-pix_fmt", "yuv420p", "-movflags", "+faststart", str(path)]
         try:
-            proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, stderr=subprocess.PIPE)
-            for img in images:
-                if img.shape[0] != h2 or img.shape[1] != w2:
-                    img = cv2.resize(img, (w2, h2))
-                proc.stdin.write(np.ascontiguousarray(img).tobytes())
+            flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+            proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, stderr=subprocess.PIPE, creationflags=flags)
+            proc.stdin.write(np.ascontiguousarray(fit(first)).tobytes())
+            for img in it:
+                proc.stdin.write(np.ascontiguousarray(fit(img)).tobytes())
             proc.stdin.close()
             err = proc.stderr.read().decode(errors="ignore")
             proc.wait(timeout=120)
@@ -129,12 +142,26 @@ def write_mp4(images: list[np.ndarray], path: Path, fps: float) -> bool:
     for fourcc in ("avc1", "mp4v"):
         vw = cv2.VideoWriter(str(path), cv2.VideoWriter_fourcc(*fourcc), fps, (w2, h2))
         if vw.isOpened():
-            for img in images:
-                vw.write(cv2.resize(img, (w2, h2)) if img.shape[:2] != (h2, w2) else img)
+            for img in make_iter():
+                vw.write(fit(img))
             vw.release()
             if path.exists() and path.stat().st_size > 0:
                 return True
     return False
+
+
+def make_snapshot(frame: np.ndarray, ann: tuple | None, highlight: int | None, banner: str,
+                  time_text: str | None, path: Path) -> bool:
+    """Signal lahzasidagi kadrdan darhol rasm (Telegram'ga birinchi xabar uchun, ~10 ms)."""
+    h, w = frame.shape[:2]
+    scale = min(1.0, MAX_CLIP_WIDTH / w)
+    img = cv2.resize(frame, (int(w * scale), int(h * scale)), interpolation=cv2.INTER_AREA) if scale < 1 \
+        else frame.copy()
+    persons, objects, status = ann if ann else ([], [], {})
+    annotate.draw(img, persons, objects, status, highlight=highlight, scale=scale, banner=banner,
+                  time_text=time_text)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    return bool(cv2.imwrite(str(path), img, [cv2.IMWRITE_JPEG_QUALITY, 85]))
 
 
 def make_clip(frames: list[BufFrame], event_t: float, highlight: int, banner: str, live: bool,
@@ -149,21 +176,26 @@ def make_clip(frames: list[BufFrame], event_t: float, highlight: int, banner: st
     if not frames:
         return res
     res["clip_start"] = frames[0].t
-    images = render_frames(frames, highlight, banner, live, susp)
-    if not images:
-        return res
     dur = max(frames[-1].t - frames[0].t, 1e-3)
-    fps = (len(images) - 1) / dur if len(images) > 1 else 10.0
+    fps = (len(frames) - 1) / dur if len(frames) > 1 else 10.0
+    idx = int(np.argmin([abs(f.t - event_t) for f in frames]))   # hodisa lahzasidagi kadr
+    kept: dict = {}
+
+    def stream():
+        for i, img in enumerate(iter_rendered(frames, highlight, banner, live, susp)):
+            if i == idx or "thumb" not in kept:
+                kept["thumb"] = img.copy() if i == idx else img
+            yield img
+
     clip_path = out_dir / f"{stem}.mp4"
-    if write_mp4(images, clip_path, fps):
+    if write_mp4(stream, clip_path, fps):
         res["clip"] = clip_path.name
-    # Hodisa lahzasidagi kadr
-    idx = int(np.argmin([abs(f.t - event_t) for f in frames]))
-    idx = min(idx, len(images) - 1)
-    thumb = images[idx]
+    if "thumb" not in kept:
+        return res
     thumb_path = out_dir / f"{stem}.jpg"
-    cv2.imwrite(str(thumb_path), thumb, [cv2.IMWRITE_JPEG_QUALITY, 88])
+    cv2.imwrite(str(thumb_path), kept["thumb"], [cv2.IMWRITE_JPEG_QUALITY, 88])
     res["thumb"] = thumb_path.name
+    idx = min(idx, len(frames) - 1)
     if person_box is not None:
         raw = _decode(frames[idx])
         if raw is not None:

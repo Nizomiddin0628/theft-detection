@@ -102,6 +102,8 @@ DEFAULT_SETTINGS = {
     "telegram_send_video": "1",
     "telegram_min_score": "0",
     "retention_days": "30",
+    "camera_alerts": "1",
+    "camera_alert_sec": "60",
     "store_name": "Mening do'konim",
 }
 
@@ -113,4 +115,4 @@ SETTINGS_MIGRATIONS = {
 SETTINGS_VERSION = max(SETTINGS_MIGRATIONS)
 
 APP_NAME = "Hushyor AI"
-APP_VERSION = "1.1.0"
+APP_VERSION = "1.2.0"

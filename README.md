@@ -8,6 +8,22 @@ klipini avtomatik kesib, **Telegram botga** sabablari bilan yuboradi. Qo'riqchi 
 
 ---
 
+## 1.2.0 versiyadagi o'zgarishlar (0-bosqich: tezkor signal va barqarorlik)
+
+* **Telegram — avval rasm, keyin klip.** Hodisa aniqlangan zahoti o'sha kadrning rasmi, sabablar va tugmalar
+  yuboriladi (sinovda p95 0.3 s). Klip tayyor bo'lgach o'sha xabardagi rasm videoga almashadi (`editMessageMedia`).
+  Obunachilarga parallel yuboriladi, video bir marta yuklanadi (`file_id`).
+* **Yangi tugmalar:** 👀 Ko'ryapman (kim shug'ullanayotganini hammaga ko'rsatadi), ↩️ Qarorni o'zgartirish.
+* **Signal tezligi o'lchovi:** har xabar `notify_log` jadvaliga yoziladi; Telegram sahifasida median, 95% va
+  "5 s ichida" ulushi, kompyuter soati Telegram vaqtidan farq qilsa ogohlantirish. `/holat` buyrug'ida ham.
+* **Web panel jonli:** yangi hodisa SSE orqali bir zumda keladi (4 s kutmasdan), ovozli signal (yon paneldagi
+  "🔔 Ovoz" bilan o'chiriladi).
+* **Kamera uzilsa xabar:** kamera 60 s (sozlanadi) ishlamasa Telegram'ga xabar, tiklansa — yana xabar.
+* **Nazoratchi va avtomatik start:** `python run.py --supervise` dastur to'xtasa yoki qotsa qayta ishga
+  tushiradi. Windows'ga kirganda avtomatik start:
+  `powershell -ExecutionPolicy Bypass -File scripts\windows\install_autostart.ps1`
+  (o'chirish: `scripts\windows\uninstall_autostart.ps1`).
+
 ## 1.1.0 versiyadagi o'zgarishlar
 
 * **Tezlik:** kadr nisbatiga mos (to'rtburchak) model kirishi, AI oqimlari cheklangan va "aylanib turish"
@@ -116,6 +132,8 @@ Kamera ─► halqali bufer (oxirgi ~14 s)
 ```bash
 python -m tests.test_analyzer normal     # qoidalarni sintetik harakatlarda sinash
 python -m tests.eval_synthetic 40 normal 1   # realistik baholash: 7.5 kadr/s, telefon, savat, ikki odam
+python -m tests.test_latency 100          # signal tezligi: 100 hodisa, Telegram rasm/klip va web panel
+python -m tests.test_health               # kamera uzilishi va tiklanishi xabarlari
 python -m tests.test_web video.mp4        # to'liq sinov: web + AI + soxta Telegram API
 ```
 

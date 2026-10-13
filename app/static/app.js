@@ -132,11 +132,62 @@ const H = (() => {
       document.dispatchEvent(new CustomEvent("summary", { detail: s }));
     } catch (e) { /* jim */ }
   }
+  /* Ovozli signal (brauzer ruxsati: sahifada birorta bosilishdan keyin ishlaydi) */
+  const store = {
+    get(k) { try { return localStorage.getItem(k); } catch (e) { return null; } },
+    set(k, v) { try { localStorage.setItem(k, v); } catch (e) { /* jim */ } },
+  };
+  let actx = null;
+  function soundOn() { return store.get("hushyor_sound") !== "0"; }
+  function beep() {
+    if (!soundOn()) return;
+    try {
+      actx = actx || new (window.AudioContext || window.webkitAudioContext)();
+      [0, 0.22].forEach((d) => {
+        const o = actx.createOscillator(), g = actx.createGain(), t0 = actx.currentTime + d;
+        o.type = "sine"; o.frequency.value = 880;
+        g.gain.setValueAtTime(0.0001, t0);
+        g.gain.exponentialRampToValueAtTime(0.25, t0 + 0.02);
+        g.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.18);
+        o.connect(g).connect(actx.destination); o.start(t0); o.stop(t0 + 0.2);
+      });
+    } catch (e) { /* jim */ }
+  }
+  function renderSound() {
+    const el = document.getElementById("sound-toggle");
+    if (el) el.textContent = soundOn() ? "🔔 Ovoz yoqilgan" : "🔕 Ovoz o'chirilgan";
+  }
+  function toggleSound() { store.set("hushyor_sound", soundOn() ? "0" : "1"); renderSound(); if (soundOn()) beep(); }
+
+  /* Jonli oqim (SSE): yangi hodisa sekundlar ichida — 4 s kutmasdan */
+  let es = null;
+  function startStream() {
+    if (!window.EventSource) return;
+    try {
+      es = new EventSource("/api/sse");
+      es.addEventListener("ev", (m) => {
+        let d = null;
+        try { d = JSON.parse(m.data); } catch (e) { return; }
+        const ev = d.event || {};
+        if (d.kind === "new") {
+          if (ev.id > lastId) { lastId = ev.id; sessionStorage.setItem("lastEventId", String(lastId)); }
+          toast(`🚨 <b>Shubhali harakat:</b> ${esc(ev.kind_label)} — ball ${Math.round(ev.score)}<br>${esc(ev.source_name || "")}<br><a href="/events/${ev.id}">Ko'rish →</a>`, "alert", 12000);
+          beep();
+        }
+        document.dispatchEvent(new CustomEvent("ev-" + d.kind, { detail: ev }));
+        poll();
+      });
+    } catch (e) { es = null; }
+  }
+
+  document.addEventListener("DOMContentLoaded", renderSound);
+  renderSound();
+  startStream();
   poll();
-  setInterval(poll, 4000);
+  setInterval(poll, 10000);
 
   const fmtDur = (sec) => { sec = Math.round(sec || 0); const h = Math.floor(sec / 3600), m = Math.floor(sec % 3600 / 60), s = sec % 60; return h ? `${h} soat ${m} daq` : (m ? `${m} daq ${s} s` : `${s} s`); };
   const pct = (v) => (v === null || v === undefined) ? "—" : Math.round(v * 100) + "%";
 
-  return { esc, toast, api, post, evCard, review, bars, hbars, levelCls, statusBadge, fmtDur, pct, poll };
+  return { esc, toast, api, post, evCard, review, bars, hbars, levelCls, statusBadge, fmtDur, pct, poll, beep, toggleSound };
 })();

@@ -25,6 +25,7 @@
           <div class="hint" id="urihint">Odatda o'rnatilgan kamera — 0, tashqi USB kamera — 1.</div></div>
         <div class="field"><label class="switch"><input type="checkbox" name="start" checked> Hozir ishga tushirish</label></div>
         <div class="field"><label class="switch"><input type="checkbox" name="enabled"> Dastur ochilganda avtomatik yoqish</label></div>
+        <div class="field hidden" id="loopf"><label class="switch"><input type="checkbox" name="loop"> Video tugagach qaytadan boshlash (sinov uchun; takroriy hodisa yaratilmaydi)</label></div>
         <button class="btn primary" style="width:100%;justify-content:center">{{ icon('plus', 16) }} Qo'shish</button>
       </form>
       <hr style="border:0;border-top:1px solid var(--line);margin:16px 0">
@@ -52,14 +53,14 @@ const HINT = {
   rtsp: ["RTSP / HTTP manzil", "rtsp://admin:parol@192.168.1.64:554/Streaming/Channels/102", "Kamera login va parolini manzil ichida yozing."],
   file: ["Fayl yo'li", "C:\\Videolar\\dokon.mp4", "Kompyuterdagi to'liq yo'l. Video oxiriga yetganda boshidan qayta o'ynaydi."],
 };
-document.getElementById("kind").onchange = (e) => { const h = HINT[e.target.value]; document.getElementById("urilabel").textContent = h[0]; document.getElementById("uri").placeholder = h[1]; document.getElementById("urihint").textContent = h[2]; };
+document.getElementById("kind").onchange = (e) => { const h = HINT[e.target.value]; document.getElementById("urilabel").textContent = h[0]; document.getElementById("uri").placeholder = h[1]; document.getElementById("urihint").textContent = h[2]; document.getElementById("loopf").classList.toggle("hidden", e.target.value !== "file"); };
 document.getElementById("addf").onsubmit = async (e) => {
   e.preventDefault();
   const f = new FormData(e.target);
   const d = Object.fromEntries(f.entries());
-  d.start = f.get("start") ? "1" : "0"; d.enabled = f.get("enabled") ? "1" : "0";
+  d.start = f.get("start") ? "1" : "0"; d.enabled = f.get("enabled") ? "1" : "0"; d.loop = f.get("loop") ? "1" : "0";
   await H.post("/api/sources", d);
-  H.toast("Manba qo'shildi", "ok"); e.target.reset(); load();
+  H.toast("Manba qo'shildi", "ok"); e.target.reset(); document.getElementById("loopf").classList.add("hidden"); load();
 };
 async function act(id, what) {
   if (what === "delete" && !confirm("Manba o'chirilsinmi? (Hodisalar saqlanib qoladi)")) return;
