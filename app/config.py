@@ -5,16 +5,21 @@ import os
 import secrets
 from pathlib import Path
 
+# scikit-learn (OpenMP) bitta odamning bashorati uchun barcha yadrolarni ishga tushirib, ularni
+# "aylantirib" CPU ni band qiladi. Bitta oqim yetarli va kompyuterni qotirmaydi.
+os.environ.setdefault("OMP_NUM_THREADS", "1")
+
 BASE_DIR = Path(__file__).resolve().parent.parent
 DATA_DIR = BASE_DIR / "data"
 CLIPS_DIR = DATA_DIR / "clips"
 UPLOADS_DIR = DATA_DIR / "uploads"
 POSES_DIR = DATA_DIR / "poses"
+FEEDBACK_DIR = DATA_DIR / "feedback"   # o'chirilgan, lekin tekshirilgan hodisalarning o'qitish ma'lumoti
 LOGS_DIR = DATA_DIR / "logs"
 MODELS_DIR = BASE_DIR / "models"
 DB_PATH = DATA_DIR / "hushyor.db"
 
-for _d in (DATA_DIR, CLIPS_DIR, UPLOADS_DIR, POSES_DIR, LOGS_DIR, MODELS_DIR):
+for _d in (DATA_DIR, CLIPS_DIR, UPLOADS_DIR, POSES_DIR, FEEDBACK_DIR, LOGS_DIR, MODELS_DIR):
     _d.mkdir(parents=True, exist_ok=True)
 
 
@@ -77,15 +82,16 @@ DEFAULT_SETTINGS = {
     "sensitivity": "normal",
     "threshold": "60",
     "dwell_sec": "0.45",
-    "pre_sec": "6",
-    "post_sec": "4",
+    "pre_sec": "10",
+    "post_sec": "10",
     "cooldown_sec": "15",
     "ai_fps": "8",
     "infer_size": "640",
     "person_conf": "0.40",
     "object_conf": "0.30",
     "use_ml": "1",
-    "ml_weight": "20",
+    "ml_weight": "10",
+    "personal_items": "1",
     "signal_pocket": "1",
     "signal_torso": "1",
     "signal_bag": "1",
@@ -99,5 +105,12 @@ DEFAULT_SETTINGS = {
     "store_name": "Mening do'konim",
 }
 
+# Eski versiyadan qolgan sozlamalarni yangilash: {kalit: (eski standart, yangi standart)}.
+# Foydalanuvchi o'zi o'zgartirgan qiymatlarga tegilmaydi.
+SETTINGS_MIGRATIONS = {
+    2: {"pre_sec": ("6", "10"), "post_sec": ("4", "10"), "ml_weight": ("20", "10")},
+}
+SETTINGS_VERSION = max(SETTINGS_MIGRATIONS)
+
 APP_NAME = "Hushyor AI"
-APP_VERSION = "1.0.0"
+APP_VERSION = "1.1.0"

@@ -22,6 +22,34 @@ log = get_logger("worker")
 os.environ.setdefault("OPENCV_FFMPEG_CAPTURE_OPTIONS", "rtsp_transport;tcp")
 
 PREVIEW_WIDTH = 960
+RING_FPS = 12            # klip uchun saqlanadigan kadr tezligi (qo'riqchi ko'rishi uchun yetarli)
+
+
+def clip_window() -> tuple[float, float]:
+    """Klip: hodisadan oldin va keyin necha soniya (sozlamadan)."""
+    return db.fnum("pre_sec", 10), db.fnum("post_sec", 10)
+
+
+def ring_seconds() -> float:
+    pre, post = clip_window()
+    return pre + post + 3
+
+
+def susp_label(ts: float, live: bool) -> str:
+    if live:
+        return time.strftime("%H:%M:%S", time.localtime(ts))
+    m, s = divmod(max(ts, 0.0), 60)
+    return f"video {int(m)}:{s:04.1f}"
+
+
+def make_pending(ev_id: int, alert: dict, t: float, pre: float, post: float, live: bool) -> "PendingClip":
+    s0 = float(alert.get("susp_start", t))
+    s1 = float(alert.get("susp_end", t))
+    # Klip shubhali harakat boshlanishidan kamida `pre` soniya oldin boshlanadi
+    t_start = min(t, s0) - pre
+    banner = (f"TEKSHIRING: {alert['kind_label']} | ball {alert['score']:.0f} | "
+              f"shubha: {susp_label(s0, live)}")
+    return PendingClip(ev_id, t, t_start, t + post, alert["track_id"], banner, alert["box"], live, s0, s1)
 
 
 def open_capture(kind: str, uri: str) -> cv2.VideoCapture:
@@ -51,6 +79,15 @@ class PendingClip:
     banner: str
     box: list
     live: bool
+    susp_start: float | None = None
+    susp_end: float | None = None
+
+
+# Harakat filtri: kadrda odam yo'q va hech narsa qimirlamasa, AI modellari ishlatilmaydi
+MOTION_PIX = 18          # piksel o'zgarishi (0-255) shundan katta bo'lsa "harakat"
+MOTION_FRAC = 0.003      # kichraytirilgan kadrdagi harakatli piksellar ulushi
+IDLE_CHECK_SEC = 1.0     # bo'sh kamerada ham har shuncha soniyada bir marta to'liq tekshiruv
+PERSON_MEMORY_SEC = 2.0  # odam oxirgi ko'ringandan keyin shuncha vaqt to'liq tahlil davom etadi
 
 
 @dataclass
@@ -61,12 +98,34 @@ class Processor:
     analyzer: Analyzer = field(default=None)  # type: ignore[assignment]
     frame_no: int = 0
     last_objects: list = field(default_factory=list)
+    prev_small: np.ndarray | None = None
+    last_full_t: float = -1e9
+    last_person_t: float = -1e9
+    idle_skips: int = 0
 
     def __post_init__(self):
         if self.analyzer is None:
             self.analyzer = Analyzer(self.source_name)
 
+    def _motion(self, frame: np.ndarray) -> float:
+        small = cv2.resize(frame, (96, 54), interpolation=cv2.INTER_AREA)
+        g = cv2.GaussianBlur(cv2.cvtColor(small, cv2.COLOR_BGR2GRAY), (3, 3), 0)
+        prev, self.prev_small = self.prev_small, g
+        if prev is None:
+            return 1.0
+        return float((cv2.absdiff(g, prev) > MOTION_PIX).mean())
+
     def step(self, frame: np.ndarray, t: float):
+        h, w = frame.shape[:2]
+        motion = self._motion(frame)
+        idle = t - self.last_person_t > PERSON_MEMORY_SEC
+        if idle and motion < MOTION_FRAC and 0 <= t - self.last_full_t < IDLE_CHECK_SEC:
+            # Bo'sh va jim kadr — modellar ishlatilmaydi (CPU tejaladi)
+            self.idle_skips += 1
+            self.last_objects = []
+            alerts, status = self.analyzer.update([], [], t, w, h)
+            return FrameResult([], [], w, h), ([], [], {}), alerts, status
+        self.last_full_t = t
         eng = Engine.get()
         s = db.get_settings()
         size = int(float(s.get("infer_size", 640)))
@@ -74,13 +133,16 @@ class Processor:
         oconf = float(s.get("object_conf", 0.3))
         persons = eng.detect_persons(frame, size=size, conf=min(pconf, 0.3))
         persons = [p for p in persons if p.score >= 0.25]
-        # Buyumlar har 2-qadamda (CPU tejash), oraliqda oldingi natija ishlatiladi
-        if self.frame_no % 2 == 0:
+        if persons:
+            self.last_person_t = t
+        # Buyumlar faqat kadrda odam bo'lsa va har 2-qadamda (CPU tejash), oraliqda oldingi natija
+        if not persons:
+            self.last_objects = []
+        elif self.frame_no % 2 == 0:
             self.last_objects = eng.detect_objects(frame, size=size, conf=oconf)
         self.frame_no += 1
         self.tracker.high = pconf
         tracked = self.tracker.update(persons, t)
-        h, w = frame.shape[:2]
         alerts, status = self.analyzer.update(tracked, self.last_objects, t, w, h)
         res = FrameResult(tracked, self.last_objects, w, h)
         ann = ([(p.track_id, p.box.copy(), p.kpts.copy()) for p in tracked],
@@ -121,13 +183,14 @@ class SourceWorker(threading.Thread):
         self.max_risk = 0.0
         self.alerts = 0
         self.started_at = time.time()
-        pre = db.fnum("pre_sec", 6)
-        post = db.fnum("post_sec", 4)
-        self.ring = RingBuffer(seconds=pre + post + 4, max_fps=15)
+        self.ring = RingBuffer(seconds=ring_seconds(), max_fps=RING_FPS)
         self.pending: list[PendingClip] = []
         self.proc = Processor(source["name"])
         self.reader = threading.Thread(target=self._read_loop, daemon=True, name=f"read-{source['id']}")
         self.track_status: dict = {}
+        self.last_view = 0.0          # jonli oqimni kimdir oxirgi marta ko'rgan vaqt
+        self.last_preview_t = 0.0
+        self.loop_no = 0              # video fayl necha marta qaytadan boshlangani
 
     # ------------------------------------------------------------------
     def stop(self):
@@ -180,6 +243,10 @@ class SourceWorker(threading.Thread):
             if kind == "file" and not loop:
                 self.state = "tugadi"
                 break
+            if kind == "file":
+                # Video qaytadan aylanmoqda: ko'rsatish davom etadi, lekin bir xil voqea uchun
+                # takroriy hodisa va Telegram xabari yaratilmaydi (faqat birinchi o'tishda)
+                self.loop_no += 1
             if kind != "file":
                 self.state = "qayta ulanmoqda"
                 log.warning("%s: oqim uzildi, qayta ulanmoqda", self.src["name"])
@@ -209,12 +276,19 @@ class SourceWorker(threading.Thread):
                 time.sleep(1)
                 continue
             self.ring.set_annotations(ann)
+            self.ring.seconds = ring_seconds()
             self.track_status = status
             self.persons = len(ann[0])
             self.max_risk = max([v["risk"] for v in status.values()], default=0.0)
-            self.latest_jpeg = preview_jpeg(frame, ann, annotate.wall_clock(ft))
-            for a in alerts:
-                self._on_alert(a, ft)
+            # Oldindan ko'rish rasmi faqat kimdir jonli oqimni ko'rayotganda har kadrda tayyorlanadi,
+            # aks holda 2 soniyada bir marta (boshqaruv paneli rasmi uchun)
+            now = time.time()
+            if now - self.last_view < 3.0 or now - self.last_preview_t >= 2.0:
+                self.latest_jpeg = preview_jpeg(frame, ann, annotate.wall_clock(ft))
+                self.last_preview_t = now
+            if self.loop_no == 0:
+                for a in alerts:
+                    self._on_alert(a, ft)
             self._flush_pending(ft)
             n += 1
             now = time.time()
@@ -231,12 +305,9 @@ class SourceWorker(threading.Thread):
 
     def _on_alert(self, alert: dict, t: float):
         self.alerts += 1
-        pre = db.fnum("pre_sec", 6)
-        post = db.fnum("post_sec", 4)
+        pre, post = clip_window()
         ev_id = self.manager.create_event(alert, source=self.src, job_id=None, video_time=None)
-        banner = f"TEKSHIRING: {alert['kind_label']} | ball {alert['score']:.0f}"
-        self.pending.append(PendingClip(ev_id, t, t - pre, t + post, alert["track_id"], banner,
-                                        alert["box"], True))
+        self.pending.append(make_pending(ev_id, alert, t, pre, post, live=True))
 
     def _flush_pending(self, t: float, force: bool = False):
         done = [p for p in self.pending if force or t >= p.t_end]
@@ -285,8 +356,8 @@ class FileJob(threading.Thread):
         total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
         ai_fps = max(1.0, db.fnum("ai_fps", 8))
         step = max(1, int(round(fps / ai_fps)))
-        pre, post = db.fnum("pre_sec", 6), db.fnum("post_sec", 4)
-        ring = RingBuffer(seconds=pre + post + 4, max_fps=15)
+        pre, post = clip_window()
+        ring = RingBuffer(seconds=pre + post + 3, max_fps=RING_FPS)
         src = {"id": None, "name": f"Video: {self.job['filename']}", "kind": "upload"}
         proc = Processor(src["name"])
         pending: list[PendingClip] = []
@@ -308,9 +379,7 @@ class FileJob(threading.Thread):
                     for a in alerts:
                         self.events += 1
                         ev_id = self.manager.create_event(a, source=src, job_id=jid, video_time=t)
-                        banner = f"TEKSHIRING: {a['kind_label']} | ball {a['score']:.0f}"
-                        pending.append(PendingClip(ev_id, t, t - pre, t + post, a["track_id"], banner,
-                                                   a["box"], False))
+                        pending.append(make_pending(ev_id, a, t, pre, post, live=False))
                 else:
                     ring.push(frame, t, time.time())
                 for p in [p for p in pending if t >= p.t_end]:

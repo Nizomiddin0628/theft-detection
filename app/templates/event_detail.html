@@ -12,13 +12,20 @@
     <div class="card">
       <div class="card-b">
         {% if ev.clip_url %}
-        <div class="video-box"><video src="{{ ev.clip_url }}" controls autoplay muted loop playsinline poster="{{ ev.thumb_url or '' }}"></video></div>
+        <div class="video-box"><video id="clip" src="{{ ev.clip_url }}" controls autoplay muted loop playsinline poster="{{ ev.thumb_url or '' }}"></video></div>
+        {% if ev.susp_offset is not none %}
+        <div class="susp-bar" id="susp-bar" title="Qizil — shubhali harakat"><i id="susp-seg"></i><b id="susp-head"></b></div>
+        {% endif %}
         {% elif ev.thumb_url %}
         <div class="video-box"><img src="{{ ev.thumb_url }}" alt=""></div>
         {% else %}
         <div class="video-box"><div class="empty" style="color:#94a3b8;padding-top:22%">Klip tayyorlanmoqda… sahifani bir necha soniyadan keyin yangilang.</div></div>
         {% endif %}
+        {% if ev.susp_label %}
+        <div class="note warn" style="margin-top:12px">{{ icon('alert', 16) }} <span>Shubhali lahza: <b>{{ ev.susp_label }}</b>{% if ev.susp_offset is not none %} — klipning <b>{{ '%.1f'|format(ev.susp_offset) }}-soniyasi</b>{% endif %}{% if ev.susp_dur %} ({{ '%.1f'|format(ev.susp_dur) }} s davom etgan){% endif %}</span></div>
+        {% endif %}
         <div class="row" style="margin-top:12px">
+          {% if ev.clip_url and ev.susp_offset is not none %}<button class="btn primary" onclick="toSusp()">{{ icon('eye', 16) }} Shubhali lahzaga o'tish</button>{% endif %}
           {% if ev.clip_url %}<a class="btn" href="{{ ev.clip_url }}" download>{{ icon('download', 16) }} Klipni yuklab olish</a>{% endif %}
           <button class="btn" onclick="resend(this)">{{ icon('send', 16) }} Telegramga qayta yuborish</button>
           <div style="flex:1"></div>
@@ -44,6 +51,7 @@
       <table style="margin-top:12px" class="small">
         <tr><td class="muted">Hodisa</td><td><b>#{{ ev.id }}</b></td></tr>
         <tr><td class="muted">Vaqt</td><td>{{ ev.time_str }}</td></tr>
+        {% if ev.susp_label %}<tr><td class="muted">Shubhali lahza</td><td><b>{{ ev.susp_label }}</b></td></tr>{% endif %}
         {% if ev.video_time is not none %}<tr><td class="muted">Videoda</td><td>{{ '%.1f'|format(ev.video_time) }}-soniya</td></tr>{% endif %}
         <tr><td class="muted">Kamera</td><td>{{ ev.source_name }}</td></tr>
         <tr><td class="muted">Odam ID</td><td>#{{ ev.track_id }}</td></tr>
@@ -87,6 +95,31 @@ async function rev(status, btn) {
   try { const r = await H.post(`/api/events/${EV.id}/review`, { status, note: document.getElementById("note").value }); renderState(r.event); H.toast("Saqlandi", "ok"); }
   finally { btn.disabled = false; }
 }
+function toSusp() {
+  const v = document.getElementById("clip");
+  if (!v || EV.susp_offset === null) return;
+  v.currentTime = Math.max(0, EV.susp_offset - 1);
+  v.play();
+}
+(function suspBar() {
+  const v = document.getElementById("clip"), bar = document.getElementById("susp-bar");
+  if (!v || !bar) return;
+  const seg = document.getElementById("susp-seg"), head = document.getElementById("susp-head");
+  const draw = () => {
+    const d = v.duration;
+    if (!d || !isFinite(d)) return;
+    const a = EV.susp_offset / d, b = (EV.susp_offset + (EV.susp_dur || 0.5)) / d;
+    seg.style.left = (a * 100) + "%";
+    seg.style.width = Math.max(0.8, (b - a) * 100) + "%";
+    head.style.left = (v.currentTime / d * 100) + "%";
+  };
+  v.addEventListener("loadedmetadata", draw);
+  v.addEventListener("timeupdate", draw);
+  bar.addEventListener("click", (e) => {
+    const r = bar.getBoundingClientRect();
+    if (v.duration) v.currentTime = (e.clientX - r.left) / r.width * v.duration;
+  });
+})();
 async function saveNote(btn) { await H.post(`/api/events/${EV.id}/note`, { note: document.getElementById("note").value }); H.toast("Izoh saqlandi", "ok"); }
 async function resend(btn) { btn.disabled = true; try { await H.post(`/api/events/${EV.id}/resend`); H.toast("Telegram navbatiga qo'shildi", "ok"); } finally { btn.disabled = false; } }
 async function delEv() { if (!confirm("Hodisa va klip o'chirilsinmi?")) return; await H.post(`/api/events/${EV.id}/delete`); location.href = "/events"; }

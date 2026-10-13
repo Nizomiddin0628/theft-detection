@@ -50,6 +50,7 @@ const H = (() => {
         <span class="play"><svg width="44" height="44" viewBox="0 0 24 24" fill="#fff"><path d="M8 5v14l11-7z"/></svg></span></a>
       <div class="body"><h3>${esc(ev.kind_label)}</h3>
         <div class="muted small">#${ev.id} · ${esc(ev.time_str)}</div>
+        ${ev.susp_label ? `<div class="small" style="color:#b42318">Shubha: ${esc(ev.susp_label)}${ev.susp_offset !== null && ev.susp_offset !== undefined ? ` · klipda ${ev.susp_offset} s` : ""}</div>` : ""}
         <div class="small" style="margin-top:2px">${esc(ev.source_name || "")}</div></div>
       <div class="foot">${btns}</div></div>`;
   }

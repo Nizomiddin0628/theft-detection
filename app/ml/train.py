@@ -18,7 +18,7 @@ from typing import Callable
 import numpy as np
 
 from .. import db
-from ..config import MODELS_DIR, POSES_DIR
+from ..config import FEEDBACK_DIR, MODELS_DIR, POSES_DIR
 from ..logutil import get_logger
 from . import synthetic
 from .features import feature_names, window_features
@@ -28,8 +28,20 @@ log = get_logger("train")
 WINDOW = 2.5
 
 
+def _feedback_sample(data: dict, status: str, ev_id) -> dict | None:
+    t_ev = float(data.get("t_event", 0))
+    # Ishlash paytidagi bilan bir xil oyna: signal lahzasigacha bo'lgan oxirgi WINDOW soniya
+    seq = [(float(t), np.asarray(k, dtype=np.float32), np.asarray(b, dtype=np.float32))
+           for t, k, b in data.get("seq", []) if t_ev - WINDOW <= float(t) <= t_ev + 0.01]
+    if len(seq) < 4:
+        return None
+    return {"frames": seq, "label": 1 if status == "tasdiqlangan" else 0,
+            "group": f"ev{ev_id}", "behavior": "feedback"}
+
+
 def feedback_windows() -> list[dict]:
-    out = []
+    """Qo'riqchi javoblari: bazadagi hodisalar + o'chirilgan hodisalar arxivi (data/feedback)."""
+    out, seen = [], set()
     for ev in db.rows("SELECT id, status, pose_path FROM events WHERE status IN ('tasdiqlangan','rad_etilgan') "
                       "AND pose_path IS NOT NULL"):
         p = POSES_DIR / ev["pose_path"]
@@ -39,13 +51,22 @@ def feedback_windows() -> list[dict]:
             data = json.loads(p.read_text(encoding="utf-8"))
         except ValueError:
             continue
-        t_ev = float(data.get("t_event", 0))
-        seq = [(float(t), np.asarray(k, dtype=np.float32), np.asarray(b, dtype=np.float32))
-               for t, k, b in data.get("seq", []) if t_ev - 2.0 <= float(t) <= t_ev + 0.5]
-        if len(seq) < 4:
+        s = _feedback_sample(data, ev["status"], ev["id"])
+        if s:
+            out.append(s)
+            seen.add(int(ev["id"]))
+    for p in sorted(FEEDBACK_DIR.glob("ev*.json")):
+        try:
+            data = json.loads(p.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
             continue
-        out.append({"frames": seq, "label": 1 if ev["status"] == "tasdiqlangan" else 0,
-                    "group": f"ev{ev['id']}", "behavior": "feedback"})
+        ev_id = int(data.get("event_id", 0))
+        if ev_id in seen or data.get("status") not in ("tasdiqlangan", "rad_etilgan"):
+            continue
+        s = _feedback_sample(data, data["status"], ev_id)
+        if s:
+            out.append(s)
+            seen.add(ev_id)
     return out
 
 

@@ -86,5 +86,24 @@ def draw(frame: np.ndarray, persons: list, objects: list, status: dict | None = 
     return img
 
 
+def draw_timeline(img: np.ndarray, t: float, t0: float, t1: float, s0: float, s1: float) -> None:
+    """Klip ustida vaqt chizig'i: qizil bo'lak — shubhali harakat, oq chiziq — hozirgi joy.
+    Shubhali lahza davomida kadr qizil ramka bilan o'ralib, "SHUBHALI LAHZA" yoziladi."""
+    h, w = img.shape[:2]
+    span = max(t1 - t0, 1e-3)
+    y0, y1 = 34, 46
+    x = lambda tt: int(round(6 + (w - 12) * min(max((tt - t0) / span, 0.0), 1.0)))  # noqa: E731
+    cv2.rectangle(img, (5, y0 - 1), (w - 5, y1 + 1), (20, 20, 20), -1)
+    cv2.rectangle(img, (6, y0), (w - 6, y1), (150, 150, 150), -1)
+    cv2.rectangle(img, (x(s0), y0), (max(x(s1), x(s0) + 4), y1), (40, 40, 230), -1)
+    cv2.line(img, (x(t), y0 - 4), (x(t), y1 + 4), (0, 0, 0), 5)
+    cv2.line(img, (x(t), y0 - 4), (x(t), y1 + 4), WHITE, 2)
+    if s0 - 0.3 <= t <= s1 + 1.0:
+        cv2.rectangle(img, (0, 0), (w - 1, h - 1), (40, 40, 230), 6)
+        _label(img, f"SHUBHALI LAHZA  {max(t - s0, 0.0):.1f} s", (8, y1 + 26), (40, 40, 230), scale=0.7, thick=2)
+    elif t < s0:
+        _label(img, f"shubhali lahzagacha {s0 - t:.0f} s", (8, y1 + 22), (90, 90, 90), scale=0.5)
+
+
 def wall_clock(ts: float | None = None) -> str:
     return time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(ts or time.time()))

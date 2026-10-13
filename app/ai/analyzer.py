@@ -38,6 +38,19 @@ BASE_POINTS = {"pocket": 35, "torso": 40, "bag": 40, "offscreen": 30}
 SIDE_LABEL = {"L": "Chap", "R": "O'ng"}
 MIN_WRIST_CONF = 0.45
 
+# Xaridorning o'z buyumlari: cho'ntakka solinsa ham o'g'irlik emas (odatda o'z telefoni)
+PERSONAL_CLASSES = {67: "telefon"}
+PERSONAL_PENALTY = 20
+# Dwell'dan keyin shuncha soniya davomida ball qayta hisoblanadi (keyin paydo bo'lgan dalil ham hisobga olinadi)
+EVAL_WINDOW = 2.0
+# Boshqa odam ramkasi bilan ustma-ust tushish ulushi — bundan ko'p bo'lsa skelet aralashib ketadi
+OCCLUSION_FRAC = 0.40
+# Tana o'lchami keskin o'zgarsa (skelet boshqa odamga "sakrasa") kadr tashlab yuboriladi
+SCALE_JUMP = (0.70, 1.45)
+# Bir kamerada takroriy signal: shu vaqt ichida va shu joyda (IoU) bo'lsa — o'sha odam
+DUP_SEC = 3.0
+DUP_IOU = 0.30
+
 
 @dataclass
 class HandMem:
@@ -55,7 +68,8 @@ class HandMem:
     last_vis_vy: float = 0.0
     prev_y: float = float("nan")
     prev_t: float = 0.0
-    fired_zone_t: float = -1e9
+    alerted_zone_t: float = -1e9
+    entry_active_t: float = -1e9      # zonaga kirishdan oldin qo'l oxirgi marta faol bo'lgan vaqt
     zone_entry_conf: float = 0.0
     cand_cls: int = -1
     cand_center: np.ndarray = field(default_factory=lambda: np.zeros(2))
@@ -75,6 +89,8 @@ class TrackMem:
     risk: float = 0.0
     last_seen: float = 0.0
     label: str = ""
+    scales: deque = field(default_factory=lambda: deque(maxlen=12))
+    skipped: int = 0
 
 
 def _expand(box: np.ndarray, frac: float) -> np.ndarray:
@@ -94,11 +110,23 @@ def _box_iou(a: np.ndarray, b: np.ndarray) -> float:
     return inter / ua if ua > 0 else 0.0
 
 
+def _covered_frac(a: np.ndarray, others: list[np.ndarray]) -> float:
+    """a ramkasining qancha qismi boshqa odamlar ramkasi bilan ustma-ust (eng kattasi)."""
+    area = max(float((a[2] - a[0]) * (a[3] - a[1])), 1.0)
+    best = 0.0
+    for b in others:
+        w = min(a[2], b[2]) - max(a[0], b[0])
+        h = min(a[3], b[3]) - max(a[1], b[1])
+        if w > 0 and h > 0:
+            best = max(best, float(w * h) / area)
+    return best
+
+
 class Analyzer:
     def __init__(self, source_name: str = ""):
         self.tracks: dict[int, TrackMem] = {}
         self.source_name = source_name
-        self.last_source_alert = -1e9
+        self.recent_alerts: deque = deque(maxlen=20)   # (t, box) — takroriy signalni aniqlash uchun
 
     # ------------------------------------------------------------------
     def _params(self) -> dict:
@@ -110,14 +138,29 @@ class Analyzer:
             except (TypeError, ValueError):
                 return d
         return {
-            "threshold": f("threshold", 35),
-            "dwell": f("dwell_sec", 0.3),
+            "threshold": f("threshold", 60),
+            "dwell": f("dwell_sec", 0.45),
             "cooldown": f("cooldown_sec", 15),
             "use_ml": s.get("use_ml", "1") == "1",
-            "ml_weight": f("ml_weight", 30),
+            "ml_weight": f("ml_weight", 10),
+            "personal": s.get("personal_items", "1") == "1",
             "sig": {k: s.get(f"signal_{k}", "1") == "1"
                     for k in ("pocket", "torso", "bag", "vanish", "looking", "offscreen")},
         }
+
+    def _is_duplicate(self, t: float, box: np.ndarray) -> bool:
+        """Kuzatuvchi ID ni almashtirib yuborsa, o'sha odam uchun ikkinchi signal chiqmasin.
+        Boshqa joydagi boshqa odamning signali esa bloklanmaydi."""
+        for t0, b0 in self.recent_alerts:
+            if t - t0 < DUP_SEC and _box_iou(box, b0) > DUP_IOU:
+                return True
+        return False
+
+    @staticmethod
+    def _reset_zones(mem: "TrackMem") -> None:
+        for hm in mem.hands.values():
+            hm.zone = None
+            hm.zone_from_active = False
 
     # ------------------------------------------------------------------
     def update(self, persons: list[Person], objects: list[Obj], t: float,
@@ -128,18 +171,36 @@ class Analyzer:
         items = [o for o in objects if o.kind == "item"]
         bags = [o for o in objects if o.kind == "bag"]
         ml = BehaviorModel.get() if p["use_ml"] else None
+        all_boxes = [pp.box for pp in persons]
 
-        for person in persons:
+        for pi, person in enumerate(persons):
             tid = person.track_id
             mem = self.tracks.setdefault(tid, TrackMem())
             mem.last_seen = t
-            mem.hist.append((t, person.kpts.copy(), person.box.copy()))
             body = body_from_kpts(person.kpts, person.box)
             k = person.kpts
-            good_quality = (k[5, 2] >= 0.4 and k[6, 2] >= 0.4 and
-                            (person.box[3] - person.box[1]) >= frame_h * 0.12 and len(mem.hist) >= 3)
-            if body is None or not good_quality:
+            good_quality = (body is not None and k[5, 2] >= 0.4 and k[6, 2] >= 0.4 and
+                            (person.box[3] - person.box[1]) >= frame_h * 0.12)
+            # Odamlar bir-birini to'sganda pose model ularning nuqtalarini aralashtirib yuboradi
+            # (bir odamning qo'li ikkinchisining tanasiga "tushadi") — bunday kadrlar tahlil qilinmaydi.
+            occluded = _covered_frac(person.box, all_boxes[:pi] + all_boxes[pi + 1:]) > OCCLUSION_FRAC
+            # Tana uzunligi (yelka→son) faqat ikkala son ko'ringanda solishtiriladi: sonlar ko'rinmay
+            # qolganda uzunlik boshqa usulda taxmin qilinadi va bu "sakrash" emas
+            jump = False
+            if body is not None and body.hips_visible and body.shoulders_visible:
+                if len(mem.scales) >= 4:
+                    ratio = body.scale / max(float(np.median(mem.scales)), 1e-3)
+                    jump = not (SCALE_JUMP[0] <= ratio <= SCALE_JUMP[1])
+                mem.scales.append(body.scale)
+            if not good_quality or occluded or jump:
                 mem.risk *= 0.9
+                mem.skipped += 1
+                if occluded:
+                    self._reset_zones(mem)
+                status[tid] = {"risk": mem.risk, "label": "", "box": person.box}
+                continue
+            mem.hist.append((t, person.kpts.copy(), person.box.copy()))
+            if len(mem.hist) < 3:
                 status[tid] = {"risk": mem.risk, "label": "", "box": person.box}
                 continue
             nose = body.norm[0]
@@ -229,14 +290,17 @@ class Analyzer:
                     hm.zone = zone
                     hm.zone_enter_t = t
                     hm.zone_from_active = bool(zone and entering_ok and recent_active and hm.last_active_t < t)
+                    hm.entry_active_t = max(hm.last_active_t, hm.hold_t)
                     hm.zone_low_conf = False
                     hm.zone_entry_conf = hs["conf"] if hs["vis"] else 0.0
                 # Kirishda qo'l aniq ko'ringan, keyin ko'rinishi keskin pasaygan bo'lsa — yashirilgan
                 if zone and hm.zone_entry_conf >= 0.6 and (not hs["vis"] or hs["conf"] < 0.42):
                     hm.zone_low_conf = True
 
-                if zone and hm.zone_from_active and t - hm.zone_enter_t >= p["dwell"] \
-                        and hm.fired_zone_t < hm.zone_enter_t:
+                # Ball dwell lahzasida bir marta emas, keyingi EVAL_WINDOW soniya davomida har kadrda
+                # qayta hisoblanadi: buyum biroz keyin yo'qolsa yoki model ehtimoli keyin oshsa ham ushlanadi.
+                in_dwell = zone and p["dwell"] <= t - hm.zone_enter_t <= p["dwell"] + EVAL_WINDOW
+                if in_dwell and hm.zone_from_active and hm.alerted_zone_t < hm.zone_enter_t:
                     pts = BASE_POINTS[zone]
                     reasons = [f"{SIDE_LABEL[side]} qo'l faol holatdan {ZONE_LABELS[zone]} bordi "
                                f"({t - hm.zone_enter_t:.1f} s)"]
@@ -254,7 +318,14 @@ class Analyzer:
                         bd.append(["Oldin qo'l uzatilgan (polkaga)", 5])
                         reasons.append("Bundan oldin qo'l uzatilgan (polkadan olish)")
                     held_recent = t - hm.hold_t <= 4.0 and hm.hold_name
-                    if held_recent:
+                    personal = held_recent and p["personal"] and hm.hold_cls in PERSONAL_CLASSES
+                    if personal:
+                        # O'z telefonini cho'ntakka qaytarish — do'kondagi eng ko'p uchraydigan oddiy harakat
+                        pts -= PERSONAL_PENALTY
+                        bd.append([f"Qo'lda {hm.hold_name} — odatda xaridorning o'z buyumi", -PERSONAL_PENALTY])
+                        reasons.append(f"Qo'lda {hm.hold_name} bor edi — bu ko'pincha xaridorning o'z buyumi "
+                                       f"(ishonch pasaytirildi)")
+                    elif held_recent:
                         pts += 15
                         bd.append([f"Qo'lda buyum bor edi: {hm.hold_name}", 15])
                         reasons.append(f"Qo'lda '{hm.hold_name}' ko'rindi")
@@ -269,8 +340,12 @@ class Analyzer:
                             pts += 20
                             bd.append(["Buyum keyin ko'rinmay qoldi", 20])
                             reasons.append(f"'{hm.hold_name}' keyin ko'rinmay qoldi")
-                    candidates.append((pts, zone, side, reasons, bd))
-                    hm.fired_zone_t = t
+                    # Shubhali harakat boshlanishi: qo'l oxirgi marta faol (yuqorida / buyum bilan)
+                    # bo'lgan lahza, lekin zonaga kirishdan 2.5 s dan uzoq emas
+                    start = hm.zone_enter_t
+                    if hm.entry_active_t > -1e8:
+                        start = max(hm.zone_enter_t - 2.5, min(hm.entry_active_t, hm.zone_enter_t))
+                    candidates.append((pts, zone, side, reasons, bd, start))
 
             # Atrofga qarash
             look_pts = 0
@@ -290,7 +365,7 @@ class Analyzer:
 
             if candidates:
                 candidates.sort(key=lambda c: c[0], reverse=True)
-                pts, zone, side, reasons, bd = candidates[0]
+                pts, zone, side, reasons, bd, susp_start = candidates[0]
                 # Qarshi dalillar: yurib ketayotgan odam va orqa tomondan ko'rinish
                 speed = self._speed(mem, t)
                 if speed > 0.35:
@@ -315,15 +390,17 @@ class Analyzer:
                 score = float(max(0, min(100, pts)))
                 mem.risk = max(mem.risk, score)
                 if (score >= p["threshold"] and t - mem.last_alert_t >= p["cooldown"]
-                        and t - self.last_source_alert >= 3.0):
+                        and not self._is_duplicate(t, person.box)):
                     mem.last_alert_t = t
-                    self.last_source_alert = t
+                    mem.hands[side].alerted_zone_t = t
+                    self.recent_alerts.append((t, person.box.copy()))
                     level = "yuqori" if score >= 75 else ("o'rta" if score >= 55 else "past")
                     alerts.append({
                         "track_id": tid, "t": t, "score": score, "level": level, "kind": zone,
                         "kind_label": KIND_LABELS[zone], "side": side, "reasons": reasons,
                         "breakdown": bd, "ml_prob": mem.ml_prob, "box": person.box.tolist(),
-                        "pose_seq": [[float(a), k.tolist(), b.tolist()] for a, k, b in list(mem.hist)],
+                        "susp_start": float(susp_start), "susp_end": float(t),
+                        "pose_seq": [[float(a), kk.tolist(), bb.tolist()] for a, kk, bb in list(mem.hist)],
                     })
             else:
                 mem.risk *= 0.93

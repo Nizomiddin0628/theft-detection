@@ -243,3 +243,8 @@ input[type=range] { width: 100%; accent-color: var(--brand); }
   .live-grid { grid-template-columns: 1fr; }
 }
 @media (max-width: 560px) { .g4, .g5 { grid-template-columns: 1fr 1fr; } .kpi .value { font-size: 22px; } }
+
+/* Klip ostidagi vaqt chizig'i: qizil — shubhali harakat */
+.susp-bar { position: relative; height: 10px; margin-top: 8px; border-radius: 5px; background: #e2e8f0; cursor: pointer; }
+.susp-bar i { position: absolute; top: 0; bottom: 0; background: #dc2626; border-radius: 5px; }
+.susp-bar b { position: absolute; top: -3px; width: 3px; height: 16px; background: #0f172a; border-radius: 2px; }

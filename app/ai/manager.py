@@ -8,7 +8,7 @@ import time
 from pathlib import Path
 
 from .. import db
-from ..config import CLIPS_DIR, POSES_DIR
+from ..config import CLIPS_DIR, FEEDBACK_DIR, POSES_DIR, UPLOADS_DIR
 from ..logutil import get_logger
 from .clipper import make_clip
 from .worker import FileJob, PendingClip, SourceWorker
@@ -75,8 +75,10 @@ class Manager:
             out.append(info)
         return out
 
-    def preview(self, source_id: int) -> bytes:
+    def preview(self, source_id: int, viewing: bool = False) -> bytes:
         w = self.workers.get(source_id)
+        if w and viewing:
+            w.last_view = time.time()   # jonli oqim ochiq — oldindan ko'rish har kadrda tayyorlanadi
         return w.latest_jpeg if w else b""
 
     def autostart(self) -> None:
@@ -130,6 +132,8 @@ class Manager:
             "breakdown": alert["breakdown"],
             "track_id": alert["track_id"],
             "ml_prob": alert.get("ml_prob"),
+            "susp_start": alert.get("susp_start"),
+            "susp_end": alert.get("susp_end", alert.get("t")),
             "status": "yangi",
         })
         pose_path = POSES_DIR / f"event_{ev_id:05d}.json"
@@ -143,12 +147,14 @@ class Manager:
 
     def finish_clip(self, p: PendingClip, frames: list) -> None:
         stem = f"ev{p.event_id:05d}_{time.strftime('%Y%m%d_%H%M%S')}"
+        susp = (p.susp_start, p.susp_end) if p.susp_start is not None else None
         try:
-            res = make_clip(frames, p.t_event, p.track_id, p.banner, p.live, CLIPS_DIR, stem, p.box)
+            res = make_clip(frames, p.t_event, p.track_id, p.banner, p.live, CLIPS_DIR, stem, p.box, susp)
         except Exception:
             log.exception("Klip yaratishda xato (hodisa #%d)", p.event_id)
-            res = {"clip": None, "thumb": None, "crop": None}
-        db.update_event(p.event_id, clip_path=res["clip"], thumb_path=res["thumb"], crop_path=res["crop"])
+            res = {"clip": None, "thumb": None, "crop": None, "clip_start": None}
+        db.update_event(p.event_id, clip_path=res["clip"], thumb_path=res["thumb"], crop_path=res["crop"],
+                        clip_start=res.get("clip_start"))
         ev = db.get_event(p.event_id)
         for fn in list(self.listeners):
             try:
@@ -173,10 +179,45 @@ class Manager:
         cutoff = time.time() - days * 86400
         old = db.rows("SELECT * FROM events WHERE created_at < ? AND status != 'tasdiqlangan'", (cutoff,))
         for ev in old:
+            # Rad etilgan hodisa — modelni o'qitish uchun eng qimmatli ma'lumot: video o'chiriladi,
+            # lekin skelet izi va qo'riqchi javobi arxivda qoladi
+            archive_feedback(ev)
             delete_event_files(ev)
             db.execute("DELETE FROM events WHERE id=?", (ev["id"],))
+            db.execute("DELETE FROM tg_messages WHERE event_id=?", (ev["id"],))
         if old:
             log.info("%d ta eski hodisa o'chirildi", len(old))
+        # Eski yuklangan videolar (tahlil qilib bo'lingan) ham disk to'lmasligi uchun o'chiriladi
+        running = {str(j.job.get("path")) for j in list(self.jobs.values())}
+        live_files = {str(w.src.get("uri")) for w in list(self.workers.values()) if w.is_alive()}
+        for f in UPLOADS_DIR.glob("*"):
+            try:
+                if (f.is_file() and f.stat().st_mtime < cutoff and str(f) not in running
+                        and str(f) not in live_files):
+                    f.unlink()
+            except OSError:
+                pass
+
+
+def archive_feedback(ev: dict) -> None:
+    """Tekshirilgan (tasdiqlangan / rad etilgan) hodisaning skelet izi va javobini arxivga yozadi.
+
+    Hodisa o'chirilsa ham, bu ma'lumot modelni qayta o'qitishda ishlatiladi.
+    """
+    if ev.get("status") not in ("tasdiqlangan", "rad_etilgan") or not ev.get("pose_path"):
+        return
+    src = POSES_DIR / ev["pose_path"]
+    if not src.exists():
+        return
+    try:
+        data = json.loads(src.read_text(encoding="utf-8"))
+        data.update({"event_id": ev["id"], "status": ev["status"], "kind": ev.get("kind"),
+                     "score": ev.get("score"), "source_name": ev.get("source_name"),
+                     "created_at": ev.get("created_at"), "archived_at": time.time()})
+        FEEDBACK_DIR.mkdir(parents=True, exist_ok=True)
+        (FEEDBACK_DIR / f"ev{int(ev['id']):05d}.json").write_text(json.dumps(data), encoding="utf-8")
+    except (OSError, ValueError):
+        log.exception("Hodisa #%s javobini arxivlab bo'lmadi", ev.get("id"))
 
 
 def delete_event_files(ev: dict) -> None:

@@ -65,6 +65,26 @@ def fmt_time(ts: float | None) -> str:
     return time.strftime("%d.%m.%Y %H:%M:%S", time.localtime(ts)) if ts else "—"
 
 
+def susp_info(ev: dict) -> dict:
+    """Shubhali lahza: qachon bo'lgani va klipning nechanchi soniyasida ekani."""
+    s0 = ev.get("susp_start")
+    live = ev.get("job_id") is None
+    label, offset = None, None
+    if s0 is not None:
+        if live:
+            label = time.strftime("%H:%M:%S", time.localtime(s0))
+        else:
+            m, sec = divmod(max(float(s0), 0.0), 60)
+            label = f"videoning {int(m)}:{sec:04.1f} soniyasi"
+        if ev.get("clip_start") is not None:
+            offset = round(max(float(s0) - float(ev["clip_start"]), 0.0), 1)
+    dur = None
+    if s0 is not None and ev.get("susp_end") is not None:
+        dur = round(max(float(ev["susp_end"]) - float(s0), 0.0), 1)
+    return {"susp_label": label, "susp_offset": offset, "susp_dur": dur}
+
+
+
 class TelegramBot:
     def __init__(self, token: str = TELEGRAM_BOT_TOKEN, api_base: str = TELEGRAM_API_BASE):
         self.token = token.strip()
@@ -306,12 +326,19 @@ class TelegramBot:
         when = fmt_time(ev["created_at"])
         if ev.get("video_time") is not None:
             when += f" (videoda {ev['video_time']:.1f}-soniya)"
+        si = susp_info(ev)
+        susp_line = None
+        if si["susp_label"]:
+            susp_line = f"⏱ Shubhali lahza: <b>{esc(si['susp_label'])}</b>"
+            if si["susp_offset"] is not None:
+                susp_line += f" — klipning <b>{si['susp_offset']:.0f}-soniyasida</b> (qizil belgi)"
         reasons = ev.get("reasons") or []
         lines = [
             "⚠️ <b>Shubhali harakat — tekshirib ko'ring</b>",
             f"🏪 {esc(store)}",
             f"📷 Kamera: {esc(ev.get('source_name'))}",
             f"🕒 {esc(when)}",
+            *([susp_line] if susp_line else []),
             f"🎯 Turi: <b>{esc(KIND_UZ.get(ev.get('kind'), ev.get('kind')))}</b>",
             f"📊 Ball: <b>{ev['score']:.0f}/100</b> ({esc(ev.get('level'))})",
             "",

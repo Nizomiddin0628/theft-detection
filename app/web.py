@@ -23,11 +23,11 @@ from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
 
 from . import db
-from .ai.manager import delete_event_files, get_manager
+from .ai.manager import archive_feedback, delete_event_files, get_manager
 from .config import (ADMIN_PASSWORD, ADMIN_USER, APP_NAME, APP_VERSION, BASE_DIR, CLIPS_DIR, DATA_DIR,
                      MODELS_DIR, SECRET_KEY, SENSITIVITY_PRESETS, UPLOADS_DIR)
 from .logutil import MEMORY_LOG, get_logger, setup_logging
-from .telegram_bot import KIND_UZ, get_bot
+from .telegram_bot import KIND_UZ, get_bot, susp_info
 
 log = get_logger("web")
 APP_DIR = Path(__file__).resolve().parent
@@ -153,6 +153,7 @@ def event_public(ev: dict) -> dict:
     ev["time_str"] = time.strftime("%d.%m.%Y %H:%M:%S", time.localtime(ev["created_at"]))
     ev["reviewed_str"] = (time.strftime("%d.%m.%Y %H:%M", time.localtime(ev["reviewed_at"]))
                           if ev.get("reviewed_at") else None)
+    ev.update(susp_info(ev))
     for k in ("reasons", "breakdown"):
         if isinstance(ev.get(k), str):
             try:
@@ -319,7 +320,7 @@ async def _mjpeg(get_frame, request: Request):
 @app.get("/stream/{source_id}")
 async def stream(request: Request, source_id: int):
     mgr = get_manager()
-    return StreamingResponse(_mjpeg(lambda: mgr.preview(source_id), request),
+    return StreamingResponse(_mjpeg(lambda: mgr.preview(source_id, viewing=True), request),
                              media_type="multipart/x-mixed-replace; boundary=frame",
                              headers={"Cache-Control": "no-store"})
 
@@ -392,7 +393,7 @@ async def api_add_source(request: Request):
         name = {"webcam": f"Veb-kamera {uri}", "rtsp": "IP kamera", "file": Path(uri).name}[kind]
     sid = db.execute("INSERT INTO sources(name, kind, uri, enabled, loop, created_at) VALUES(?,?,?,?,?,?)",
                      (name, kind, uri, 1 if str(d.get("enabled", "0")) in ("1", "on", "true") else 0,
-                      0 if str(d.get("loop", "1")) in ("0", "false") else 1, time.time()))
+                      1 if str(d.get("loop", "0")) in ("1", "on", "true") else 0, time.time()))
     if str(d.get("start", "0")) in ("1", "on", "true"):
         get_manager().start_source(sid)
     return {"ok": True, "id": sid}
@@ -464,7 +465,7 @@ def _safe_name(name: str) -> str:
 
 def _start_as_live(path: Path, name: str) -> int:
     sid = db.execute("INSERT INTO sources(name, kind, uri, enabled, loop, created_at) VALUES(?,?,?,?,?,?)",
-                     (f"Video (jonli): {name}"[:60], "file", str(path), 0, 1, time.time()))
+                     (f"Video (jonli): {name}"[:60], "file", str(path), 0, 0, time.time()))
     get_manager().start_source(sid)
     return sid
 
@@ -647,6 +648,7 @@ async def api_note(request: Request, event_id: int):
 def api_event_delete(event_id: int):
     ev = db.row("SELECT * FROM events WHERE id=?", (event_id,))
     if ev:
+        archive_feedback(ev)
         delete_event_files(ev)
         db.execute("DELETE FROM events WHERE id=?", (event_id,))
         db.execute("DELETE FROM tg_messages WHERE event_id=?", (event_id,))
@@ -669,8 +671,10 @@ async def api_events_bulk(request: Request):
     if action == "delete_rejected":
         evs = db.rows("SELECT * FROM events WHERE status='rad_etilgan'")
         for ev in evs:
+            archive_feedback(ev)
             delete_event_files(ev)
             db.execute("DELETE FROM events WHERE id=?", (ev["id"],))
+            db.execute("DELETE FROM tg_messages WHERE event_id=?", (ev["id"],))
         return {"ok": True, "count": len(evs)}
     raise HTTPException(400)
 
@@ -679,10 +683,13 @@ async def api_events_bulk(request: Request):
 def api_export():
     buf = io.StringIO()
     wr = csv.writer(buf)
-    wr.writerow(["ID", "Vaqt", "Kamera", "Turi", "Ball", "Daraja", "Holat", "Kim tekshirdi", "Izoh", "Sabablar", "Klip"])
+    wr.writerow(["ID", "Vaqt", "Shubhali lahza", "Klipdagi o'rni (s)", "Kamera", "Turi", "Ball", "Daraja", "Holat",
+                 "Kim tekshirdi", "Izoh", "Sabablar", "Klip"])
     for e in db.rows("SELECT * FROM events ORDER BY id DESC"):
         e = db.decode_event(e)
-        wr.writerow([e["id"], time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(e["created_at"])), e["source_name"],
+        si = susp_info(e)
+        wr.writerow([e["id"], time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(e["created_at"])),
+                     si["susp_label"] or "", si["susp_offset"] if si["susp_offset"] is not None else "", e["source_name"],
                      KIND_UZ.get(e["kind"], e["kind"]), round(e["score"] or 0), e["level"], e["status"],
                      e.get("reviewed_by") or "", e.get("note") or "", " | ".join(e["reasons"] or []),
                      e.get("clip_path") or ""])
@@ -861,12 +868,12 @@ def api_demo_alert():
 
 
 # ----------------------------------------------------------------------------- sozlamalar
-NUMERIC = {"threshold": (0, 100), "dwell_sec": (0.1, 3), "pre_sec": (1, 20), "post_sec": (1, 20),
+NUMERIC = {"threshold": (0, 100), "dwell_sec": (0.1, 3), "pre_sec": (1, 30), "post_sec": (1, 30),
            "cooldown_sec": (0, 600), "ai_fps": (1, 30), "infer_size": (320, 1280), "person_conf": (0.1, 0.95),
            "object_conf": (0.1, 0.95), "ml_weight": (0, 60), "telegram_min_score": (0, 100),
            "retention_days": (0, 3650)}
 FLAGS = ["use_ml", "signal_pocket", "signal_torso", "signal_bag", "signal_vanish", "signal_looking",
-         "signal_offscreen", "telegram_enabled", "telegram_send_video"]
+         "signal_offscreen", "telegram_enabled", "telegram_send_video", "personal_items"]
 
 
 @app.get("/api/settings")

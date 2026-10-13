@@ -9,7 +9,7 @@ import time
 from contextlib import contextmanager
 from typing import Any, Iterable
 
-from .config import DB_PATH, DEFAULT_SETTINGS
+from .config import DB_PATH, DEFAULT_SETTINGS, SETTINGS_MIGRATIONS, SETTINGS_VERSION
 
 _lock = threading.RLock()
 _local = threading.local()
@@ -122,9 +122,48 @@ def tx():
             raise
 
 
+# Keyin qo'shilgan ustunlar (eski bazalarga avtomatik qo'shiladi)
+EXTRA_COLUMNS = {
+    "events": {
+        "susp_start": "REAL",   # shubhali harakat boshlangan vaqt (jonli: unix vaqt, fayl: video soniyasi)
+        "susp_end": "REAL",     # signal berilgan vaqt
+        "clip_start": "REAL",   # klipning birinchi kadri vaqti (shu bilan klip ichidagi o'rin topiladi)
+    },
+}
+
+
+def _migrate(c: sqlite3.Connection) -> None:
+    for table, cols in EXTRA_COLUMNS.items():
+        have = {r[1] for r in c.execute(f"PRAGMA table_info({table})")}
+        for col, typ in cols.items():
+            if col not in have:
+                c.execute(f"ALTER TABLE {table} ADD COLUMN {col} {typ}")
+    cur = c.execute("SELECT value FROM settings WHERE key='settings_version'").fetchone()
+    ver = int(cur[0]) if cur and str(cur[0]).isdigit() else 1
+    is_new = c.execute("SELECT COUNT(*) FROM settings").fetchone()[0] == 0
+    if not is_new:
+        for v in sorted(SETTINGS_MIGRATIONS):
+            if v <= ver:
+                continue
+            for key, (old, new) in SETTINGS_MIGRATIONS[v].items():
+                row_ = c.execute("SELECT value FROM settings WHERE key=?", (key,)).fetchone()
+                if row_ is not None and _same_num(row_[0], old):
+                    c.execute("UPDATE settings SET value=? WHERE key=?", (new, key))
+    c.execute("INSERT INTO settings(key, value) VALUES('settings_version', ?) "
+              "ON CONFLICT(key) DO UPDATE SET value=excluded.value", (str(SETTINGS_VERSION),))
+
+
+def _same_num(a: Any, b: Any) -> bool:
+    try:
+        return float(a) == float(b)
+    except (TypeError, ValueError):
+        return str(a) == str(b)
+
+
 def init_db() -> None:
     with tx() as c:
         c.executescript(SCHEMA)
+        _migrate(c)
         for k, v in DEFAULT_SETTINGS.items():
             c.execute("INSERT OR IGNORE INTO settings(key, value) VALUES(?, ?)", (k, v))
         c.execute("INSERT OR IGNORE INTO settings(key, value) VALUES('connect_code', ?)",

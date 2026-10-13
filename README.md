@@ -8,6 +8,19 @@ klipini avtomatik kesib, **Telegram botga** sabablari bilan yuboradi. Qo'riqchi 
 
 ---
 
+## 1.1.0 versiyadagi o'zgarishlar
+
+* **Tezlik:** kadr nisbatiga mos (to'rtburchak) model kirishi, AI oqimlari cheklangan va "aylanib turish"
+  o'chirilgan, bo'sh kamerada modellar ishlamaydi, oldindan ko'rish rasmi faqat kimdir ko'rayotganda
+  tayyorlanadi. Sinov kompyuterida (2 yadro) kadr vaqti 145 → 74 ms, bo'sh kamerada CPU 190% → 26%.
+* **Klip:** shubhali harakatdan 10 s oldin va 10 s keyin. Klipda vaqt chizig'i, qizil "SHUBHALI LAHZA"
+  belgisi; Telegram xabarida va hodisa sahifasida shubhali lahza vaqti va klipdagi o'rni ko'rsatiladi.
+* **Aniqlash:** o'z telefonini cho'ntakka qaytarish endi signal bermaydi; bir-birini to'sgan odamlarning
+  aralashgan skeleti tahlil qilinmaydi; bir vaqtda ikki odam yashirsa ikkalasi ham ushlanadi; ball dwell'dan
+  keyin 2 s davomida qayta hisoblanadi; AI model og'irligi 20 → 10 (model hali faqat sintetik ma'lumotda).
+* **Ma'lumot:** tekshirilgan hodisa o'chirilsa ham uning skelet izi va javobi `data/feedback/` ga saqlanadi
+  (qayta o'qitish uchun). Jonli rejimda yuklangan video bir marta o'ynaydi — takroriy hodisa yo'q.
+
 ## 1. O'rnatish va ishga tushirish
 
 ### Windows
@@ -84,7 +97,7 @@ Kamera ─► halqali bufer (oxirgi ~14 s)
    │            − yurib ketayotgan odam, orqa tomondan ko'rinish
    ├─► Xulq modeli (Gradient Boosting, 97 ta skelet belgisi, 2,5 s oyna)
    │
-   └─► Ball ≥ chegara ─► klip (6 s oldin + 4 s keyin, H.264 MP4) ─► Telegram + web panel
+   └─► Ball ≥ chegara ─► klip (shubhadan 10 s oldin + 10 s keyin, shubhali lahza qizil belgilangan, H.264 MP4) ─► Telegram + web panel
                                    ─► qo'riqchi ✅/❌ ─► bazaga ─► modelni qayta o'qitish
 ```
 
@@ -102,6 +115,7 @@ Kamera ─► halqali bufer (oxirgi ~14 s)
 ### Sinovlar
 ```bash
 python -m tests.test_analyzer normal     # qoidalarni sintetik harakatlarda sinash
+python -m tests.eval_synthetic 40 normal 1   # realistik baholash: 7.5 kadr/s, telefon, savat, ikki odam
 python -m tests.test_web video.mp4        # to'liq sinov: web + AI + soxta Telegram API
 ```
 
@@ -115,6 +129,7 @@ python -m tests.test_web video.mp4        # to'liq sinov: web + AI + soxta Teleg
 | `ADMIN_USER`, `ADMIN_PASSWORD` | Web panel logini va paroli — **parolni o'zgartiring** |
 | `PORT` | Web panel porti (standart 8000) |
 | `PUBLIC_URL` | Panel internetda ochiq bo'lsa — Telegram xabarida "Panelda ochish" tugmasi chiqadi |
+| `AI_THREADS` | AI uchun CPU oqimlari (standart: yadrolar − 2, ko'pi bilan 4). Kompyuter qotsa — kamaytiring |
 
 Bitta token bilan faqat bitta dastur ishlashi mumkin (Telegram cheklovi). Agar bot "Conflict" xatosini
 ko'rsatsa — shu tokenni ishlatayotgan boshqa dasturni to'xtating.

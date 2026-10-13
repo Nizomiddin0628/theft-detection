@@ -41,13 +41,19 @@ class RingBuffer:
         self.ann = ann
 
     def push(self, frame: np.ndarray, t: float, wall: float) -> None:
+        if t < self._last_t:
+            # Video qaytadan boshlandi (vaqt orqaga ketdi) — eski kadrlar endi kerak emas
+            with self.lock:
+                self.frames.clear()
+            self._last_t = -1e9
         if t - self._last_t < self.min_dt:
             return
         self._last_t = t
         h, w = frame.shape[:2]
         scale = min(1.0, MAX_CLIP_WIDTH / w)
-        small = cv2.resize(frame, (int(w * scale) // 2 * 2, int(h * scale) // 2 * 2)) if scale < 1 else frame
-        ok, buf = cv2.imencode(".jpg", small, [cv2.IMWRITE_JPEG_QUALITY, 85])
+        small = cv2.resize(frame, (int(w * scale) // 2 * 2, int(h * scale) // 2 * 2),
+                           interpolation=cv2.INTER_AREA) if scale < 1 else frame
+        ok, buf = cv2.imencode(".jpg", small, [cv2.IMWRITE_JPEG_QUALITY, 82])
         if not ok:
             return
         with self.lock:
@@ -74,17 +80,22 @@ def _decode(f: BufFrame) -> np.ndarray:
 
 
 def render_frames(frames: list[BufFrame], highlight: int | None, banner: str,
-                  live: bool) -> list[np.ndarray]:
+                  live: bool, susp: tuple[float, float] | None = None) -> list[np.ndarray]:
     out = []
+    t0, t1 = frames[0].t, frames[-1].t
     for f in frames:
         img = _decode(f)
         if img is None:
             continue
+        tt = annotate.wall_clock(f.wall) if live else f"video {f.t:6.1f} s"
         if f.ann:
             persons, objects, status = f.ann
-            tt = annotate.wall_clock(f.wall) if live else f"video {f.t:6.1f} s"
             annotate.draw(img, persons, objects, status, highlight=highlight, scale=f.scale,
                           banner=banner, time_text=tt)
+        else:
+            annotate.draw(img, [], [], {}, banner=banner, time_text=tt)
+        if susp is not None:
+            annotate.draw_timeline(img, f.t, t0, t1, susp[0], susp[1])
         out.append(img)
     return out
 
@@ -127,13 +138,18 @@ def write_mp4(images: list[np.ndarray], path: Path, fps: float) -> bool:
 
 
 def make_clip(frames: list[BufFrame], event_t: float, highlight: int, banner: str, live: bool,
-              out_dir: Path, stem: str, person_box: list | None) -> dict:
-    """Klip, eskiz (thumbnail) va odam qirqimini yaratadi. Fayl nomlarini qaytaradi."""
+              out_dir: Path, stem: str, person_box: list | None,
+              susp: tuple[float, float] | None = None) -> dict:
+    """Klip, eskiz (thumbnail) va odam qirqimini yaratadi. Fayl nomlarini qaytaradi.
+
+    susp: (shubha boshlanishi, signal vaqti) — klipda vaqt chizig'i va "SHUBHALI LAHZA" belgisi.
+    """
     out_dir.mkdir(parents=True, exist_ok=True)
-    res = {"clip": None, "thumb": None, "crop": None}
+    res = {"clip": None, "thumb": None, "crop": None, "clip_start": None}
     if not frames:
         return res
-    images = render_frames(frames, highlight, banner, live)
+    res["clip_start"] = frames[0].t
+    images = render_frames(frames, highlight, banner, live, susp)
     if not images:
         return res
     dur = max(frames[-1].t - frames[0].t, 1e-3)

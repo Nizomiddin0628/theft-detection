@@ -4,16 +4,41 @@ PyTorch kerak emas: modellar oldindan ONNX formatiga o'tkazilgan.
 """
 from __future__ import annotations
 
+import math
+import os
 import threading
 from dataclasses import dataclass, field
 
 import cv2
 import numpy as np
 
-from ..config import DET_MODEL, POSE_MODEL
+from ..config import DET_MODEL, POSE_MODEL, env
 from ..logutil import get_logger
 
 log = get_logger("engine")
+
+# OpenCV o'zining ichki oqimlarini kamroq ishlatsin (AI bilan CPU uchun talashmasin)
+cv2.setNumThreads(2)
+
+
+def ai_threads() -> int:
+    """AI uchun ajratiladigan CPU oqimlari soni.
+
+    Barcha yadrolarni olish kompyuterni "qotiradi": kamera o'qish, video yozish, brauzer va
+    Windows uchun 1-2 yadro bo'sh qoldiriladi. .env da AI_THREADS bilan o'zgartirish mumkin.
+    """
+    v = env("AI_THREADS")
+    if v.strip().isdigit() and int(v) > 0:
+        return int(v)
+    try:
+        import psutil
+
+        phys = psutil.cpu_count(logical=False) or os.cpu_count() or 2
+    except Exception:  # pragma: no cover
+        phys = os.cpu_count() or 2
+    if phys <= 2:
+        return phys
+    return max(2, min(4, phys - 2))
 
 COCO_NAMES = [
     "person", "bicycle", "car", "motorcycle", "airplane", "bus", "train", "truck", "boat",
@@ -70,14 +95,24 @@ class FrameResult:
     height: int = 0
 
 
-def letterbox(img: np.ndarray, size: int) -> tuple[np.ndarray, float, int, int]:
+def letterbox(img: np.ndarray, size: int, rect: bool = True, stride: int = 32) -> tuple[np.ndarray, float, int, int]:
+    """Kadrni model kirishiga moslash.
+
+    rect=True: kvadrat emas, kadr nisbatidagi to'rtburchak (32 ga karrali). 16:9 kamerada
+    640x640 o'rniga 640x384 — hisob ~40% kam, natija bir xil (modellar dinamik o'lchamli).
+    """
     h, w = img.shape[:2]
     r = min(size / h, size / w)
     nh, nw = int(round(h * r)), int(round(w * r))
+    if rect:
+        th = int(math.ceil(nh / stride) * stride)
+        tw = int(math.ceil(nw / stride) * stride)
+    else:
+        th = tw = size
     resized = cv2.resize(img, (nw, nh), interpolation=cv2.INTER_LINEAR) if (nh, nw) != (h, w) else img
-    top = (size - nh) // 2
-    left = (size - nw) // 2
-    canvas = np.full((size, size, 3), 114, dtype=np.uint8)
+    top = (th - nh) // 2
+    left = (tw - nw) // 2
+    canvas = np.full((th, tw, 3), 114, dtype=np.uint8)
     canvas[top:top + nh, left:left + nw] = resized
     return canvas, r, left, top
 
@@ -111,8 +146,15 @@ class Engine:
             if p in avail:
                 providers.append(p)
         providers.append("CPUExecutionProvider")
+        self.threads = ai_threads()
         opts = ort.SessionOptions()
         opts.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
+        opts.intra_op_num_threads = self.threads
+        opts.inter_op_num_threads = 1
+        opts.execution_mode = ort.ExecutionMode.ORT_SEQUENTIAL
+        # Standart holatda ORT oqimlari ish bo'lmasa ham "aylanib" CPU ni 100% band qiladi
+        opts.add_session_config_entry("session.intra_op.allow_spinning", "0")
+        opts.add_session_config_entry("session.inter_op.allow_spinning", "0")
         if not POSE_MODEL.exists():
             raise FileNotFoundError(f"Pose modeli topilmadi: {POSE_MODEL}")
         self.pose = ort.InferenceSession(str(POSE_MODEL), opts, providers=providers)
@@ -122,7 +164,10 @@ class Engine:
         self.det_input = self.det.get_inputs()[0].name if self.det else None
         shape = self.pose.get_inputs()[0].shape
         self.fixed_size = shape[2] if isinstance(shape[2], int) else None
-        log.info("Modellar yuklandi. Qurilma: %s", ", ".join(self.providers))
+        # Bir nechta kamera bir vaqtda modelni chaqirsa, oqimlar bir-biriga xalaqit beradi —
+        # navbat bilan ishlatish umumiy tezlikni oshiradi va kompyuterni qotirmaydi
+        self.run_lock = threading.Lock()
+        log.info("Modellar yuklandi. Qurilma: %s, AI oqimlari: %d", ", ".join(self.providers), self.threads)
 
     @classmethod
     def get(cls) -> "Engine":
@@ -136,11 +181,16 @@ class Engine:
             return self.fixed_size
         return max(320, int(round(size / 32)) * 32)
 
+    def _prep(self, frame: np.ndarray, size: int):
+        s = self._size(size)
+        return letterbox(frame, s, rect=not self.fixed_size)
+
     def detect_persons(self, frame: np.ndarray, size: int = 640, conf: float = 0.4,
                        iou: float = 0.5) -> list[Person]:
-        s = self._size(size)
-        img, r, left, top = letterbox(frame, s)
-        out = self.pose.run(None, {self.pose_input: _to_blob(img)})[0][0].T  # (N, 56)
+        img, r, left, top = self._prep(frame, size)
+        blob = _to_blob(img)
+        with self.run_lock:
+            out = self.pose.run(None, {self.pose_input: blob})[0][0].T  # (N, 56)
         out = out[out[:, 4] >= conf]
         if len(out) == 0:
             return []
@@ -165,9 +215,10 @@ class Engine:
                        iou: float = 0.5) -> list[Obj]:
         if self.det is None:
             return []
-        s = self._size(size)
-        img, r, left, top = letterbox(frame, s)
-        out = self.det.run(None, {self.det_input: _to_blob(img)})[0][0].T  # (N, 84)
+        img, r, left, top = self._prep(frame, size)
+        blob = _to_blob(img)
+        with self.run_lock:
+            out = self.det.run(None, {self.det_input: blob})[0][0].T  # (N, 84)
         scores_all = out[:, 4:]
         cls = scores_all.argmax(1)
         scores = scores_all[np.arange(len(cls)), cls]
