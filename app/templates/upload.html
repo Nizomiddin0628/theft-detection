@@ -19,6 +19,9 @@
       <div class="row" style="margin-top:6px">
         <label class="switch"><input type="radio" name="mode" value="live" style="appearance:auto;width:auto;height:auto">&nbsp;<b>Jonli rejim</b> <span class="muted small">— video kamera kabi real vaqtda o'ynaydi (Jonli kuzatuvda ko'rinadi)</span></label>
       </div>
+      <div class="field" style="margin-top:12px;max-width:420px"><label class="f">Zonalar (tez tahlil uchun)</label>
+        <select id="zsrc"><option value="">Zonasiz</option>{% for z in zone_sources %}<option value="{{ z.id }}">{{ z.name }} — {{ z.n }} ta zona</option>{% endfor %}</select>
+        <div class="hint">Video shu kameradan yozilgan bo'lsa, uning zonalari (polka, kassa, eshik…) qo'llanadi.</div></div>
       <hr style="border:0;border-top:1px solid var(--line);margin:18px 0">
       <label class="f">Yoki internetdagi to'g'ridan-to'g'ri video havolasi (.mp4)</label>
       <div class="row" style="flex-wrap:nowrap"><input type="url" id="url" placeholder="https://.../video.mp4"><button class="btn primary" onclick="fromUrl(this)">{{ icon('download', 16) }} Yuklash</button></div>
@@ -56,6 +59,7 @@ function upload(f) {
   const fd = new FormData();
   fd.append("file", f);
   fd.append("mode", mode());
+  fd.append("zone_source", document.getElementById("zsrc").value);
   document.getElementById("upbar").classList.remove("hidden");
   document.getElementById("upname").textContent = f.name;
   const xhr = new XMLHttpRequest();
@@ -76,7 +80,7 @@ async function fromUrl(btn) {
   if (!url) return;
   btn.disabled = true;
   try {
-    const r = await H.post("/api/upload-url", { url, mode: mode() });
+    const r = await H.post("/api/upload-url", { url, mode: mode(), zone_source: document.getElementById("zsrc").value });
     H.toast("Yuklab olinmoqda…");
     const t = setInterval(async () => {
       const s = await H.api("/api/upload-url/" + r.key);

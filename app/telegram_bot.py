@@ -29,7 +29,7 @@ from .logutil import get_logger
 log = get_logger("telegram")
 
 KIND_UZ = {"pocket": "Cho'ntakka solish", "torso": "Kiyim ichiga yashirish", "bag": "Sumkaga solish",
-           "offscreen": "Qo'l kadrdan yashirildi"}
+           "offscreen": "Qo'l kadrdan yashirildi", "exit": "Chiqish tomon ketmoqda"}
 STATUS_UZ = {"yangi": "🟡 Tekshirilmagan", "tasdiqlangan": "✅ Tasdiqlangan",
              "rad_etilgan": "❌ Xato signal"}
 
@@ -129,6 +129,9 @@ class TelegramBot:
         self._chat_locks: dict[int, threading.Lock] = defaultdict(threading.Lock)
         self._chat_next: dict[int, float] = {}
         self._alert_done: dict[int, threading.Event] = {}
+        self._kb_done: set[int] = set()   # eski pastki tugmalar (reply keyboard) tozalangan chatlar
+        self._menus_ok = True             # menyu tozalash muvaffaqiyatli tugaganmi (aks holda qayta uriniladi)
+        self._menus_t = 0.0
         self._threads: list[threading.Thread] = []
         self.manager = None
 
@@ -213,17 +216,69 @@ class TelegramBot:
         self.status = "ishlayapti"
         try:
             self.api("deleteWebhook", {"drop_pending_updates": False})
-            self.api("setMyCommands", {"commands": [
-                {"command": "holat", "description": "Kameralar va bugungi statistika"},
-                {"command": "oxirgi", "description": "Oxirgi 5 ta hodisa"},
-                {"command": "tekshirilmagan", "description": "Javob kutayotgan hodisalar"},
-                {"command": "stop", "description": "Xabarlarni to'xtatish"},
-                {"command": "yordam", "description": "Yordam"},
-            ]})
         except httpx.HTTPError:
             pass
+        threading.Thread(target=self._safe, args=(self._reset_menus,), daemon=True, name="tg-menu").start()
         log.info("Telegram bot ulandi: @%s", self.me.get("username"))
         return True
+
+    COMMANDS = [
+        {"command": "holat", "description": "Kameralar va bugungi statistika"},
+        {"command": "oxirgi", "description": "Oxirgi 5 ta hodisa"},
+        {"command": "tekshirilmagan", "description": "Javob kutayotgan hodisalar"},
+        {"command": "stop", "description": "Xabarlarni to'xtatish"},
+        {"command": "yordam", "description": "Yordam"},
+    ]
+
+    def _try(self, method: str, data: dict, **kw) -> dict:
+        """Menyu sozlash chaqiruvi: tarmoq xatosi butun jarayonni to'xtatmasin."""
+        try:
+            return self.api(method, data, **kw)
+        except httpx.HTTPError as e:
+            log.warning("Telegram %s: tarmoq xatosi (%s)", method, e)
+            return {"ok": False}
+
+    def _reset_menus(self) -> None:
+        """Shu token avval boshqa botda ishlatilgan bo'lsa, undan qolgan menyularni tozalash.
+
+        * boshqa til va doiralar uchun qo'yilgan eski buyruqlar o'chiriladi, faqat bizniki qoladi;
+        * chap pastdagi menyu tugmasi oddiy "buyruqlar" menyusiga qaytariladi;
+        * obunachilardagi eski pastki tugmalar (reply keyboard) bir martalik xabar bilan olib tashlanadi.
+        Biror qadam muvaffaqiyatsiz bo'lsa, 5 daqiqadan keyin qayta uriniladi (_poll_loop).
+        """
+        self._menus_t = time.time()
+        self._kb_done |= {int(r["chat_id"]) for r in
+                          db.rows("SELECT chat_id FROM subscribers WHERE COALESCE(kb_cleared, 0)=1")}
+        scopes = [{"type": "default"}, {"type": "all_private_chats"}, {"type": "all_group_chats"},
+                  {"type": "all_chat_administrators"}]
+        try:
+            for scope in scopes:
+                for lang in ("", "uz", "ru", "en"):
+                    data = {"scope": scope}
+                    if lang:
+                        data["language_code"] = lang
+                    self._try("deleteMyCommands", data, retries=0)
+        finally:
+            # O'chirish chala qolsa ham buyruqlar albatta qayta o'rnatiladi (menyu bo'sh qolmasin)
+            ok = self._try("setMyCommands", {"commands": self.COMMANDS}).get("ok", False)
+            ok = self._try("setChatMenuButton", {"menu_button": {"type": "commands"}}).get("ok", False) and ok
+        for s in db.rows("SELECT chat_id FROM subscribers WHERE active=1 AND COALESCE(kb_cleared, 0)=0"):
+            try:
+                self._clear_keyboard(s["chat_id"])
+            except Exception:  # noqa: BLE001 — bitta chat xatosi qolganlarini to'xtatmasin
+                log.warning("Chat %s menyusini tozalab bo'lmadi", s["chat_id"])
+                ok = False
+        self._menus_ok = ok
+
+    def _clear_keyboard(self, chat_id: int) -> None:
+        # Eski bot shu chat uchun alohida menyu tugmasi (masalan, veb-ilova) qo'ygan bo'lishi mumkin
+        self._try("setChatMenuButton", {"chat_id": chat_id, "menu_button": {"type": "commands"}}, retries=0)
+        res = self.api("sendMessage", {"chat_id": chat_id, "text": "🔧 Bot menyusi yangilandi: eski pastki tugmalar "
+                                                                     "olib tashlandi. Buyruqlar — chap pastdagi ☰ menyuda.",
+                                       "reply_markup": {"remove_keyboard": True}}, chat_id=chat_id)
+        if res.get("ok"):
+            self._kb_done.add(int(chat_id))
+            db.execute("UPDATE subscribers SET kb_cleared=1 WHERE chat_id=?", (chat_id,))
 
     def _poll_loop(self) -> None:
         offset = 0
@@ -250,6 +305,9 @@ class TelegramBot:
                 self.stop_evt.wait(3)
                 continue
             self.status = "ishlayapti"
+            if not self._menus_ok and time.time() - self._menus_t > 300:
+                self._menus_t = time.time()
+                threading.Thread(target=self._safe, args=(self._reset_menus,), daemon=True, name="tg-menu").start()
             for upd in r.get("result", []):
                 offset = max(offset, upd["update_id"] + 1)
                 try:
@@ -274,7 +332,14 @@ class TelegramBot:
         data = {"chat_id": chat_id, "text": text, "parse_mode": "HTML", "disable_web_page_preview": True}
         if markup:
             data["reply_markup"] = markup
-        return self.api("sendMessage", data, chat_id=chat_id)
+        elif int(chat_id) not in self._kb_done:
+            # Shu chatga birinchi oddiy javobda eski botdan qolgan pastki tugmalar olib tashlanadi
+            data["reply_markup"] = {"remove_keyboard": True}
+        res = self.api("sendMessage", data, chat_id=chat_id)
+        if res.get("ok") and not markup and int(chat_id) not in self._kb_done:
+            self._kb_done.add(int(chat_id))
+            db.execute("UPDATE subscribers SET kb_cleared=1 WHERE chat_id=?", (chat_id,))
+        return res
 
     def _is_sub(self, chat_id: int) -> bool:
         return bool(db.scalar("SELECT 1 FROM subscribers WHERE chat_id=? AND active=1", (chat_id,)))

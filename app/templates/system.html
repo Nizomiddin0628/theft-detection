@@ -41,7 +41,7 @@ async function load() {
   document.getElementById("info").innerHTML = rows.map(([k, v]) => `<tr><td class="muted">${k}</td><td style="word-break:break-all">${H.esc(v)}</td></tr>`).join("");
   const down = {}; (r.camera_health || []).forEach((h) => { down[h.source_id] = h; });
   document.getElementById("srcs").innerHTML = r.sources.length ? r.sources.map((s) => `<tr><td><b>${H.esc(s.name)}</b></td><td><span class="dot ${down[s.id] ? "off" : (s.running ? "on" : "")}"></span> ${H.esc(s.state)}${down[s.id] ? `<div class="small" style="color:#b42318">${H.esc(down[s.id].reason)} · ${H.fmtDur(Date.now() / 1000 - down[s.id].since)}</div>` : ""}</td>
-    <td class="num">${s.fps_cam}</td><td class="num">${s.fps_ai}</td><td class="num">${s.persons}</td><td class="num">${s.alerts}</td><td>${s.running ? H.fmtDur(s.uptime) : "—"}</td></tr>`).join("")
+    <td class="num">${s.fps_cam}</td><td class="num">${s.fps_ai}${s.running && s.mode ? `<div class="small muted">${H.esc(s.mode)}</div>` : ""}</td><td class="num">${s.persons}</td><td class="num">${s.alerts}</td><td>${s.running ? H.fmtDur(s.uptime) : "—"}</td></tr>`).join("")
     : `<tr><td colspan="7" class="muted">Manba yo'q</td></tr>`;
   if (document.getElementById("auto").checked) {
     const c = document.getElementById("logs");

@@ -17,6 +17,7 @@ from . import annotate
 log = get_logger("clipper")
 
 MAX_CLIP_WIDTH = 960
+CLIP_FPS = 12
 
 
 @dataclass
@@ -39,6 +40,10 @@ class RingBuffer:
 
     def set_annotations(self, ann: tuple) -> None:
         self.ann = ann
+
+    def due(self, t: float) -> bool:
+        """Shu vaqtdagi kadr buferga yoziladimi (kadrni ochish kerakmi)."""
+        return t < self._last_t or t - self._last_t >= self.min_dt
 
     def push(self, frame: np.ndarray, t: float, wall: float) -> None:
         if t < self._last_t:
@@ -80,10 +85,10 @@ def _decode(f: BufFrame) -> np.ndarray:
 
 
 def iter_rendered(frames: list[BufFrame], highlight: int | None, banner: str,
-                  live: bool, susp: tuple[float, float] | None = None):
+                  live: bool, susp: tuple[float, float] | None = None, with_index: bool = False):
     """Kadrlarni birma-bir chizib beradi (hammasini xotiraga yig'maydi — 20 s klip ~370 MB bo'lardi)."""
     t0, t1 = frames[0].t, frames[-1].t
-    for f in frames:
+    for i, f in enumerate(frames):
         img = _decode(f)
         if img is None:
             continue
@@ -96,7 +101,7 @@ def iter_rendered(frames: list[BufFrame], highlight: int | None, banner: str,
             annotate.draw(img, [], [], {}, banner=banner, time_text=tt)
         if susp is not None:
             annotate.draw_timeline(img, f.t, t0, t1, susp[0], susp[1])
-        yield img
+        yield (i, img) if with_index else img
 
 
 def render_frames(frames: list[BufFrame], highlight: int | None, banner: str,
@@ -177,14 +182,29 @@ def make_clip(frames: list[BufFrame], event_t: float, highlight: int, banner: st
         return res
     res["clip_start"] = frames[0].t
     dur = max(frames[-1].t - frames[0].t, 1e-3)
-    fps = (len(frames) - 1) / dur if len(frames) > 1 else 10.0
     idx = int(np.argmin([abs(f.t - event_t) for f in frames]))   # hodisa lahzasidagi kadr
     kept: dict = {}
+    # Buferdagi kadrlar tezligi o'zgaruvchan (bo'sh kamera 4/s, odam bo'lsa 12/s): klip doimiy
+    # CLIP_FPS da yoziladi, kadrlar vaqt bo'yicha takrorlanadi — video real tezlikda o'ynaydi
+    fps = float(CLIP_FPS) if len(frames) > 1 else 10.0
+    n_out = max(1, int(round(dur * fps)) + 1) if len(frames) > 1 else 1
 
     def stream():
-        for i, img in enumerate(iter_rendered(frames, highlight, banner, live, susp)):
-            if i == idx or "thumb" not in kept:
-                kept["thumb"] = img.copy() if i == idx else img
+        it = iter_rendered(frames, highlight, banner, live, susp, with_index=True)
+        cur = next(it, None)
+        if cur is None:
+            return
+        nxt = next(it, None)
+        t0 = frames[0].t
+        for k in range(n_out):
+            tk = t0 + k / fps
+            while nxt is not None and frames[nxt[0]].t <= tk + 1e-6:
+                cur, nxt = nxt, next(it, None)
+            i, img = cur
+            if i >= idx and "thumb_i" not in kept:   # hodisa lahzasi (yoki undan keyingi birinchi) kadr
+                kept["thumb"], kept["thumb_i"] = img.copy(), i
+            elif "thumb" not in kept:
+                kept["thumb"] = img
             yield img
 
     clip_path = out_dir / f"{stem}.mp4"

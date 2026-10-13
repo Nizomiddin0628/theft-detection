@@ -81,6 +81,50 @@ CREATE TABLE IF NOT EXISTS jobs (
     frames INTEGER,
     error TEXT
 );
+CREATE TABLE IF NOT EXISTS zones (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    source_id INTEGER NOT NULL,
+    name TEXT,
+    kind TEXT NOT NULL,           -- polka | kassa | eshik | xodim | etiborsiz
+    points TEXT NOT NULL,         -- JSON [[x, y], ...], 0..1
+    sens TEXT DEFAULT '',         -- '' | yuqori | past
+    enabled INTEGER DEFAULT 1,
+    created_at REAL
+);
+CREATE INDEX IF NOT EXISTS idx_zones_source ON zones(source_id);
+CREATE TABLE IF NOT EXISTS eval_videos (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    filename TEXT,
+    path TEXT,                    -- asl fayl (tahlil shundan)
+    play_path TEXT,               -- brauzerda ko'rish uchun (kerak bo'lsa H.264 ga o'tkazilgan)
+    play_status TEXT,             -- tayyor | tayyorlanmoqda | xato
+    duration REAL,
+    fps REAL,
+    width INTEGER,
+    height INTEGER,
+    zone_source_id INTEGER,       -- qaysi kameraning zonalari qo'llanadi
+    labels TEXT DEFAULT '[]',     -- [{"start": s, "end": s, "kind": "...", "note": ""}]
+    reviewed INTEGER DEFAULT 0,   -- belgilash tugallangan (faqat shular baholanadi)
+    note TEXT,
+    created_at REAL
+);
+CREATE TABLE IF NOT EXISTS eval_runs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    created_at REAL,
+    finished_at REAL,
+    status TEXT,                  -- ishlanmoqda | tayyor | xato | toxtatildi
+    progress REAL DEFAULT 0,
+    version TEXT,
+    settings TEXT,                -- baholash paytidagi sozlamalar (JSON)
+    videos INTEGER,
+    hours REAL,
+    tp INTEGER, fp INTEGER, fn INTEGER, dup INTEGER,
+    precision REAL, recall REAL, f1 REAL,
+    fp_per_hour REAL,
+    latency_med REAL,
+    details TEXT,                 -- har video bo'yicha natija (JSON)
+    error TEXT
+);
 CREATE TABLE IF NOT EXISTS notify_log (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     event_id INTEGER,
@@ -146,6 +190,12 @@ EXTRA_COLUMNS = {
         "t_detect": "REAL",     # hodisa aniqlangan devor vaqti (kechikish o'lchovi uchun)
         "claimed_by": "TEXT",   # "Ko'ryapman" bosgan qo'riqchi
         "claimed_at": "REAL",
+    },
+    "subscribers": {
+        "kb_cleared": "INTEGER DEFAULT 0",   # eski botdan qolgan pastki tugmalar tozalanganmi
+    },
+    "jobs": {
+        "zone_source_id": "INTEGER",          # yuklangan videoga qaysi kameraning zonalari qo'llanadi
     },
 }
 

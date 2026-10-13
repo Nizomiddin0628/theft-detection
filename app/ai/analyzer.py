@@ -21,6 +21,7 @@ from .. import db
 from ..ml.features import body_from_kpts, hand_state, window_features  # noqa: F401
 from ..ml.model import BehaviorModel
 from .engine import Obj, Person
+from .zones import EMPTY as NO_ZONES, ZoneSet
 
 ZONE_LABELS = {
     "pocket": "bel/cho'ntak sohasiga",
@@ -33,6 +34,7 @@ KIND_LABELS = {
     "torso": "Kiyim ichiga yashirish",
     "bag": "Sumkaga solish",
     "offscreen": "Qo'l kadrdan yashirildi",
+    "exit": "Chiqish tomon ketmoqda",
 }
 BASE_POINTS = {"pocket": 35, "torso": 40, "bag": 40, "offscreen": 30}
 SIDE_LABEL = {"L": "Chap", "R": "O'ng"}
@@ -50,6 +52,21 @@ SCALE_JUMP = (0.70, 1.45)
 # Bir kamerada takroriy signal: shu vaqt ichida va shu joyda (IoU) bo'lsa — o'sha odam
 DUP_SEC = 3.0
 DUP_IOU = 0.30
+# Kamera "faol" hisoblanadigan belgilar (worker shu bo'yicha kadr tezligi va buyum qidirishni tanlaydi)
+ENGAGE_REACH_SEC = 1.5
+ENGAGE_HOLD_SEC = 3.0
+# Zonalar
+STAFF_SEC = 2.0          # xodim zonasida shuncha turgan odam xodim deb belgilanadi
+SHELF_SEC = 3.0          # qo'l polka zonasidan chiqqandan keyin shuncha vaqt "polkadan olgan" hisoblanadi
+EXIT_MEMORY_SEC = 300.0  # signal/yashirishdan keyin shuncha vaqt ichida eshikka kelsa — "chiqib ketmoqda"
+EXIT_HIDDEN_SCORE = 65   # signal bo'lmagan, lekin mahsulotni yashirgani ko'ringan odam eshikka kelsa
+
+
+def _covered(pt: np.ndarray, regions: list | None) -> bool:
+    """Nuqta shu kadrda buyum qidirilgan sohalardan biri ichidami (None — butun kadr qidirilgan)."""
+    if regions is None:
+        return True
+    return any(r[0] <= pt[0] <= r[2] and r[1] <= pt[1] <= r[3] for r in regions)
 
 
 @dataclass
@@ -63,6 +80,8 @@ class HandMem:
     hold_t: float = -1e9
     hold_name: str = ""
     hold_cls: int = -1
+    hold_box: np.ndarray | None = None      # qo'ldagi buyumning oxirgi ramkasi (ko'rsatish uchun)
+    hold_wrist: np.ndarray | None = None    # o'sha paytdagi bilak joyi (ramka qo'l bilan birga suriladi)
     last_vis_t: float = -1e9
     last_vis_yfrac: float = 0.0
     last_vis_vy: float = 0.0
@@ -76,6 +95,11 @@ class HandMem:
     cand_wrist: np.ndarray = field(default_factory=lambda: np.zeros(2))
     cand_t: float = -1e9
     carry: int = 0
+    zone_check_t: float = -1e9        # zonada qo'l atrofi oxirgi marta qidirilgan vaqt
+    zone_seen_t: float = -1e9         # zonaga kirgandan keyin buyum oxirgi marta ko'ringan vaqt
+    last_shelf_t: float = -1e9        # qo'l oxirgi marta polka zonasida bo'lgan vaqt
+    shelf_name: str = ""
+    shelf_delta: int = 0              # o'sha polka zonasining sezgirligi (chegaraga qo'shiladi)
 
 
 @dataclass
@@ -91,6 +115,16 @@ class TrackMem:
     label: str = ""
     scales: deque = field(default_factory=lambda: deque(maxlen=12))
     skipped: int = 0
+    staff: bool = False               # xodim zonasida turgan — signal berilmaydi
+    staff_enter_t: float = -1e9
+    hidden_t: float = -1e9            # mahsulot yashirilgani birinchi ko'ringan vaqt (shu epizodda)
+    hidden_last_t: float = -1e9
+    in_door: bool = False             # oldingi kadrda eshik zonasida edimi
+    door_enter_t: float = -1e9
+    hidden_name: str = ""
+    alert_score: float = 0.0          # shu odam uchun berilgan signallarning eng yuqori bali
+    last_alert_kind: str = ""
+    exit_alerted: bool = False
 
 
 def _expand(box: np.ndarray, frac: float) -> np.ndarray:
@@ -145,7 +179,7 @@ class Analyzer:
             "ml_weight": f("ml_weight", 10),
             "personal": s.get("personal_items", "1") == "1",
             "sig": {k: s.get(f"signal_{k}", "1") == "1"
-                    for k in ("pocket", "torso", "bag", "vanish", "looking", "offscreen")},
+                    for k in ("pocket", "torso", "bag", "vanish", "looking", "offscreen", "exit")},
         }
 
     def _is_duplicate(self, t: float, box: np.ndarray) -> bool:
@@ -164,19 +198,58 @@ class Analyzer:
 
     # ------------------------------------------------------------------
     def update(self, persons: list[Person], objects: list[Obj], t: float,
-               frame_w: int, frame_h: int) -> tuple[list[dict], dict[int, dict]]:
-        p = self._params()
+               frame_w: int, frame_h: int, searched: list | None = None,
+               zones: ZoneSet | None = None) -> tuple[list[dict], dict[int, dict]]:
+        """Bitta kadr tahlili.
+
+        searched — shu kadrda buyum qidirilgan sohalar (qo'l atrofi). None bo'lsa buyumlar butun kadrdan
+        qidirilgan deb olinadi. Qidirilmagan qo'l uchun "buyum yo'q" degan xulosa chiqarilmaydi.
+        zones — kamera zonalari (polka, kassa, eshik, xodim; e'tiborsiz zonadagilar bu yerga kelmaydi).
+        """
+        base = self._params()
+        p = base
+        zs = zones if zones is not None else NO_ZONES
         alerts: list[dict] = []
         status: dict[int, dict] = {}
         items = [o for o in objects if o.kind == "item"]
         bags = [o for o in objects if o.kind == "bag"]
-        ml = BehaviorModel.get() if p["use_ml"] else None
+        ml = BehaviorModel.get() if base["use_ml"] else None
         all_boxes = [pp.box for pp in persons]
 
         for pi, person in enumerate(persons):
             tid = person.track_id
             mem = self.tracks.setdefault(tid, TrackMem())
             mem.last_seen = t
+            p = base
+            foot = np.array([(person.box[0] + person.box[2]) / 2, person.box[3]], dtype=np.float32)
+            if zs:
+                # Xodim: xodimlar zonasida STAFF_SEC turgan odam — kadrdan chiqquncha xodim
+                if zs.at("xodim", foot, frame_w, frame_h):
+                    if mem.staff_enter_t < -1e8:
+                        mem.staff_enter_t = t
+                    if t - mem.staff_enter_t >= STAFF_SEC:
+                        mem.staff = True
+                else:
+                    mem.staff_enter_t = -1e9
+                if mem.staff:
+                    mem.risk = 0.0
+                    status[tid] = {"risk": 0.0, "label": "xodim", "box": person.box, "staff": True}
+                    continue
+                # Eshik: shubhali odam chiqish tomon ketmoqda (skelet sifati muhim emas)
+                door = zs.at("eshik", foot, frame_w, frame_h)
+                if door and not mem.in_door:
+                    mem.door_enter_t = t
+                mem.in_door = door is not None
+                if door and not mem.exit_alerted and base["sig"]["exit"]:
+                    ex = self._exit_alert(mem, person, t, door, base)
+                    if ex:
+                        alerts.append(ex)
+                # Kassa: to'lov paytida sumkaga solish va qo'lni pastga tushirish — oddiy holat
+                kassa = zs.at("kassa", foot, frame_w, frame_h)
+                if kassa:
+                    p = dict(base)
+                    p["sig"] = dict(base["sig"], bag=False, offscreen=False)
+                    p["threshold"] = base["threshold"] + kassa.threshold_delta
             body = body_from_kpts(person.kpts, person.box)
             k = person.kpts
             good_quality = (body is not None and k[5, 2] >= 0.4 and k[6, 2] >= 0.4 and
@@ -219,7 +292,8 @@ class Analyzer:
                 wpt = person.kpts[wi, :2]
 
                 confident = hs["vis"] and hs["conf"] >= MIN_WRIST_CONF
-                if confident:
+                searched_here = _covered(wpt, searched)
+                if confident and searched_here:
                     # Qo'lda buyum bormi? Buyum qo'l bilan birga harakatlansagina "ushlangan" deb olinadi
                     # (polkadagi buyum yonidan qo'l o'tib ketsa hisoblanmaydi).
                     pad = body.scale * 0.15
@@ -234,10 +308,16 @@ class Analyzer:
                             near.append((float(np.linalg.norm(c - wpt)), it, c))
                     if near:
                         _, it, c = min(near, key=lambda x: x[0])
+                        if hm.hold_name and it.cls == hm.hold_cls and t - hm.hold_t <= ENGAGE_HOLD_SEC:
+                            # Allaqachon "qo'lda" deb tasdiqlangan buyum hali ham qo'lda — muddatini yangilaymiz
+                            hm.hold_t, hm.hold_box, hm.hold_wrist = t, it.box.copy(), wpt.copy()
                         if hm.cand_cls == it.cls and t - hm.cand_t <= 0.8:
                             d_wr = wpt - hm.cand_wrist
                             d_it = c - hm.cand_center
+                            # Qo'l ham, buyum ham siljigan va birga siljigan bo'lishi kerak
+                            # (polkada qimirlamay turgan buyum yonida qo'l biroz qimirlasa — bu ushlash emas)
                             if (np.linalg.norm(d_wr) > 0.05 * body.scale and
+                                    np.linalg.norm(d_it) > 0.04 * body.scale and
                                     np.linalg.norm(d_it - d_wr) < 0.35 * body.scale):
                                 hm.carry += 1
                         else:
@@ -245,12 +325,21 @@ class Analyzer:
                         hm.cand_cls, hm.cand_center, hm.cand_wrist, hm.cand_t = it.cls, c, wpt.copy(), t
                         if hm.carry >= 2:
                             hm.hold_t, hm.hold_name, hm.hold_cls = t, it.name, it.cls
+                            hm.hold_box, hm.hold_wrist = it.box.copy(), wpt.copy()
                     elif t - hm.cand_t > 0.8:
                         hm.carry = 0
+                elif t - hm.cand_t > 0.8:
+                    hm.carry = 0
+                if confident:
                     if hs["active"]:
                         hm.last_active_t = t
                     if hs["reach"]:
                         hm.last_reach_t = t
+                    shelf = zs.at("polka", wpt, frame_w, frame_h) if zs else None
+                    if shelf:
+                        # Qo'l polka zonasida — mahsulot olinyapti (past polkada ham, tepadan qaragan kamerada ham)
+                        hm.last_shelf_t, hm.shelf_name, hm.shelf_delta = t, shelf.name, shelf.threshold_delta
+                        hm.last_active_t = t
                 if hs["vis"]:
                     # Vertikal tezlik (kadrdan chiqib ketishni aniqlash uchun)
                     yfrac = float(wpt[1]) / max(frame_h, 1)
@@ -293,6 +382,18 @@ class Analyzer:
                     hm.entry_active_t = max(hm.last_active_t, hm.hold_t)
                     hm.zone_low_conf = False
                     hm.zone_entry_conf = hs["conf"] if hs["vis"] else 0.0
+                    hm.zone_check_t = -1e9
+                    hm.zone_seen_t = -1e9
+                # Qo'l zonada va yaqinda buyum ushlagan bo'lsa: buyum hali ko'rinyaptimi?
+                # (faqat shu kadrda qo'l/odam atrofi haqiqatan qidirilgan bo'lsa hisoblanadi)
+                if zone and hm.hold_name and t - hm.hold_t <= 4.0:
+                    if hs["vis"] and searched_here:
+                        hm.zone_check_t = t
+                    pb = _expand(person.box, 0.3)
+                    if any(o.cls == hm.hold_cls and _box_iou(o.box, pb) > 0 and
+                           _covered(np.array([(o.box[0] + o.box[2]) / 2, (o.box[1] + o.box[3]) / 2]), searched)
+                           for o in items):
+                        hm.zone_seen_t = t
                 # Kirishda qo'l aniq ko'ringan, keyin ko'rinishi keskin pasaygan bo'lsa — yashirilgan
                 if zone and hm.zone_entry_conf >= 0.6 and (not hs["vis"] or hs["conf"] < 0.42):
                     hm.zone_low_conf = True
@@ -313,7 +414,11 @@ class Analyzer:
                         pts += 10
                         bd.append(["Qo'l yashirindi (ko'rinish pasaydi)", 10])
                         reasons.append("Qo'l kiyim orqasiga kirib, ko'rinishi pasaydi")
-                    if t - hm.last_reach_t <= 2.5:
+                    if 0 <= t - hm.last_shelf_t <= SHELF_SEC:
+                        pts += 10
+                        bd.append([f"Qo'l polka zonasida bo'lgan ({hm.shelf_name})", 10])
+                        reasons.append(f"Bundan oldin qo'l '{hm.shelf_name}' polka zonasiga kirgan")
+                    elif t - hm.last_reach_t <= 2.5:
                         pts += 5
                         bd.append(["Oldin qo'l uzatilgan (polkaga)", 5])
                         reasons.append("Bundan oldin qo'l uzatilgan (polkadan olish)")
@@ -330,13 +435,17 @@ class Analyzer:
                         bd.append([f"Qo'lda buyum bor edi: {hm.hold_name}", 15])
                         reasons.append(f"Qo'lda '{hm.hold_name}' ko'rindi")
                         in_hand_now = (t - hm.hold_t) < 0.2
-                        near_now = any(o.cls == hm.hold_cls and
-                                       _box_iou(o.box, _expand(person.box, 0.3)) > 0 for o in items)
+                        # "Yo'qoldi" faqat tekshirilgan bo'lsa: qo'l zonada yaqinda qidirildi va buyum
+                        # topilmadi, yoki qo'l buyum bilan kadrdan chiqib ketdi
+                        seen_now = t - hm.zone_seen_t <= 0.4
+                        # oxirgi tekshiruv yaqinda bo'lgan VA unda buyum ko'rinmagan
+                        checked = ((0 <= t - hm.zone_check_t <= 0.6 and hm.zone_seen_t < hm.zone_check_t)
+                                   or zone == "offscreen")
                         if in_hand_now:
                             pts -= 15
                             bd.append(["Buyum hali qo'lda ko'rinmoqda", -15])
                             reasons.append("Lekin buyum hali qo'lda ko'rinib turibdi")
-                        elif p["sig"]["vanish"] and not near_now:
+                        elif p["sig"]["vanish"] and checked and not seen_now:
                             pts += 20
                             bd.append(["Buyum keyin ko'rinmay qoldi", 20])
                             reasons.append(f"'{hm.hold_name}' keyin ko'rinmay qoldi")
@@ -389,9 +498,13 @@ class Analyzer:
                     reasons.append(f"Xulq modeli: {mem.ml_prob:.0%} ehtimollik")
                 score = float(max(0, min(100, pts)))
                 mem.risk = max(mem.risk, score)
-                if (score >= p["threshold"] and t - mem.last_alert_t >= p["cooldown"]
+                hs_ = mem.hands[side]
+                thr = p["threshold"] + (hs_.shelf_delta if 0 <= t - hs_.last_shelf_t <= SHELF_SEC else 0)
+                if (score >= thr and t - mem.last_alert_t >= p["cooldown"]
                         and not self._is_duplicate(t, person.box)):
                     mem.last_alert_t = t
+                    mem.alert_score = max(mem.alert_score, score)
+                    mem.last_alert_kind = KIND_LABELS[zone]
                     mem.hands[side].alerted_zone_t = t
                     self.recent_alerts.append((t, person.box.copy()))
                     level = "yuqori" if score >= 75 else ("o'rta" if score >= 55 else "past")
@@ -405,12 +518,95 @@ class Analyzer:
             else:
                 mem.risk *= 0.93
             mem.label = (f"{mem.risk:.0f}" if mem.risk >= 10 else "")
-            status[tid] = {"risk": mem.risk, "ml": mem.ml_prob, "box": person.box}
+            held = self._held_view(mem, person, t)
+            for hv in held or []:
+                if hv["state"] == "yashirildi?":
+                    if t - mem.hidden_last_t > 5.0:      # yangi epizod
+                        mem.hidden_t = t
+                    mem.hidden_last_t, mem.hidden_name = t, hv["name"]
+            status[tid] = {"risk": mem.risk, "ml": mem.ml_prob, "box": person.box, "held": held}
 
         # Eski izlarni tozalash
         for tid in [k for k, m in self.tracks.items() if t - m.last_seen > 10]:
             del self.tracks[tid]
         return alerts, status
+
+    @staticmethod
+    def _held_view(mem: "TrackMem", person: Person, t: float) -> list | None:
+        """Qo'ldagi buyumni ko'rsatish uchun: nomi va qo'l bilan birga suriladigan ramka.
+
+        * "qo'lda"      — buyum oxirgi 1.2 s ichida qo'l bilan birga harakatlangan;
+        * "yashirildi?" — buyumli qo'l yashirish zonasiga kirgan va buyum endi ko'rinmayapti.
+        """
+        out = []
+        for side, hm in mem.hands.items():
+            if hm.hold_box is None or not hm.hold_name or t - hm.hold_t > 4.0:
+                continue
+            wi = 9 if side == "L" else 10
+            box = hm.hold_box.copy()
+            if person.kpts[wi, 2] >= 0.3 and hm.hold_wrist is not None:
+                d = person.kpts[wi, :2] - hm.hold_wrist   # buyum qo'l bilan birga yuradi
+                box[[0, 2]] += d[0]
+                box[[1, 3]] += d[1]
+            if t - hm.hold_t <= 1.2:
+                out.append({"name": hm.hold_name, "box": box.tolist(), "state": "qo'lda"})
+            elif hm.zone in ("pocket", "torso", "bag", "offscreen"):
+                out.append({"name": hm.hold_name, "box": box.tolist(), "state": "yashirildi?"})
+        return out or None
+
+    def _exit_alert(self, mem: "TrackMem", person: Person, t: float, door, base: dict) -> dict | None:
+        """Avval shubha bo'lgan odam eshik (chiqish) zonasiga keldi."""
+        # Faqat shubhadan KEYIN eshik zonasiga kirgan bo'lsa (signal paytida allaqachon eshik oldida turgan
+        # odamga ikkinchi xabar berilmaydi); shubha EXIT_MEMORY_SEC dan eski bo'lmasin
+        recent_alert = 0 <= mem.door_enter_t - mem.last_alert_t and t - mem.last_alert_t <= EXIT_MEMORY_SEC
+        hidden = 0 <= mem.door_enter_t - mem.hidden_t and t - mem.hidden_t <= EXIT_MEMORY_SEC
+        if not (recent_alert or hidden) or self._is_duplicate(t, person.box):
+            return None
+        reasons, bd = [], []
+        score = 0.0
+        if recent_alert:
+            score = mem.alert_score
+            ago = t - mem.last_alert_t
+            reasons.append(f"Bu odam uchun {ago:.0f} s oldin signal bo'lgan: {mem.last_alert_kind} "
+                           f"(ball {mem.alert_score:.0f})")
+            bd.append([f"Avvalgi signal: {mem.last_alert_kind}", int(round(mem.alert_score))])
+        if hidden:
+            if EXIT_HIDDEN_SCORE > score:
+                bd.append([f"Mahsulot yashirilgani ko'ringan: {mem.hidden_name}", int(EXIT_HIDDEN_SCORE - score)])
+                score = float(EXIT_HIDDEN_SCORE)
+            reasons.append(f"'{mem.hidden_name}' qo'lda ko'rinib, keyin yashirilgan edi")
+        reasons.append(f"Chiqish zonasiga keldi: {door.name}")
+        thr = base["threshold"] + door.threshold_delta
+        if score < thr:
+            return None
+        mem.exit_alerted = True
+        mem.last_alert_t = t
+        self.recent_alerts.append((t, person.box.copy()))
+        level = "yuqori" if score >= 75 else ("o'rta" if score >= 55 else "past")
+        return {
+            "track_id": person.track_id, "t": t, "score": float(min(100.0, score)), "level": level,
+            "kind": "exit", "kind_label": KIND_LABELS["exit"], "side": None, "reasons": reasons,
+            "breakdown": bd, "ml_prob": mem.ml_prob, "box": person.box.tolist(),
+            "susp_start": float(t - 3.0),     # eshik tomon yurib kelgan oxirgi soniyalar
+            "susp_end": float(t), "pose_seq": [],   # yurish — o'qitish uchun ishlatilmaydi
+        }
+
+    def engaged(self, t: float, track_ids) -> bool:
+        """Kamerada "faol" harakat bormi: qo'l polkaga uzatilgan, buyum ushlangan, qo'l faol holatdan
+        yashirish zonasiga kirgan yoki odamning xavf bali oshgan."""
+        for tid in track_ids:
+            mem = self.tracks.get(tid)
+            if mem is None:
+                continue
+            if mem.risk >= 10:
+                return True
+            for hm in mem.hands.values():
+                if (0 <= t - hm.last_reach_t <= ENGAGE_REACH_SEC or 0 <= t - hm.hold_t <= ENGAGE_HOLD_SEC
+                        or 0 <= t - hm.last_shelf_t <= ENGAGE_REACH_SEC or 0 <= t - hm.cand_t <= 0.8):
+                    return True
+                if hm.zone and hm.zone_from_active and 0 <= t - hm.zone_enter_t <= 3.0:
+                    return True
+        return False
 
     @staticmethod
     def _speed(mem: TrackMem, t: float) -> float:

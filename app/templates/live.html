@@ -91,7 +91,7 @@ async function load() {
     if (!g("st-")) return;
     g("st-").textContent = s.state;
     g("pp-").textContent = s.persons;
-    g("fp-").textContent = `${s.fps_ai} kadr/s (kamera ${s.fps_cam})`;
+    g("fp-").textContent = `${s.fps_ai} kadr/s (kamera ${s.fps_cam})${s.mode ? " · " + s.mode : ""}`;
     g("rk-").textContent = s.max_risk;
     g("rk-").style.color = s.max_risk >= 55 ? "#b42318" : (s.max_risk >= 25 ? "#b45309" : "");
     g("er-").classList.toggle("hidden", !s.error);

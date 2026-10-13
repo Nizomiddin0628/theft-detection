@@ -4,9 +4,13 @@ PyTorch kerak emas: modellar oldindan ONNX formatiga o'tkazilgan.
 """
 from __future__ import annotations
 
+import heapq
+import itertools
 import math
 import os
 import threading
+import time
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 
 import cv2
@@ -54,6 +58,8 @@ COCO_NAMES = [
 ]
 
 # Do'konda "mahsulot" bo'lishi mumkin bo'lgan, qo'lda ko'tariladigan buyumlar
+# (galstuk, fen, to'p kabi sinflar ataylab olinmagan: model ularni ko'pincha yeng, soch va boshga
+# adashtiradi)
 ITEM_CLASSES = {
     39: "shisha", 40: "qadah", 41: "stakan", 42: "vilka", 43: "pichoq", 44: "qoshiq", 45: "kosa",
     46: "banan", 47: "olma", 48: "sendvich", 49: "apelsin", 50: "brokkoli", 51: "sabzi",
@@ -85,6 +91,7 @@ class Obj:
     cls: int
     name: str
     kind: str                  # item | bag
+    src: str = "global"        # global (butun kadr) | hand (qo'l atrofi kattalashtirilgan)
 
 
 @dataclass
@@ -93,6 +100,60 @@ class FrameResult:
     objects: list[Obj] = field(default_factory=list)
     width: int = 0
     height: int = 0
+
+
+# Navbatda ustunlik: faol kamera so'rovi tinch kameranikidan 0.3 s, bo'sh kameranikidan 1 s "oldinroq"
+# hisoblanadi. Shunday qilib yuklama oshganda avval tinch/bo'sh kameralar sekinlashadi, lekin ular ham
+# abadiy kutib qolmaydi (eng uzoq kutgan so'rov baribir o'tadi).
+PRIO_DELAY = {0: 0.0, 1: 0.3, 2: 1.0}
+PRIO_NAMES = {0: "faol", 1: "tinch", 2: "bo'sh"}
+
+
+class PriorityLock:
+    """Model navbati: bir vaqtda bitta so'rov; muddati (kelgan vaqt + ustunlik kechikishi) eng erta
+    bo'lgan so'rov birinchi o'tadi (earliest-deadline-first)."""
+
+    def __init__(self) -> None:
+        self._cv = threading.Condition()
+        self._busy = False
+        self._heap: list[tuple[float, int]] = []
+        self._seq = itertools.count()
+        self.calls = {k: 0 for k in PRIO_DELAY}
+        self.wait_sum = {k: 0.0 for k in PRIO_DELAY}
+        self.busy_sum = {k: 0.0 for k in PRIO_DELAY}
+
+    @contextmanager
+    def hold(self, prio: int = 1):
+        prio = prio if prio in PRIO_DELAY else 1
+        t_in = time.perf_counter()
+        with self._cv:
+            ticket = (t_in + PRIO_DELAY[prio], next(self._seq))
+            heapq.heappush(self._heap, ticket)
+            while self._busy or self._heap[0] != ticket:
+                self._cv.wait()
+            heapq.heappop(self._heap)
+            self._busy = True
+        t_go = time.perf_counter()
+        try:
+            yield
+        finally:
+            t_out = time.perf_counter()
+            with self._cv:
+                self._busy = False
+                self.calls[prio] += 1
+                self.wait_sum[prio] += t_go - t_in
+                self.busy_sum[prio] += t_out - t_go
+                self._cv.notify_all()
+
+    def stats(self) -> dict:
+        """Har ustunlik bo'yicha: chaqiruvlar soni, o'rtacha kutish va ishlash vaqti (ms)."""
+        out = {}
+        for k, name in PRIO_NAMES.items():
+            n = self.calls[k]
+            if n:
+                out[name] = {"calls": n, "wait_ms": round(self.wait_sum[k] / n * 1000, 1),
+                             "run_ms": round(self.busy_sum[k] / n * 1000, 1)}
+        return out
 
 
 def letterbox(img: np.ndarray, size: int, rect: bool = True, stride: int = 32) -> tuple[np.ndarray, float, int, int]:
@@ -166,7 +227,7 @@ class Engine:
         self.fixed_size = shape[2] if isinstance(shape[2], int) else None
         # Bir nechta kamera bir vaqtda modelni chaqirsa, oqimlar bir-biriga xalaqit beradi —
         # navbat bilan ishlatish umumiy tezlikni oshiradi va kompyuterni qotirmaydi
-        self.run_lock = threading.Lock()
+        self.run_lock = PriorityLock()
         log.info("Modellar yuklandi. Qurilma: %s, AI oqimlari: %d", ", ".join(self.providers), self.threads)
 
     @classmethod
@@ -186,10 +247,10 @@ class Engine:
         return letterbox(frame, s, rect=not self.fixed_size)
 
     def detect_persons(self, frame: np.ndarray, size: int = 640, conf: float = 0.4,
-                       iou: float = 0.5) -> list[Person]:
+                       iou: float = 0.5, prio: int = 1) -> list[Person]:
         img, r, left, top = self._prep(frame, size)
         blob = _to_blob(img)
-        with self.run_lock:
+        with self.run_lock.hold(prio):
             out = self.pose.run(None, {self.pose_input: blob})[0][0].T  # (N, 56)
         out = out[out[:, 4] >= conf]
         if len(out) == 0:
@@ -212,12 +273,12 @@ class Engine:
         return persons
 
     def detect_objects(self, frame: np.ndarray, size: int = 640, conf: float = 0.3,
-                       iou: float = 0.5) -> list[Obj]:
+                       iou: float = 0.5, prio: int = 1) -> list[Obj]:
         if self.det is None:
             return []
         img, r, left, top = self._prep(frame, size)
         blob = _to_blob(img)
-        with self.run_lock:
+        with self.run_lock.hold(prio):
             out = self.det.run(None, {self.det_input: blob})[0][0].T  # (N, 84)
         scores_all = out[:, 4:]
         cls = scores_all.argmax(1)
@@ -243,4 +304,26 @@ class Engine:
                 objs.append(Obj(b, float(scores[i]), c, BAG_CLASSES[c], "bag"))
             else:
                 objs.append(Obj(b, float(scores[i]), c, ITEM_CLASSES.get(c, COCO_NAMES[c]), "item"))
+        return objs
+
+    def stats(self) -> dict:
+        return self.run_lock.stats()
+
+    def detect_objects_in(self, frame: np.ndarray, box, size: int = 320, conf: float = 0.25,
+                          iou: float = 0.5, prio: int = 0, src: str = "hand") -> list[Obj]:
+        """Kadrning bir qismida (masalan, qo'l atrofida) buyum qidirish.
+
+        Qism model kirishiga kattalashtiriladi, shuning uchun butun kadrda juda kichik ko'ringan
+        qo'ldagi buyum ham topiladi. Natija ramkalari butun kadr koordinatalariga qaytariladi.
+        """
+        H, W = frame.shape[:2]
+        x1, y1 = max(0, int(box[0])), max(0, int(box[1]))
+        x2, y2 = min(W, int(box[2])), min(H, int(box[3]))
+        if x2 - x1 < 16 or y2 - y1 < 16:
+            return []
+        objs = self.detect_objects(frame[y1:y2, x1:x2], size=size, conf=conf, iou=iou, prio=prio)
+        for o in objs:
+            o.box[[0, 2]] += x1
+            o.box[[1, 3]] += y1
+            o.src = src
         return objs

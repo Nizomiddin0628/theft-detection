@@ -25,8 +25,10 @@ from starlette.middleware.sessions import SessionMiddleware
 from . import db
 from .ai.manager import archive_feedback, delete_event_files, get_manager
 from .config import (ADMIN_PASSWORD, ADMIN_USER, APP_NAME, APP_VERSION, BASE_DIR, CLIPS_DIR, DATA_DIR,
-                     MODELS_DIR, SECRET_KEY, SENSITIVITY_PRESETS, UPLOADS_DIR)
+                     EVAL_DIR, MODELS_DIR, SECRET_KEY, SENSITIVITY_PRESETS, UPLOADS_DIR)
 from .logutil import MEMORY_LOG, get_logger, setup_logging
+from . import evaluation
+from .ai import zones as zones_mod
 from .telegram_bot import KIND_UZ, get_bot, latency_stats, susp_info
 
 log = get_logger("web")
@@ -60,6 +62,7 @@ NAV = [
     ("model", "/model", "AI model", "cpu"),
     ("telegram", "/telegram", "Telegram bot", "send"),
     ("reports", "/reports", "Hisobotlar", "chart"),
+    ("eval", "/eval", "Aniqlik sinovi", "target"),
     ("settings", "/settings", "Sozlamalar", "sliders"),
     ("system", "/system", "Tizim holati", "activity"),
     ("help", "/help", "Yo'riqnoma", "book"),
@@ -72,6 +75,10 @@ train_state = {"running": False, "logs": [], "result": None, "error": None, "sta
 def _startup() -> None:
     setup_logging()
     db.init_db()
+    # Dastur to'xtaganda chala qolgan baholash va video tayyorlash
+    db.execute("UPDATE eval_runs SET status='toxtatildi' WHERE status='ishlanmoqda'")
+    for v in db.rows("SELECT id, path FROM eval_videos WHERE play_status='tayyorlanmoqda'"):
+        threading.Thread(target=evaluation.make_playable, args=(v["id"], Path(v["path"])), daemon=True).start()
     if not db.row("SELECT id FROM sources WHERE kind='webcam'"):
         db.execute("INSERT INTO sources(name, kind, uri, enabled, loop, created_at) VALUES(?,?,?,?,?,?)",
                    ("Kompyuter kamerasi", "webcam", "0", 0, 1, time.time()))
@@ -220,7 +227,9 @@ def live(request: Request):
 
 @app.get("/upload", response_class=HTMLResponse)
 def upload_page(request: Request):
-    return page(request, "upload.html", "upload", "Video tahlili")
+    zs = db.rows("SELECT s.id, s.name, COUNT(z.id) AS n FROM sources s JOIN zones z ON z.source_id=s.id "
+                 "WHERE z.enabled=1 GROUP BY s.id ORDER BY s.id")
+    return page(request, "upload.html", "upload", "Video tahlili", zone_sources=zs)
 
 
 @app.get("/events", response_class=HTMLResponse)
@@ -415,6 +424,224 @@ def api_stop(source_id: int):
 def api_delete_source(source_id: int):
     get_manager().stop_source(source_id)
     db.execute("DELETE FROM sources WHERE id=?", (source_id,))
+    db.execute("DELETE FROM zones WHERE source_id=?", (source_id,))
+    zones_mod.invalidate(source_id)
+    return {"ok": True}
+
+
+# ----------------------------------------------------------------------------- zonalar
+def _zone_public(r: dict) -> dict:
+    pts = zones_mod.parse_points(r["points"])
+    return {"id": r["id"], "source_id": r["source_id"], "name": r["name"] or "", "kind": r["kind"],
+            "points": [] if pts is None else [[round(float(x), 4), round(float(y), 4)] for x, y in pts],
+            "sens": r["sens"] or "", "enabled": int(r["enabled"] or 0)}
+
+
+@app.get("/sources/{source_id}/zones", response_class=HTMLResponse)
+def zones_page(request: Request, source_id: int):
+    src = db.row("SELECT * FROM sources WHERE id=?", (source_id,))
+    if not src:
+        raise HTTPException(404, "Manba topilmadi")
+    return page(request, "zones.html", "sources", f"Zonalar — {src['name']}", src=src,
+                zone_kinds=zones_mod.ZONE_KINDS, sens_labels=zones_mod.SENS_LABELS)
+
+
+# ----------------------------------------------------------------------------- aniqlik sinovi
+@app.get("/eval", response_class=HTMLResponse)
+def eval_page(request: Request):
+    zs = db.rows("SELECT s.id, s.name, COUNT(z.id) AS n FROM sources s LEFT JOIN zones z ON z.source_id=s.id "
+                 "AND z.enabled=1 GROUP BY s.id ORDER BY s.id")
+    return page(request, "eval.html", "eval", "Aniqlik sinovi", zone_sources=zs, label_kinds=evaluation.LABEL_KINDS,
+                tol=(evaluation.TOL_BEFORE, evaluation.TOL_AFTER))
+
+
+def _eval_video_public(v: dict) -> dict:
+    return {"id": v["id"], "filename": v["filename"], "duration": v["duration"], "fps": v["fps"],
+            "width": v["width"], "height": v["height"], "zone_source_id": v["zone_source_id"],
+            "labels": evaluation.clean_labels(v["labels"]), "reviewed": int(v["reviewed"] or 0),
+            "note": v["note"] or "", "play_status": v["play_status"], "created_at": v["created_at"]}
+
+
+@app.get("/api/eval/videos")
+def api_eval_videos():
+    return [_eval_video_public(v) for v in db.rows("SELECT * FROM eval_videos ORDER BY id DESC")]
+
+
+@app.post("/api/eval/videos")
+async def api_eval_upload(file: UploadFile = File(...), zone_source: str = Form("")):
+    ext = Path(file.filename or "").suffix.lower()
+    if ext not in VIDEO_EXT:
+        raise HTTPException(400, f"Video fayl kerak ({', '.join(sorted(VIDEO_EXT))})")
+    dest = EVAL_DIR / _safe_name(file.filename)
+    size = 0
+    with open(dest, "wb") as f:
+        while True:
+            chunk = await file.read(1024 * 1024)
+            if not chunk:
+                break
+            size += len(chunk)
+            if size > 4_000_000_000:
+                f.close()
+                dest.unlink(missing_ok=True)
+                raise HTTPException(413, "Fayl juda katta (4 GB dan oshmasin)")
+            f.write(chunk)
+    info = evaluation.probe(dest)
+    if not info.get("ok"):
+        dest.unlink(missing_ok=True)
+        raise HTTPException(400, "Videoni o'qib bo'lmadi. MP4 (H.264) formatini sinab ko'ring.")
+    conv = evaluation.needs_transcode(dest, info)
+    vid = db.execute("INSERT INTO eval_videos(filename, path, play_path, play_status, duration, fps, width, height, "
+                     "zone_source_id, labels, reviewed, created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
+                     (file.filename, str(dest), None if conv else str(dest), "tayyorlanmoqda" if conv else "tayyor",
+                      info["duration"], info["fps"], info["width"], info["height"],
+                      int(zone_source) if zone_source.isdigit() else None, "[]", 0, time.time()))
+    if conv:
+        threading.Thread(target=evaluation.make_playable, args=(vid, dest), daemon=True).start()
+    return {"ok": True, "video": _eval_video_public(db.row("SELECT * FROM eval_videos WHERE id=?", (vid,)))}
+
+
+@app.post("/api/eval/videos/{vid}")
+async def api_eval_video_update(request: Request, vid: int):
+    v = db.row("SELECT * FROM eval_videos WHERE id=?", (vid,))
+    if not v:
+        raise HTTPException(404, "Video topilmadi")
+    d = await body_data(request)
+    upd = {}
+    if "labels" in d:
+        upd["labels"] = json.dumps(evaluation.clean_labels(d["labels"]), ensure_ascii=False)
+    if "reviewed" in d:
+        upd["reviewed"] = 1 if str(d["reviewed"]) in ("1", "true", "on", "True") else 0
+    if "zone_source_id" in d:
+        z = str(d["zone_source_id"] or "")
+        upd["zone_source_id"] = int(z) if z.isdigit() else None
+    if "note" in d:
+        upd["note"] = str(d["note"] or "")[:500]
+    if upd:
+        db.execute(f"UPDATE eval_videos SET {', '.join(k + '=?' for k in upd)} WHERE id=?", (*upd.values(), vid))
+    return {"ok": True, "video": _eval_video_public(db.row("SELECT * FROM eval_videos WHERE id=?", (vid,)))}
+
+
+@app.post("/api/eval/videos/{vid}/delete")
+def api_eval_video_delete(vid: int):
+    v = db.row("SELECT * FROM eval_videos WHERE id=?", (vid,))
+    if not v:
+        raise HTTPException(404, "Video topilmadi")
+    for p in {v["path"], v["play_path"]}:
+        if p:
+            Path(p).unlink(missing_ok=True)
+    db.execute("DELETE FROM eval_videos WHERE id=?", (vid,))
+    return {"ok": True}
+
+
+@app.get("/media/eval/{vid}")
+def media_eval(vid: int):
+    v = db.row("SELECT play_path, play_status FROM eval_videos WHERE id=?", (vid,))
+    if not v or not v["play_path"] or not Path(v["play_path"]).exists():
+        raise HTTPException(404, "Video hali tayyor emas")
+    return FileResponse(v["play_path"], media_type="video/mp4")
+
+
+@app.post("/api/eval/run")
+async def api_eval_run(request: Request):
+    d = await body_data(request)
+    ids = d.get("video_ids") or None
+    try:
+        run_id = evaluation.get_runner().start(ids)
+    except RuntimeError as e:
+        raise HTTPException(409, str(e))
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    return {"ok": True, "run_id": run_id}
+
+
+@app.post("/api/eval/stop")
+def api_eval_stop():
+    evaluation.get_runner().stop()
+    return {"ok": True}
+
+
+@app.get("/api/eval/status")
+def api_eval_status():
+    r = evaluation.get_runner()
+    return {**r.state, "running": r.busy()}
+
+
+@app.get("/api/eval/runs")
+def api_eval_runs():
+    cols = ("id, created_at, finished_at, status, progress, version, settings, videos, hours, tp, fp, fn, dup, "
+            "precision, recall, f1, fp_per_hour, latency_med, error")
+    out = []
+    for r in db.rows(f"SELECT {cols} FROM eval_runs ORDER BY id DESC LIMIT 50"):
+        r["settings"] = json.loads(r["settings"] or "{}")
+        out.append(r)
+    return out
+
+
+@app.get("/api/eval/runs/{run_id}")
+def api_eval_run_detail(run_id: int):
+    r = db.row("SELECT * FROM eval_runs WHERE id=?", (run_id,))
+    if not r:
+        raise HTTPException(404, "Topilmadi")
+    r["settings"] = json.loads(r["settings"] or "{}")
+    r["details"] = json.loads(r["details"] or "[]")
+    return r
+
+
+@app.get("/api/sources/{source_id}/frame.jpg")
+def api_source_frame(source_id: int, fresh: int = 1):
+    data = get_manager().raw_snapshot(source_id, fresh=bool(fresh))
+    if not data:
+        data = _placeholder("Kadr olinmadi - kamerani yoqing")
+    return Response(data, media_type="image/jpeg", headers={"Cache-Control": "no-store"})
+
+
+@app.get("/api/sources/{source_id}/zones")
+def api_zones(source_id: int):
+    return [_zone_public(r) for r in db.rows("SELECT * FROM zones WHERE source_id=? ORDER BY id", (source_id,))]
+
+
+@app.post("/api/sources/{source_id}/zones")
+async def api_zone_save(request: Request, source_id: int):
+    if not db.row("SELECT id FROM sources WHERE id=?", (source_id,)):
+        raise HTTPException(404, "Manba topilmadi")
+    d = await body_data(request)
+    kind = d.get("kind", "")
+    if not isinstance(kind, str) or kind not in zones_mod.ZONE_KINDS:
+        raise HTTPException(400, "Noto'g'ri zona turi")
+    pts = zones_mod.parse_points(d.get("points"))
+    if pts is None:
+        raise HTTPException(400, "Zona kamida 3 nuqtadan iborat bo'lishi kerak")
+    sens = d.get("sens", "") or ""
+    if not isinstance(sens, str) or sens not in zones_mod.SENSITIVITY:
+        raise HTTPException(400, "Noto'g'ri sezgirlik")
+    name = str(d.get("name") or "").strip()[:60] or zones_mod.ZONE_KINDS[kind]["label"]
+    enabled = 0 if str(d.get("enabled", "1")).strip().lower() in ("0", "false", "off", "no") else 1
+    points = json.dumps([[round(float(x), 4), round(float(y), 4)] for x, y in pts])
+    zid = d.get("id")
+    if zid is not None and zid != "":
+        try:
+            zid = int(zid)
+        except (TypeError, ValueError):
+            raise HTTPException(400, "Noto'g'ri zona raqami")
+    if zid:
+        if not db.row("SELECT id FROM zones WHERE id=? AND source_id=?", (int(zid), source_id)):
+            raise HTTPException(404, "Zona topilmadi")
+        db.execute("UPDATE zones SET name=?, kind=?, points=?, sens=?, enabled=? WHERE id=?",
+                   (name, kind, points, sens, enabled, int(zid)))
+    else:
+        zid = db.execute("INSERT INTO zones(source_id, name, kind, points, sens, enabled, created_at) "
+                         "VALUES(?,?,?,?,?,?,?)", (source_id, name, kind, points, sens, enabled, time.time()))
+    zones_mod.invalidate(source_id)
+    return {"ok": True, "zone": _zone_public(db.row("SELECT * FROM zones WHERE id=?", (int(zid),)))}
+
+
+@app.post("/api/zones/{zone_id}/delete")
+def api_zone_delete(zone_id: int):
+    z = db.row("SELECT source_id FROM zones WHERE id=?", (zone_id,))
+    if not z:
+        raise HTTPException(404, "Zona topilmadi")
+    db.execute("DELETE FROM zones WHERE id=?", (zone_id,))
+    zones_mod.invalidate(z["source_id"])
     return {"ok": True}
 
 
@@ -471,7 +698,7 @@ def _start_as_live(path: Path, name: str) -> int:
 
 
 @app.post("/api/upload")
-async def api_upload(file: UploadFile = File(...), mode: str = Form("fast")):
+async def api_upload(file: UploadFile = File(...), mode: str = Form("fast"), zone_source: str = Form("")):
     ext = Path(file.filename or "").suffix.lower()
     if ext not in VIDEO_EXT:
         raise HTTPException(400, f"Video fayl kerak ({', '.join(sorted(VIDEO_EXT))})")
@@ -497,7 +724,8 @@ async def api_upload(file: UploadFile = File(...), mode: str = Form("fast")):
     if mode == "live":
         sid = _start_as_live(dest, file.filename)
         return {"ok": True, "mode": "live", "source_id": sid}
-    jid = get_manager().submit_job(dest, file.filename)
+    zsid = int(zone_source) if zone_source.isdigit() else None
+    jid = get_manager().submit_job(dest, file.filename, zone_source_id=zsid)
     return {"ok": True, "mode": "fast", "job_id": jid}
 
 
@@ -509,6 +737,8 @@ async def api_upload_url(request: Request):
     d = await body_data(request)
     url = (d.get("url") or "").strip()
     mode = d.get("mode", "fast")
+    zsrc = str(d.get("zone_source") or "")
+    zsid = int(zsrc) if zsrc.isdigit() else None
     if not re.match(r"^https?://", url):
         raise HTTPException(400, "Havola http:// yoki https:// bilan boshlanishi kerak")
     if re.search(r"(youtube\.com|youtu\.be|instagram\.com|tiktok\.com|facebook\.com)", url):
@@ -542,7 +772,7 @@ async def api_upload_url(request: Request):
             if mode == "live":
                 download_state[key]["source_id"] = _start_as_live(dest, name)
             else:
-                download_state[key]["job_id"] = get_manager().submit_job(dest, name)
+                download_state[key]["job_id"] = get_manager().submit_job(dest, name, zone_source_id=zsid)
             download_state[key]["status"] = "tayyor"
         except Exception as e:
             dest.unlink(missing_ok=True)
@@ -922,11 +1152,13 @@ def api_demo_alert():
 
 # ----------------------------------------------------------------------------- sozlamalar
 NUMERIC = {"threshold": (0, 100), "dwell_sec": (0.1, 3), "pre_sec": (1, 30), "post_sec": (1, 30),
-           "cooldown_sec": (0, 600), "ai_fps": (1, 30), "infer_size": (320, 1280), "person_conf": (0.1, 0.95),
+           "cooldown_sec": (0, 600), "ai_fps": (1, 30), "calm_fps": (1, 30), "infer_size": (320, 1280),
+           "person_conf": (0.1, 0.95),
            "object_conf": (0.1, 0.95), "ml_weight": (0, 60), "telegram_min_score": (0, 100),
            "retention_days": (0, 3650), "camera_alert_sec": (15, 3600)}
 FLAGS = ["use_ml", "signal_pocket", "signal_torso", "signal_bag", "signal_vanish", "signal_looking",
-         "signal_offscreen", "telegram_enabled", "telegram_send_video", "personal_items", "camera_alerts"]
+         "signal_offscreen", "telegram_enabled", "telegram_send_video", "personal_items", "camera_alerts",
+         "show_objects", "signal_exit"]
 
 
 @app.get("/api/settings")

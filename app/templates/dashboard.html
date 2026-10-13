@@ -70,7 +70,7 @@ document.addEventListener("summary", (e) => {
       <div class="row between small" style="margin-top:6px"><span class="muted" id="cs-${c.id}"></span><a href="/live">Kattalashtirish</a></div></div>`).join("")
       : `<div class="empty span2">Hech qaysi kamera ishlamayapti.<br><br><button class="btn primary" onclick="quickCam(this)">Kompyuter kamerasini yoqish</button></div>`;
   }
-  run.forEach((c) => { const el = document.getElementById("cs-" + c.id); if (el) el.textContent = `${c.persons} odam · AI ${c.fps_ai} kadr/s · xavf ${c.max_risk}`; });
+  run.forEach((c) => { const el = document.getElementById("cs-" + c.id); if (el) el.textContent = `${c.mode || ""} · ${c.persons} odam · AI ${c.fps_ai} kadr/s · xavf ${c.max_risk}`; });
   box.querySelectorAll("img[data-src]").forEach((img) => img.src = img.dataset.src + "?t=" + Date.now());
 });
 </script>

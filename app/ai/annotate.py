@@ -51,10 +51,11 @@ def draw(frame: np.ndarray, persons: list, objects: list, status: dict | None = 
         k = np.asarray(kpts, dtype=np.float32).copy()
         k[:, :2] *= scale
         risk = float(status.get(tid, {}).get("risk", 0.0))
+        staff = bool(status.get(tid, {}).get("staff"))
         if highlight is not None:
             color = RED if tid == highlight else GRAY
         else:
-            color = risk_color(risk)
+            color = GRAY if staff else risk_color(risk)
         thick = lw + (2 if tid == highlight else 0)
         cv2.rectangle(img, (b[0], b[1]), (b[2], b[3]), color, thick)
         for a, c2 in EDGES:
@@ -66,9 +67,13 @@ def draw(frame: np.ndarray, persons: list, objects: list, status: dict | None = 
                 r = 4 if i in (9, 10) else 2
                 cv2.circle(img, (int(k[i, 0]), int(k[i, 1])), r + lw - 1,
                            (0, 220, 255) if i in (9, 10) else color, -1, cv2.LINE_AA)
+        for hv in (status.get(tid, {}).get("held") or []):
+            draw_held(img, hv, scale, lw)
         tag = f"#{tid}"
         if highlight is not None and tid == highlight:
             tag += " TEKSHIRING"
+        elif staff:
+            tag += " xodim"
         elif risk >= 10:
             tag += f" xavf {risk:.0f}"
         _label(img, tag, (b[0], b[1] - 2), color)
@@ -84,6 +89,25 @@ def draw(frame: np.ndarray, persons: list, objects: list, status: dict | None = 
         cv2.putText(img, time_text, org, cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 3, cv2.LINE_AA)
         cv2.putText(img, time_text, org, cv2.FONT_HERSHEY_SIMPLEX, 0.5, WHITE, 1, cv2.LINE_AA)
     return img
+
+
+HELD = (0, 140, 255)      # to'q sariq — qo'ldagi mahsulot
+HIDDEN = (40, 40, 230)    # qizil — yashirilgan bo'lishi mumkin
+
+
+def draw_held(img: np.ndarray, hv: dict, scale: float, lw: int) -> None:
+    """Qo'ldagi mahsulot: qalin ramka va nomi ("MAHSULOT: shisha"), yashirilsa — qizil belgi."""
+    b = (np.asarray(hv["box"], dtype=np.float32) * scale).astype(int)
+    h, w = img.shape[:2]
+    b[[0, 2]] = b[[0, 2]].clip(0, w - 1)
+    b[[1, 3]] = b[[1, 3]].clip(0, h - 1)
+    name = str(hv.get("name", "")).encode("ascii", "ignore").decode() or "buyum"
+    if hv.get("state") == "yashirildi?":
+        cv2.rectangle(img, (b[0], b[1]), (b[2], b[3]), HIDDEN, lw + 1, cv2.LINE_AA)
+        _label(img, f"{name}: YASHIRILDI?", (b[0], b[1] - 2), HIDDEN, scale=0.5, thick=1)
+    else:
+        cv2.rectangle(img, (b[0], b[1]), (b[2], b[3]), HELD, lw + 2, cv2.LINE_AA)
+        _label(img, f"MAHSULOT: {name}", (b[0], b[1] - 2), HELD, scale=0.5, thick=1)
 
 
 def draw_timeline(img: np.ndarray, t: float, t0: float, t1: float, s0: float, s1: float) -> None:

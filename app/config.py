@@ -16,10 +16,12 @@ UPLOADS_DIR = DATA_DIR / "uploads"
 POSES_DIR = DATA_DIR / "poses"
 FEEDBACK_DIR = DATA_DIR / "feedback"   # o'chirilgan, lekin tekshirilgan hodisalarning o'qitish ma'lumoti
 LOGS_DIR = DATA_DIR / "logs"
+SNAP_DIR = DATA_DIR / "snapshots"      # zona chizish uchun kameralarning oxirgi toza kadri
+EVAL_DIR = DATA_DIR / "eval"           # aniqlikni o'lchash uchun belgilangan videolar
 MODELS_DIR = BASE_DIR / "models"
 DB_PATH = DATA_DIR / "hushyor.db"
 
-for _d in (DATA_DIR, CLIPS_DIR, UPLOADS_DIR, POSES_DIR, FEEDBACK_DIR, LOGS_DIR, MODELS_DIR):
+for _d in (DATA_DIR, CLIPS_DIR, UPLOADS_DIR, POSES_DIR, FEEDBACK_DIR, LOGS_DIR, MODELS_DIR, SNAP_DIR, EVAL_DIR):
     _d.mkdir(parents=True, exist_ok=True)
 
 
@@ -92,12 +94,15 @@ DEFAULT_SETTINGS = {
     "use_ml": "1",
     "ml_weight": "10",
     "personal_items": "1",
+    "calm_fps": "4",
+    "show_objects": "0",
     "signal_pocket": "1",
     "signal_torso": "1",
     "signal_bag": "1",
     "signal_vanish": "1",
     "signal_looking": "1",
     "signal_offscreen": "1",
+    "signal_exit": "1",
     "telegram_enabled": "1",
     "telegram_send_video": "1",
     "telegram_min_score": "0",
@@ -115,4 +120,4 @@ SETTINGS_MIGRATIONS = {
 SETTINGS_VERSION = max(SETTINGS_MIGRATIONS)
 
 APP_NAME = "Hushyor AI"
-APP_VERSION = "1.2.0"
+APP_VERSION = "1.3.0"

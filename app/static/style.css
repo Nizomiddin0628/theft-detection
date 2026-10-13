@@ -225,6 +225,7 @@ input[type=range] { width: 100%; accent-color: var(--brand); }
 /* ---------- Yordam ---------- */
 .prose h2 { margin: 22px 0 8px; }
 .prose h2:first-child { margin-top: 0; }
+.prose h3 { margin: 16px 0 6px; font-size: 15px; }
 .prose p, .prose li { color: var(--ink-2); }
 .prose ul, .prose ol { padding-left: 20px; margin: 0 0 10px; }
 .prose code { font-family: var(--mono); background: #eef2f6; padding: 1px 6px; border-radius: 5px; font-size: 12.5px; }

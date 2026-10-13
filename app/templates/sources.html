@@ -75,9 +75,10 @@ async function load() {
     <tr><td><b>${H.esc(s.name)}</b></td><td>${KIND[s.kind] || s.kind}</td>
       <td class="mono small" style="max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${H.esc(s.uri)}">${H.esc(s.uri.replace(/:\/\/([^:@]+):([^@]+)@/, "://$1:***@"))}</td>
       <td><span class="dot ${s.running ? "on" : (s.state === "xato" ? "off" : "")}"></span> ${H.esc(s.state)}${s.error ? `<div class="small" style="color:#b42318">${H.esc(s.error)}</div>` : ""}</td>
-      <td class="num small">${s.running ? `AI ${s.fps_ai} / kamera ${s.fps_cam}` : "—"}</td>
+      <td class="num small">${s.running ? `${s.mode ? s.mode + " · " : ""}AI ${s.fps_ai} / kamera ${s.fps_cam}` : "—"}</td>
       <td><label class="switch"><input type="checkbox" ${s.enabled ? "checked" : ""} onchange="auto(${s.id}, this)"></label></td>
       <td style="text-align:right;white-space:nowrap">
+        <a class="btn sm" href="/sources/${s.id}/zones" title="Polka, kassa, eshik, xodim va e'tiborsiz zonalarni chizish">Zonalar${s.zones ? ` (${s.zones})` : ""}</a>
         ${s.running ? `<button class="btn sm" onclick="act(${s.id},'stop')">■ To'xtatish</button>` : `<button class="btn sm primary" onclick="act(${s.id},'start')">▶ Yoqish</button>`}
         <button class="btn sm ghost" onclick="act(${s.id},'delete')" title="O'chirish">✕</button></td></tr>`).join("")
     : `<tr><td colspan="7" class="empty">Manba yo'q</td></tr>`;

@@ -52,6 +52,7 @@
         ('signal_vanish', "Buyum yo'qolishi", "Qo'ldagi buyum yashirishdan keyin ko'rinmay qolsa (+20 ball)"),
         ('signal_looking', "Atrofga qarash", "Bosh tez-tez u yoq-bu yoqqa burilsa (+10 ball)"),
         ('signal_offscreen', "Qo'lni kadrdan yashirish", "Stol oldida — buyum bilan qo'l kadrdan pastga tushsa"),
+        ('signal_exit', "Shubhali odam chiqishga keldi", "Kamerada 'Kirish/chiqish' zonasi chizilgan bo'lsa: avval signal bo'lgan yoki mahsulotni yashirgan odam eshikka kelganda yana xabar beradi"),
         ('personal_items', "Telefon — xaridorning o'z buyumi", "Qo'ldagi telefon cho'ntakka solinsa ball pasaytiriladi. Telefon do'konida o'chiring."),
         ('use_ml', "AI xulq modeli", "Skelet harakatidan o'rganilgan model ehtimolini qo'shish")] %}
       <div class="field"><label class="switch"><input type="checkbox" name="{{ key }}" {{ 'checked' if settings[key] == '1' }}> <span><b>{{ label }}</b><br><span class="muted small">{{ hint }}</span></span></label></div>
@@ -65,12 +66,14 @@
 <div class="card" style="margin-top:16px">
   <div class="card-h"><h2>AI ishlash tezligi</h2></div>
   <div class="card-b grid g4">
-    <div class="field"><label class="f">AI kadr/soniya (har kamera)</label><input type="number" name="ai_fps" min="1" max="30" value="{{ settings.ai_fps }}"><div class="hint">Kompyuter sekin bo'lsa 4–5 qiling.</div></div>
+    <div class="field"><label class="f">AI kadr/soniya — faol kamera</label><input type="number" name="ai_fps" min="1" max="30" value="{{ settings.ai_fps }}"><div class="hint">Qo'l polkaga uzatilganda / buyum ushlanganda. Kompyuter sekin bo'lsa 5–6.</div></div>
+    <div class="field"><label class="f">AI kadr/soniya — tinch kamera</label><input type="number" name="calm_fps" min="1" max="30" value="{{ settings.calm_fps }}"><div class="hint">Odam bor, lekin hech narsaga qo'l uzatmayapti. Bo'sh kamera modelni deyarli ishlatmaydi.</div></div>
     <div class="field"><label class="f">Tahlil o'lchami</label><select name="infer_size">
       {% for sz in [320, 416, 480, 640, 800] %}<option value="{{ sz }}" {{ 'selected' if settings.infer_size|float|int == sz }}>{{ sz }} px{{ ' (tavsiya)' if sz == 640 }}</option>{% endfor %}
     </select><div class="hint">Kichikroq — tezroq, lekin uzoqdagi odamlar yomonroq ko'rinadi.</div></div>
     <div class="field"><label class="f">Odam ishonch chegarasi</label><input type="number" name="person_conf" step="0.05" min="0.1" max="0.95" value="{{ settings.person_conf }}"></div>
     <div class="field"><label class="f">Buyum ishonch chegarasi</label><input type="number" name="object_conf" step="0.05" min="0.1" max="0.95" value="{{ settings.object_conf }}"></div>
+    <div class="field"><label class="switch"><input type="checkbox" name="show_objects" {{ 'checked' if settings.show_objects == '1' }}> <span><b>Topilgan barcha buyumlarni chizish</b><br><span class="muted small">Odatda o'chiq: rasmda faqat qo'ldagi mahsulot ko'rsatiladi. Sozlash/tekshirish uchun.</span></span></label></div>
   </div>
 </div>
 <div class="row" style="margin-top:16px">

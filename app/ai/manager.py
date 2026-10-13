@@ -8,10 +8,10 @@ import time
 from pathlib import Path
 
 from .. import db
-from ..config import CLIPS_DIR, FEEDBACK_DIR, POSES_DIR, UPLOADS_DIR
+from ..config import CLIPS_DIR, FEEDBACK_DIR, POSES_DIR, SNAP_DIR, UPLOADS_DIR
 from ..logutil import get_logger
 from .clipper import make_clip, make_snapshot
-from .worker import FileJob, PendingClip, SourceWorker
+from .worker import FileJob, PendingClip, SourceWorker, open_capture
 
 log = get_logger("manager")
 
@@ -78,6 +78,8 @@ class Manager:
 
     def source_info(self) -> list[dict]:
         out = []
+        nz = {r["source_id"]: r["n"] for r in
+              db.rows("SELECT source_id, COUNT(*) AS n FROM zones WHERE enabled=1 GROUP BY source_id")}
         for s in db.rows("SELECT * FROM sources ORDER BY id"):
             w = self.workers.get(s["id"])
             info = w.info() if w and w.is_alive() else {
@@ -87,8 +89,49 @@ class Manager:
                 "running": False}
             info["uri"] = s["uri"]
             info["enabled"] = s["enabled"]
+            info["zones"] = nz.get(s["id"], 0)
             out.append(info)
         return out
+
+    def raw_snapshot(self, source_id: int, fresh: bool = True) -> bytes | None:
+        """Zona chizish uchun toza (belgisiz) kadr.
+
+        Kamera ishlayotgan bo'lsa — uning oxirgi kadri; aks holda manba qisqa ochiladi. Olingan kadr diskka
+        saqlanadi: kamera keyin o'chiq bo'lsa ham zonalarni tahrirlash mumkin.
+        """
+        import cv2
+
+        path = SNAP_DIR / f"src_{int(source_id)}.jpg"
+        frame = None
+        w = self.workers.get(source_id)
+        if w and w.is_alive():
+            with w.frame_lock:
+                frame = None if w.latest_frame is None else w.latest_frame.copy()
+        if frame is None and fresh:
+            src = db.row("SELECT * FROM sources WHERE id=?", (source_id,))
+            if src:
+                cap = open_capture(src["kind"], src["uri"])
+                try:
+                    for _ in range(1 if src["kind"] == "file" else 8):   # ba'zi kameralar avval qora kadr beradi
+                        ok, f = cap.read()
+                        if ok and f is not None:
+                            frame = f
+                finally:
+                    cap.release()
+        if frame is None:
+            return path.read_bytes() if path.exists() else None
+        h, wd = frame.shape[:2]
+        if wd > 1280:
+            frame = cv2.resize(frame, (1280, int(h * 1280 / wd)), interpolation=cv2.INTER_AREA)
+        ok, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 85])
+        if not ok:
+            return None
+        data = buf.tobytes()
+        try:
+            path.write_bytes(data)
+        except OSError:
+            pass
+        return data
 
     def preview(self, source_id: int, viewing: bool = False) -> bytes:
         w = self.workers.get(source_id)
@@ -101,9 +144,9 @@ class Manager:
             self.start_source(s["id"])
 
     # ---------------- Video vazifalari ----------------
-    def submit_job(self, path: Path, filename: str) -> int:
-        jid = db.execute("INSERT INTO jobs(filename, path, status, progress, created_at) VALUES(?,?,?,?,?)",
-                         (filename, str(path), "navbatda", 0, time.time()))
+    def submit_job(self, path: Path, filename: str, zone_source_id: int | None = None) -> int:
+        jid = db.execute("INSERT INTO jobs(filename, path, status, progress, created_at, zone_source_id) "
+                         "VALUES(?,?,?,?,?,?)", (filename, str(path), "navbatda", 0, time.time(), zone_source_id))
         self.job_queue.put(jid)
         return jid
 

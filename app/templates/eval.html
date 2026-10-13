@@ -1,0 +1,302 @@
+{% extends "base.html" %}
+{% from "_icons.html" import icon %}
+{% block subtitle %}<div class="muted small">O'z do'koningiz videolarida tizim qanchalik to'g'ri ishlashini o'lchang: hodisalarni belgilang — tizim signallari bilan solishtiriladi</div>{% endblock %}
+{% block content %}
+<style>
+  .kpis { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 12px; }
+  .kpi { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 12px 14px; }
+  .kpi .v { font-size: 26px; font-weight: 700; letter-spacing: -.02em; }
+  .kpi .l { font-size: 12.5px; color: var(--muted); }
+  .kpi .s { font-size: 11.5px; color: var(--muted); margin-top: 2px; }
+  @media (max-width: 1100px) { .kpis { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+  @media (max-width: 640px) { .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+  .vlist .vi { padding: 9px 10px; border: 1px solid var(--line); border-radius: 9px; margin-bottom: 6px; cursor: pointer; }
+  .vlist .vi.sel { border-color: var(--brand); box-shadow: 0 0 0 2px rgba(37, 99, 235, .15); }
+  .player video { width: 100%; max-height: 62vh; background: #000; border-radius: 10px; display: block; }
+  .tl { position: relative; height: 34px; background: #eef2f6; border-radius: 8px; margin-top: 10px; cursor: pointer; overflow: hidden; }
+  .tl .seg { position: absolute; top: 4px; bottom: 4px; background: rgba(220, 38, 38, .35); border: 1px solid #dc2626; border-radius: 4px; }
+  .tl .seg.fn { background: rgba(220, 38, 38, .12); border-style: dashed; }
+  .tl .seg.tp { background: rgba(22, 163, 74, .30); border-color: #16a34a; }
+  .tl .seg.pend { background: rgba(37, 99, 235, .25); border-color: #2563eb; }
+  .tl .tick { position: absolute; top: 0; bottom: 0; width: 3px; margin-left: -1px; }
+  .tl .tick.tp { background: #16a34a; } .tl .tick.fp { background: #dc2626; } .tl .tick.al { background: #475569; }
+  .tl .head { position: absolute; top: 0; bottom: 0; width: 2px; background: #0f172a; pointer-events: none; }
+  .tools { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 10px; }
+  .tools select { width: auto; }
+  .lgd span { display: inline-flex; align-items: center; gap: 5px; margin-right: 12px; }
+  .lgd i { width: 12px; height: 12px; border-radius: 3px; display: inline-block; }
+</style>
+
+<div class="kpis" id="kpis"></div>
+<div class="card" style="margin-top:12px">
+  <div class="card-b row">
+    <button class="btn primary" id="btnRun" onclick="runEval()">{{ icon('play', 16) }} Baholashni boshlash</button>
+    <button class="btn hidden" id="btnStop" onclick="stopEval()">{{ icon('stop', 16) }} To'xtatish</button>
+    <div style="flex:1;min-width:200px">
+      <div class="row between small"><span id="runText" class="muted">Faqat "belgilash tugallangan" videolar baholanadi. Joriy sozlamalar ishlatiladi.</span><span id="runPct"></span></div>
+      <div class="bar hidden" id="runBar"><i id="runI" style="width:0"></i></div>
+    </div>
+  </div>
+</div>
+
+<div class="grid g3" style="margin-top:16px">
+  <div class="card">
+    <div class="card-h"><h2>Videolar</h2><div class="grow"></div><span class="muted small" id="vcount"></span></div>
+    <div class="card-b">
+      <label class="drop" id="drop" style="padding:16px">
+        <input type="file" id="file" accept="video/*,.mp4,.avi,.mov,.mkv,.webm,.m4v" multiple>
+        {{ icon('upload', 26) }}
+        <div style="font-weight:600;margin-top:4px">Video yuklash</div>
+        <div class="muted small">Do'koningiz kamerasidan yozilgan videolar</div>
+      </label>
+      <div class="field" style="margin-top:10px"><label class="f">Zonalar</label>
+        <select id="upZone"><option value="">Zonasiz</option>{% for z in zone_sources %}<option value="{{ z.id }}">{{ z.name }}{{ ' — ' ~ z.n ~ ' ta zona' if z.n else '' }}</option>{% endfor %}</select>
+        <div class="hint">Video qaysi kameradan bo'lsa, o'shani tanlang.</div></div>
+      <div id="upbar" class="hidden"><div class="row between small"><span id="upname"></span><span id="uppct"></span></div><div class="bar"><i id="upi" style="width:0"></i></div></div>
+      <div class="vlist" id="vlist" style="margin-top:10px"></div>
+    </div>
+  </div>
+  <div class="card span2">
+    <div class="card-h"><h2 id="vtitle">Belgilash</h2><div class="grow"></div><span class="muted small" id="vinfo"></span></div>
+    <div class="card-b" id="labeler">
+      <div class="empty muted" id="noVideo">Chapdan video tanlang yoki yangisini yuklang.</div>
+      <div id="vbox" class="hidden">
+        <div class="player"><video id="vid" controls preload="metadata" playsinline></video></div>
+        <div class="tl" id="tl" title="Bosib videoning shu joyiga o'ting"></div>
+        <div class="small muted lgd" style="margin-top:6px">
+          <span><i style="background:rgba(220,38,38,.35);border:1px solid #dc2626"></i>Belgilangan hodisa</span>
+          <span><i style="background:#16a34a"></i>To'g'ri signal</span>
+          <span><i style="background:#dc2626"></i>Xato signal</span>
+          <span><i style="background:rgba(220,38,38,.12);border:1px dashed #dc2626"></i>O'tkazib yuborilgan</span>
+        </div>
+        <div class="tools">
+          <button class="btn sm" onclick="seek(-2)">⏪ 2 s</button>
+          <button class="btn sm" onclick="markStart()">[ Boshlanish <span class="kbd">S</span></button>
+          <button class="btn sm" onclick="markEnd()">Tugash ] <span class="kbd">E</span></button>
+          <select id="lKind">{% for k, v in label_kinds.items() %}<option value="{{ k }}">{{ v }}</option>{% endfor %}</select>
+          <button class="btn sm primary" onclick="addLabel()">{{ icon('plus', 14) }} Belgi qo'shish <span class="kbd" style="background:transparent;color:#fff;border-color:rgba(255,255,255,.5)">Enter</span></button>
+          <span class="small muted" id="pend"></span>
+        </div>
+        <div class="table-wrap" style="margin-top:10px"><table>
+          <thead><tr><th>#</th><th>Boshlanish</th><th>Tugash</th><th>Turi</th><th>Natija</th><th></th></tr></thead>
+          <tbody id="lrows"></tbody>
+        </table></div>
+        <div class="row" style="margin-top:12px">
+          <label class="switch"><input type="checkbox" id="reviewed" onchange="saveVideo({reviewed: this.checked ? 1 : 0})"> <span><b>Belgilash tugallandi</b> <span class="muted small">— videodagi barcha hodisalar belgilandi (hodisasiz video ham kerak: u xato signallarni o'lchaydi)</span></span></label>
+        </div>
+        <div class="row" style="margin-top:8px">
+          <label class="f" style="margin:0">Zonalar:</label>
+          <select id="vZone" style="width:auto" onchange="saveVideo({zone_source_id: this.value})"><option value="">Zonasiz</option>{% for z in zone_sources %}<option value="{{ z.id }}">{{ z.name }}</option>{% endfor %}</select>
+          <div class="grow" style="flex:1"></div>
+          <button class="btn sm ghost" onclick="delVideo()">{{ icon('trash', 14) }} Videoni o'chirish</button>
+        </div>
+        <div class="small muted" style="margin-top:10px">Tugmalar: <span class="kbd">Probel</span> to'xtatish/davom · <span class="kbd">←</span>/<span class="kbd">→</span> 1 s · <span class="kbd">J</span>/<span class="kbd">L</span> 5 s · <span class="kbd">S</span> boshlanish · <span class="kbd">E</span> tugash · <span class="kbd">Enter</span> qo'shish. Signal hodisa boshlanishidan {{ tol[0]|int }} s oldin va tugashidan {{ tol[1]|int }} s keyingacha kelsa — to'g'ri hisoblanadi.</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="card" style="margin-top:16px">
+  <div class="card-h"><h2>Baholashlar tarixi</h2><div class="grow"></div><span class="muted small">Sozlamani o'zgartirib qayta baholang va solishtiring</span></div>
+  <div class="table-wrap"><table>
+    <thead><tr><th>#</th><th>Vaqt</th><th>Holat</th><th>Video / soat</th><th>To'g'ri</th><th>Xato</th><th>O'tkazilgan</th><th>Aniqlik</th><th>Topish</th><th>Xato/soat</th><th>Sozlama</th></tr></thead>
+    <tbody id="runs"></tbody>
+  </table></div>
+</div>
+<div class="card card-b prose" style="margin-top:16px">
+  <h2>Qanday baholanadi</h2>
+  <ul>
+    <li><b>Aniqlik</b> — tizim bergan signallarning necha foizi haqiqiy hodisa. Past bo'lsa — xato signal ko'p (qo'riqchi charchaydi).</li>
+    <li><b>Topish</b> — belgilangan hodisalarning necha foizini tizim topdi. Past bo'lsa — o'g'irlik o'tkazib yuboriladi.</li>
+    <li><b>Xato signal / soat</b> — hodisasiz videolarda bir soatda nechta keraksiz xabar keladi. Do'kon uchun maqsad: soatiga 0.5 dan kam.</li>
+    <li>Ishonchli natija uchun kamida <b>20–30 ta hodisa</b> (sahnalashtirilgan bo'lsa ham) va <b>1–2 soat oddiy savdo</b> videosi kerak. Qanday yozish — <a href="/help#video">Yo'riqnoma → Videoga olish</a>.</li>
+  </ul>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+const KINDS = {{ label_kinds | tojson }};
+let videos = [], cur = null, pend = { start: null, end: null }, lastRun = null, runDetail = null;
+const vid = document.getElementById("vid");
+const fmtT = (s) => { if (s === null || s === undefined) return "—"; const m = Math.floor(s / 60); return `${m}:${(s - m * 60).toFixed(1).padStart(4, "0")}`; };
+const pct = (x) => (x === null || x === undefined ? "—" : `${Math.round(x * 100)}%`);
+
+async function loadVideos(keep) {
+  const wasReady = cur && cur.play_status === "tayyor";
+  videos = await H.api("/api/eval/videos");
+  document.getElementById("vcount").textContent = videos.length ? `${videos.length} ta` : "";
+  if (keep) cur = videos.find((v) => v.id === keep) || null;
+  renderList();
+  if (cur) renderVideo(!wasReady && cur.play_status === "tayyor");
+}
+function videoResult(id) { return runDetail ? runDetail.details.find((d) => d.video_id === id) : null; }
+function renderList() {
+  document.getElementById("vlist").innerHTML = videos.length ? videos.map((v) => {
+    const r = videoResult(v.id);
+    const res = r ? ` · <span style="color:#16a34a">${r.tp.length}✓</span> <span style="color:#dc2626">${r.fp.length}✗</span> ${r.fn.length ? `<span style="color:#b45309">${r.fn.length} o'tkazilgan</span>` : ""}` : "";
+    return `<div class="vi ${cur && cur.id === v.id ? "sel" : ""}" onclick="pick(${v.id})">
+      <div style="font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${H.esc(v.filename)}</div>
+      <div class="muted small">${fmtT(v.duration)} · ${v.labels.length} ta belgi · ${v.reviewed ? "✅ tugallangan" : "belgilanmoqda"}${v.play_status !== "tayyor" ? ` · ${H.esc(v.play_status || "")}` : ""}${res}</div></div>`;
+  }).join("") : `<div class="muted small">Hali video yo'q.</div>`;
+}
+function pick(id) { cur = videos.find((v) => v.id === id); pend = { start: null, end: null }; renderList(); renderVideo(true); }
+function renderVideo(load) {
+  document.getElementById("noVideo").classList.toggle("hidden", !!cur);
+  document.getElementById("vbox").classList.toggle("hidden", !cur);
+  if (!cur) return;
+  document.getElementById("vtitle").textContent = cur.filename;
+  document.getElementById("vinfo").textContent = `${fmtT(cur.duration)} · ${cur.width}×${cur.height} · ${Math.round(cur.fps)} kadr/s`;
+  document.getElementById("reviewed").checked = !!cur.reviewed;
+  document.getElementById("vZone").value = cur.zone_source_id || "";
+  if (load) {
+    if (cur.play_status === "tayyor") vid.src = `/media/eval/${cur.id}`;
+    else { vid.removeAttribute("src"); vid.load(); H.toast(cur.play_status === "xato" ? "Videoni brauzerda ko'rsatib bo'lmadi (tahlil baribir ishlaydi)" : "Video ko'rish uchun tayyorlanmoqda…", "alert"); }
+  }
+  renderLabels(); renderTimeline();
+}
+function renderLabels() {
+  const r = cur && videoResult(cur.id);
+  document.getElementById("lrows").innerHTML = cur.labels.length ? cur.labels.map((l, i) => {
+    let res = "";
+    if (r) {
+      const tp = r.tp.find((x) => Math.abs(x.label.start - l.start) < 0.01);
+      res = tp ? `<span style="color:#16a34a">✓ topildi (+${tp.delay.toFixed(1)} s, ${H.esc(tp.alert.kind_label)})</span>` : `<span style="color:#b42318">✗ o'tkazildi</span>`;
+    }
+    return `<tr><td>${i + 1}</td><td class="mono"><a href="#" onclick="go(${l.start});return false">${fmtT(l.start)}</a></td><td class="mono">${fmtT(l.end)}</td>
+      <td><select onchange="setKind(${i}, this.value)" style="width:auto">${Object.entries(KINDS).map(([k, v]) => `<option value="${k}" ${k === l.kind ? "selected" : ""}>${v}</option>`).join("")}</select></td>
+      <td class="small">${res}</td><td style="text-align:right"><button class="btn sm ghost" onclick="delLabel(${i})">✕</button></td></tr>`;
+  }).join("") : `<tr><td colspan="6" class="muted small">Belgi yo'q. Hodisa boshlanganda <b>S</b>, tugaganda <b>E</b>, keyin <b>Enter</b>. Hodisasiz video bo'lsa — shunchaki "Belgilash tugallandi" ni yoqing.</td></tr>`;
+  if (r && r.fp.length) {
+    document.getElementById("lrows").innerHTML += `<tr><td colspan="6" class="small" style="color:#b42318">Xato signallar: ${r.fp.map((f) => `<a href="#" onclick="go(${f.alert.t});return false">${fmtT(f.alert.t)}</a> (${H.esc(f.alert.kind_label)}, ${Math.round(f.alert.score)})`).join(" · ")}</td></tr>`;
+  }
+  const p = document.getElementById("pend");
+  p.textContent = pend.start !== null || pend.end !== null ? `Tanlangan: ${fmtT(pend.start)} → ${fmtT(pend.end)}` : "";
+}
+function renderTimeline() {
+  const tl = document.getElementById("tl"), D = Math.max(cur.duration || vid.duration || 1, 0.1);
+  const x = (t) => `${Math.max(0, Math.min(100, (t / D) * 100))}%`, w = (a, b) => `${Math.max(0.4, ((b - a) / D) * 100)}%`;
+  const r = videoResult(cur.id);
+  let html = cur.labels.map((l) => {
+    let c = "";
+    if (r) c = r.tp.some((t) => Math.abs(t.label.start - l.start) < 0.01) ? "tp" : "fn";
+    return `<div class="seg ${c}" style="left:${x(l.start)};width:${w(l.start, l.end)}" title="${KINDS[l.kind]} ${fmtT(l.start)}–${fmtT(l.end)}"></div>`;
+  }).join("");
+  if (pend.start !== null) html += `<div class="seg pend" style="left:${x(pend.start)};width:${w(pend.start, pend.end ?? pend.start + 0.3)}"></div>`;
+  if (r) {
+    const tps = new Set(r.tp.map((t) => t.alert.t));
+    html += r.alerts.map((a) => `<div class="tick ${tps.has(a.t) ? "tp" : (r.fp.some((f) => f.alert.t === a.t) ? "fp" : "al")}" style="left:${x(a.t)}" title="${H.esc(a.kind_label)} · ball ${Math.round(a.score)} · ${fmtT(a.t)}"></div>`).join("");
+  }
+  html += `<div class="head" id="head" style="left:${x(vid.currentTime || 0)}"></div>`;
+  tl.innerHTML = html;
+}
+document.getElementById("tl").addEventListener("click", (e) => {
+  const r = e.currentTarget.getBoundingClientRect();
+  go(((e.clientX - r.left) / r.width) * Math.max(cur.duration || vid.duration || 1, 0.1));
+});
+vid.addEventListener("timeupdate", () => { const h = document.getElementById("head"); if (h && cur) h.style.left = `${Math.min(100, (vid.currentTime / Math.max(cur.duration || vid.duration || 1, 0.1)) * 100)}%`; });
+function go(t) { if (vid.src) { vid.currentTime = Math.max(0, t); } }
+function seek(d) { go((vid.currentTime || 0) + d); }
+function markStart() { pend.start = +(vid.currentTime || 0).toFixed(2); renderLabels(); renderTimeline(); }
+function markEnd() { pend.end = +(vid.currentTime || 0).toFixed(2); if (pend.start === null) pend.start = Math.max(0, pend.end - 2); renderLabels(); renderTimeline(); }
+async function addLabel() {
+  if (pend.start === null) { H.toast("Avval hodisa boshlanishini belgilang (S)", "alert"); return; }
+  let start = pend.start, end = pend.end !== null ? pend.end : Math.min(cur.duration || pend.start + 3, pend.start + 3);
+  if (end < start) [start, end] = [end, start];
+  cur.labels.push({ start, end: Math.max(end, start + 0.2), kind: document.getElementById("lKind").value, note: "" });
+  pend = { start: null, end: null };
+  await saveVideo({ labels: cur.labels });
+}
+async function delLabel(i) { cur.labels.splice(i, 1); await saveVideo({ labels: cur.labels }); }
+async function setKind(i, k) { cur.labels[i].kind = k; await saveVideo({ labels: cur.labels }); }
+async function saveVideo(patch) {
+  const r = await H.post(`/api/eval/videos/${cur.id}`, patch);
+  if (r && r.ok) { Object.assign(cur, r.video); const i = videos.findIndex((v) => v.id === cur.id); videos[i] = cur; renderList(); renderLabels(); renderTimeline(); }
+}
+async function delVideo() {
+  if (!confirm("Video va uning belgilari o'chirilsinmi?")) return;
+  await H.post(`/api/eval/videos/${cur.id}/delete`); cur = null; vid.removeAttribute("src"); vid.load(); loadVideos(); renderVideo(false);
+}
+document.addEventListener("keydown", (e) => {
+  if (!cur || ["INPUT", "SELECT", "TEXTAREA"].includes(document.activeElement.tagName)) return;
+  const k = e.key.toLowerCase();
+  if (k === "s") markStart();
+  else if (k === "e") markEnd();
+  else if (e.key === "Enter") { e.preventDefault(); addLabel(); }
+  else if (e.key === "ArrowLeft") { e.preventDefault(); seek(-1); }
+  else if (e.key === "ArrowRight") { e.preventDefault(); seek(1); }
+  else if (k === "j") seek(-5);
+  else if (k === "l") seek(5);
+  else if (e.key === " " && document.activeElement !== vid) { e.preventDefault(); vid.paused ? vid.play() : vid.pause(); }
+});
+// ---- yuklash
+const drop = document.getElementById("drop"), fileIn = document.getElementById("file");
+["dragenter", "dragover"].forEach((ev) => drop.addEventListener(ev, (e) => { e.preventDefault(); drop.classList.add("over"); }));
+["dragleave", "drop"].forEach((ev) => drop.addEventListener(ev, (e) => { e.preventDefault(); drop.classList.remove("over"); }));
+drop.addEventListener("drop", (e) => upload([...e.dataTransfer.files]));
+fileIn.addEventListener("change", () => upload([...fileIn.files]));
+async function upload(files) {
+  for (const f of files) {
+    await new Promise((resolve) => {
+      const fd = new FormData(); fd.append("file", f); fd.append("zone_source", document.getElementById("upZone").value);
+      const x = new XMLHttpRequest();
+      document.getElementById("upbar").classList.remove("hidden"); document.getElementById("upname").textContent = f.name;
+      x.upload.onprogress = (e) => { if (e.lengthComputable) { const p = Math.round((e.loaded / e.total) * 100); document.getElementById("upi").style.width = p + "%"; document.getElementById("uppct").textContent = p + "%"; } };
+      x.onload = async () => {
+        document.getElementById("upbar").classList.add("hidden");
+        let r = {}; try { r = JSON.parse(x.responseText); } catch (err) { /* */ }
+        if (x.status === 200 && r.ok) { H.toast(`${H.esc(f.name)} yuklandi`, "ok"); await loadVideos(); pick(r.video.id); }
+        else H.toast("⚠️ " + H.esc(r.detail || "Yuklab bo'lmadi"), "alert");
+        resolve();
+      };
+      x.onerror = () => { H.toast("Tarmoq xatosi", "alert"); resolve(); };
+      x.open("POST", "/api/eval/videos"); x.send(fd);
+    });
+  }
+  fileIn.value = "";
+}
+// ---- baholash
+function renderKpis(r) {
+  const k = (v, l, s = "") => `<div class="kpi"><div class="v">${v}</div><div class="l">${l}</div>${s ? `<div class="s">${s}</div>` : ""}</div>`;
+  if (!r) { document.getElementById("kpis").innerHTML = k("—", "Aniqlik") + k("—", "Topish") + k("—", "F1") + k("—", "Xato signal / soat") + k("—", "Kechikish (median)") + k("—", "Baholangan video"); return; }
+  document.getElementById("kpis").innerHTML =
+    k(pct(r.precision), "Aniqlik", `${r.tp} to'g'ri, ${r.fp} xato`) + k(pct(r.recall), "Topish", `${r.tp} / ${r.tp + r.fn} hodisa`) +
+    k(r.f1 === null ? "—" : r.f1.toFixed(2), "F1 (umumiy ball)") +
+    k(r.fp_per_hour === null ? "—" : r.fp_per_hour.toFixed(1), "Xato signal / soat", `${(r.hours || 0).toFixed(2)} soat video`) +
+    k(r.latency_med === null ? "—" : `${r.latency_med.toFixed(1)} s`, "Kechikish (median)", "hodisa boshidan signalgacha") +
+    k(r.videos ?? "—", "Baholangan video", `#${r.id} · ${new Date(r.created_at * 1000).toLocaleString("uz")}`);
+}
+async function loadRuns() {
+  const runs = await H.api("/api/eval/runs");
+  const done = runs.find((r) => r.status === "tayyor");
+  if (done && (!lastRun || lastRun.id !== done.id)) { lastRun = done; runDetail = await H.api(`/api/eval/runs/${done.id}`); renderList(); if (cur) renderVideo(false); }
+  renderKpis(lastRun);
+  document.getElementById("runs").innerHTML = runs.length ? runs.map((r) => `<tr style="cursor:pointer" onclick="showRun(${r.id})">
+    <td>${r.id}</td><td class="small">${new Date(r.created_at * 1000).toLocaleString("uz")}</td><td class="small">${H.esc(r.status)}${r.error ? ` <span style="color:#b42318">${H.esc(r.error)}</span>` : ""}</td>
+    <td class="num">${r.videos ?? "—"} / ${(r.hours || 0).toFixed(2)}</td><td class="num">${r.tp ?? "—"}</td><td class="num">${r.fp ?? "—"}</td><td class="num">${r.fn ?? "—"}</td>
+    <td class="num"><b>${pct(r.precision)}</b></td><td class="num"><b>${pct(r.recall)}</b></td><td class="num">${r.fp_per_hour ?? "—"}</td>
+    <td class="small muted">${H.esc(r.settings.sensitivity || "")} · chegara ${H.esc(r.settings.threshold || "")} · ${H.esc(r.version || "")}</td></tr>`).join("")
+    : `<tr><td colspan="11" class="muted small">Hali baholash o'tkazilmagan.</td></tr>`;
+}
+async function showRun(id) { const r = await H.api(`/api/eval/runs/${id}`); if (r.status !== "tayyor" && r.status !== "toxtatildi") return; lastRun = r; runDetail = r; renderKpis(r); renderList(); if (cur) renderVideo(false); H.toast(`#${id} baholash natijasi ko'rsatilmoqda`, "ok"); }
+async function runEval() { const r = await H.post("/api/eval/run", {}); if (r && r.ok) { H.toast("Baholash boshlandi", "ok"); poll(); } }
+async function stopEval() { await H.post("/api/eval/stop"); }
+async function poll() {
+  const s = await H.api("/api/eval/status");
+  document.getElementById("btnRun").classList.toggle("hidden", s.running);
+  document.getElementById("btnStop").classList.toggle("hidden", !s.running);
+  document.getElementById("runBar").classList.toggle("hidden", !s.running);
+  if (s.running) {
+    document.getElementById("runI").style.width = `${Math.round(s.progress * 100)}%`;
+    document.getElementById("runPct").textContent = `${Math.round(s.progress * 100)}%`;
+    document.getElementById("runText").textContent = `Baholanmoqda: ${s.current} (${s.done + 1}/${s.total}). Jonli kameralar ustun turadi — ular ishlayotgan bo'lsa sekinroq.`;
+    setTimeout(poll, 1500);
+  } else {
+    document.getElementById("runPct").textContent = "";
+    document.getElementById("runText").textContent = "Faqat \"belgilash tugallangan\" videolar baholanadi. Joriy sozlamalar ishlatiladi.";
+    loadRuns();
+  }
+}
+loadVideos(); loadRuns(); poll();
+setInterval(() => { if (videos.some((v) => v.play_status === "tayyorlanmoqda")) loadVideos(cur && cur.id); }, 4000);
+</script>
+{% endblock %}

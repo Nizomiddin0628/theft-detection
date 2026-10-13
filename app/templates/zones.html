@@ -1,0 +1,226 @@
+{% extends "base.html" %}
+{% from "_icons.html" import icon %}
+{% block subtitle %}<div class="muted small"><a href="/sources">← Kameralar</a> · Kadr ustida zonalarni chizing: har zonaning o'z qoidasi bor</div>{% endblock %}
+{% block content %}
+<style>
+  .zwrap { position: relative; background: #0f172a; border-radius: 10px; overflow: hidden; touch-action: none; }
+  .zwrap canvas { display: block; width: 100%; height: auto; cursor: default; }
+  .zwrap canvas.draw { cursor: crosshair; }
+  .ztool { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 10px; }
+  .zhint { font-size: 12.5px; color: var(--muted); min-height: 18px; margin-top: 8px; }
+  .zlist .zi { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 9px; margin-bottom: 6px; cursor: pointer; }
+  .zlist .zi.sel { border-color: var(--brand); box-shadow: 0 0 0 2px rgba(37, 99, 235, .15); }
+  .zlist .zi.off { opacity: .55; }
+  .zsw { width: 12px; height: 12px; border-radius: 3px; flex: none; }
+  .zkinds .zk { display: flex; gap: 8px; margin-bottom: 8px; font-size: 13px; }
+  .zkinds .zk b { white-space: nowrap; }
+</style>
+<div class="grid g3">
+  <div class="card span2">
+    <div class="card-b">
+      <div class="ztool">
+        <select id="newKind" title="Yangi zona turi" style="width:auto">
+          {% for k, z in zone_kinds.items() %}<option value="{{ k }}">{{ z.label }}</option>{% endfor %}
+        </select>
+        <button class="btn primary sm" id="btnDraw" onclick="startDraw()">{{ icon('plus', 14) }} Yangi zona chizish</button>
+        <button class="btn sm hidden" id="btnFinish" onclick="finishDraw()">✓ Tugatish (Enter)</button>
+        <button class="btn sm ghost hidden" id="btnCancel" onclick="cancelDraw()">Bekor (Esc)</button>
+        <div class="grow" style="flex:1"></div>
+        <button class="btn sm ghost" onclick="loadFrame(true)" title="Kameradan yangi kadr olish">{{ icon('refresh', 14) }} Kadrni yangilash</button>
+      </div>
+      <div class="zwrap"><canvas id="cv" width="1280" height="720"></canvas></div>
+      <div class="zhint" id="hint">Zona tanlash uchun ustiga bosing. Burchakni sichqoncha bilan sudrab o'zgartiring.</div>
+    </div>
+  </div>
+  <div class="card">
+    <div class="card-h"><h2>Zonalar</h2><div class="grow"></div><span class="muted small" id="zcount"></span></div>
+    <div class="card-b">
+      <div class="zlist" id="zlist"></div>
+      <div id="editor" class="hidden" style="margin-top:12px;border-top:1px solid var(--line);padding-top:12px">
+        <div class="field"><label class="f">Nomi</label><input type="text" id="zName" maxlength="60" oninput="dirty()"></div>
+        <div class="field"><label class="f">Turi</label><select id="zKind" onchange="dirty();draw()">
+          {% for k, z in zone_kinds.items() %}<option value="{{ k }}">{{ z.label }}</option>{% endfor %}
+        </select><div class="hint" id="zKindHint"></div></div>
+        <div class="field"><label class="f">Sezgirlik</label><select id="zSens" onchange="dirty()">
+          {% for k, v in sens_labels.items() %}<option value="{{ k }}">{{ v }}</option>{% endfor %}
+        </select><div class="hint">Masalan, qimmat mahsulot polkasi uchun "Yuqori".</div></div>
+        <div class="field"><label class="switch"><input type="checkbox" id="zOn" onchange="dirty()"> Yoqilgan</label></div>
+        <div class="row">
+          <button class="btn primary" id="btnSave" onclick="saveSel()" disabled>{{ icon('check', 14) }} Saqlash</button>
+          <button class="btn danger" onclick="delSel()">O'chirish</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+<div class="card card-b" style="margin-top:16px">
+  <h2 style="margin-top:0">Zona turlari</h2>
+  <div class="zkinds grid g2">
+    {% for k, z in zone_kinds.items() %}
+    <div class="zk"><span class="zsw" style="background:{{ z.color }};margin-top:3px"></span><div><b>{{ z.label }}.</b> <span class="muted">{{ z.hint }}</span></div></div>
+    {% endfor %}
+  </div>
+  <div class="muted small" style="margin-top:6px">O'zgarishlar ishlayotgan kameraga 3 soniya ichida qo'llanadi. Odamning joyi oyog'i bo'yicha, polka esa qo'l bo'yicha aniqlanadi.</div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+const SID = {{ src.id }};
+const KINDS = {{ zone_kinds | tojson }};
+const cv = document.getElementById("cv"), ctx = cv.getContext("2d");
+const img = new Image();
+let zones = [], sel = null, drawing = null, drag = null, isDirty = false, hover = null;
+
+function loadFrame(fresh) {
+  img.onload = () => { cv.width = img.naturalWidth; cv.height = img.naturalHeight; draw(); };
+  img.src = `/api/sources/${SID}/frame.jpg?fresh=${fresh ? 1 : 0}&t=${Date.now()}`;
+}
+async function loadZones(keepId) {
+  zones = await H.api(`/api/sources/${SID}/zones`);
+  sel = keepId ? zones.find((z) => z.id === keepId) || null : null;
+  isDirty = false;
+  renderList(); fillEditor(); draw();
+}
+const px = (p) => [p[0] * cv.width, p[1] * cv.height];
+function rgba(hex, a) { const n = parseInt(hex.slice(1), 16); return `rgba(${n >> 16},${(n >> 8) & 255},${n & 255},${a})`; }
+
+function draw() {
+  ctx.clearRect(0, 0, cv.width, cv.height);
+  if (img.complete && img.naturalWidth) ctx.drawImage(img, 0, 0, cv.width, cv.height);
+  const lw = Math.max(2, cv.width / 500), fs = Math.max(13, cv.width / 70);
+  for (const z of zones) {
+    if (!z.points.length) continue;
+    const isSel = z === sel, col = KINDS[isSel ? document.getElementById("zKind").value : z.kind]?.color || "#64748b";
+    ctx.beginPath(); z.points.forEach((p, i) => { const [x, y] = px(p); i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); }); ctx.closePath();
+    ctx.fillStyle = rgba(col, z.enabled ? (isSel ? 0.30 : 0.18) : 0.06); ctx.fill();
+    ctx.lineWidth = isSel ? lw * 1.8 : lw; ctx.strokeStyle = col; ctx.setLineDash(z.enabled ? [] : [8, 6]); ctx.stroke(); ctx.setLineDash([]);
+    const [lx, ly] = px(z.points.reduce((a, p) => (p[1] < a[1] ? p : a)));
+    ctx.font = `600 ${fs}px system-ui, sans-serif`;
+    const label = (isSel ? document.getElementById("zName").value : z.name) || KINDS[z.kind].label;
+    const tw = ctx.measureText(label).width;
+    ctx.fillStyle = col; ctx.fillRect(lx, Math.max(0, ly - fs - 8), tw + 12, fs + 8);
+    ctx.fillStyle = "#fff"; ctx.fillText(label, lx + 6, Math.max(fs, ly - 6));
+    if (isSel) for (const p of z.points) { const [x, y] = px(p); ctx.beginPath(); ctx.arc(x, y, lw * 3.2, 0, 7); ctx.fillStyle = "#fff"; ctx.fill(); ctx.lineWidth = lw; ctx.strokeStyle = col; ctx.stroke(); }
+  }
+  if (drawing) {
+    const col = KINDS[document.getElementById("newKind").value].color;
+    ctx.beginPath(); drawing.forEach((p, i) => { const [x, y] = px(p); i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); });
+    if (hover && drawing.length) { const [x, y] = px(hover); ctx.lineTo(x, y); }
+    ctx.lineWidth = lw; ctx.strokeStyle = col; ctx.stroke();
+    drawing.forEach((p, i) => { const [x, y] = px(p); ctx.beginPath(); ctx.arc(x, y, lw * (i === 0 ? 4.5 : 3), 0, 7); ctx.fillStyle = i === 0 ? col : "#fff"; ctx.fill(); });
+  }
+}
+function evPt(e) { const r = cv.getBoundingClientRect(); return [Math.min(1, Math.max(0, (e.clientX - r.left) / r.width)), Math.min(1, Math.max(0, (e.clientY - r.top) / r.height))]; }
+function distPx(a, b) { const r = cv.getBoundingClientRect(); return Math.hypot((a[0] - b[0]) * r.width, (a[1] - b[1]) * r.height); }
+function inside(pt, poly) {
+  let c = false;
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const [xi, yi] = poly[i], [xj, yj] = poly[j];
+    if ((yi > pt[1]) !== (yj > pt[1]) && pt[0] < ((xj - xi) * (pt[1] - yi)) / (yj - yi) + xi) c = !c;
+  }
+  return c;
+}
+cv.addEventListener("pointerdown", (e) => {
+  const pt = evPt(e);
+  if (drawing) {
+    if (drawing.length >= 3 && distPx(pt, drawing[0]) < 14) return finishDraw();
+    drawing.push(pt); setHint(); draw(); return;
+  }
+  if (sel) {
+    const i = sel.points.findIndex((p) => distPx(p, pt) < 12);
+    if (i >= 0) {
+      if (e.altKey || e.button === 2) { if (sel.points.length > 3) { sel.points.splice(i, 1); dirty(); draw(); } return; }
+      drag = i; cv.setPointerCapture(e.pointerId); return;
+    }
+  }
+  const hit = [...zones].reverse().find((z) => inside(pt, z.points));
+  if (hit !== sel) discardThen(() => select(hit || null), hit);
+});
+cv.addEventListener("pointermove", (e) => {
+  const pt = evPt(e);
+  if (drag !== null && sel) { sel.points[drag] = pt; dirty(); draw(); }
+  else if (drawing) { hover = pt; draw(); }
+});
+cv.addEventListener("pointerup", () => { drag = null; });
+cv.addEventListener("contextmenu", (e) => e.preventDefault());
+cv.addEventListener("dblclick", () => { if (drawing && drawing.length >= 3) finishDraw(); });
+document.addEventListener("keydown", (e) => {
+  if (!drawing) return;
+  if (e.key === "Enter") finishDraw();
+  else if (e.key === "Escape") cancelDraw();
+  else if (e.key === "Backspace") { e.preventDefault(); drawing.pop(); setHint(); draw(); }
+});
+function setHint(msg) {
+  document.getElementById("hint").textContent = msg || (drawing
+    ? `Burchaklarni bosib belgilang (${drawing.length} ta). Yopish: birinchi nuqtani bosing, ikki marta bosing yoki Enter. Backspace — oxirgi nuqtani o'chirish.`
+    : "Zona tanlash uchun ustiga bosing. Burchakni sudrab o'zgartiring, Alt+bosish (yoki o'ng tugma) — burchakni o'chirish.");
+}
+function toggleDrawUI(on) {
+  document.getElementById("btnDraw").classList.toggle("hidden", on);
+  document.getElementById("btnFinish").classList.toggle("hidden", !on);
+  document.getElementById("btnCancel").classList.toggle("hidden", !on);
+  cv.classList.toggle("draw", on);
+}
+// Saqlanmagan o'zgarish bo'lsa: so'raladi va rad etilgan o'zgarishlar serverdan qayta yuklanib bekor qilinadi
+async function discardThen(fn, target) {
+  if (!isDirty) return fn();
+  if (!confirm("Saqlanmagan o'zgarishlar bor. Ular bekor qilinsinmi?")) return;
+  const id = target ? target.id : null;
+  await loadZones();
+  const t = id ? zones.find((z) => z.id === id) : null;
+  if (target === undefined) fn(); else select(t || null);
+}
+function startDraw() {
+  discardThen(() => { select(null); drawing = []; hover = null; toggleDrawUI(true); setHint(); draw(); });
+}
+function cancelDraw() { drawing = null; toggleDrawUI(false); setHint(); draw(); }
+async function finishDraw() {
+  if (!drawing || drawing.length < 3) { H.toast("Kamida 3 ta burchak kerak", "alert"); return; }
+  const kind = document.getElementById("newKind").value;
+  const n = zones.filter((z) => z.kind === kind).length + 1;
+  const body = { kind, points: drawing, name: `${KINDS[kind].label} ${n}`, sens: "", enabled: 1 };
+  drawing = null; toggleDrawUI(false); setHint();
+  const r = await H.post(`/api/sources/${SID}/zones`, body);
+  if (r && r.ok) { H.toast("Zona saqlandi", "ok"); await loadZones(r.zone.id); }
+  else draw();
+}
+function select(z) { sel = z; isDirty = false; renderList(); fillEditor(); draw(); }
+function dirty() { isDirty = true; document.getElementById("btnSave").disabled = false; if (sel) draw(); }
+function fillEditor() {
+  const ed = document.getElementById("editor");
+  ed.classList.toggle("hidden", !sel);
+  if (!sel) return;
+  document.getElementById("zName").value = sel.name;
+  document.getElementById("zKind").value = sel.kind;
+  document.getElementById("zSens").value = sel.sens || "";
+  document.getElementById("zOn").checked = !!sel.enabled;
+  document.getElementById("zKindHint").textContent = KINDS[sel.kind].hint;
+  document.getElementById("btnSave").disabled = true;
+}
+document.getElementById("zKind").addEventListener("change", (e) => { document.getElementById("zKindHint").textContent = KINDS[e.target.value].hint; });
+async function saveSel() {
+  if (!sel) return;
+  const body = { id: sel.id, name: document.getElementById("zName").value, kind: document.getElementById("zKind").value,
+    sens: document.getElementById("zSens").value, enabled: document.getElementById("zOn").checked ? 1 : 0, points: sel.points };
+  const r = await H.post(`/api/sources/${SID}/zones`, body);
+  if (r && r.ok) { H.toast("Saqlandi", "ok"); await loadZones(sel.id); }
+}
+async function delSel() {
+  if (!sel || !confirm(`"${sel.name}" zonasi o'chirilsinmi?`)) return;
+  const r = await H.post(`/api/zones/${sel.id}/delete`);
+  if (r && r.ok) { H.toast("O'chirildi", "ok"); await loadZones(); }
+}
+function renderList() {
+  document.getElementById("zcount").textContent = zones.length ? `${zones.length} ta` : "";
+  document.getElementById("zlist").innerHTML = zones.length ? zones.map((z, i) => `
+    <div class="zi ${z === sel ? "sel" : ""} ${z.enabled ? "" : "off"}" onclick="pick(${i})">
+      <span class="zsw" style="background:${KINDS[z.kind].color}"></span>
+      <div style="flex:1;min-width:0"><b>${H.esc(z.name)}</b><div class="muted small">${H.esc(KINDS[z.kind].label)}${z.sens ? " · sezgirlik: " + (z.sens === "yuqori" ? "yuqori" : "past") : ""}${z.enabled ? "" : " · o'chiq"}</div></div>
+    </div>`).join("") : `<div class="muted small">Hali zona yo'q. Turini tanlab, "Yangi zona chizish" ni bosing va kadr ustida burchaklarni belgilang.</div>`;
+}
+function pick(i) { if (zones[i] === sel) return; const z = zones[i]; discardThen(() => select(z), z); }
+window.addEventListener("resize", draw);
+loadFrame(true);
+loadZones();
+</script>
+{% endblock %}

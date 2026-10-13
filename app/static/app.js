@@ -120,7 +120,7 @@ const H = (() => {
       }
       const run = (s.sources || []).filter((x) => x.running).length;
       const camDot = document.getElementById("cam-dot"), camText = document.getElementById("cam-text");
-      if (camDot) { camDot.className = "dot " + (run ? "on" : ""); camText.textContent = `${run} ta faol`; }
+      if (camDot) { camDot.className = "dot " + (run ? "on" : ""); camText.textContent = `${run} ta yoqilgan`; }
       const np = document.getElementById("nav-pending");
       if (np) np.textContent = s.pending;
       if (lastId && s.last_id > lastId) {

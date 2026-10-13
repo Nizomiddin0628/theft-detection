@@ -2,7 +2,7 @@
 
 `test_analyzer` dan farqi:
   * kadr tezligi ~7.5 kadr/s (haqiqiy AI tezligi), 15 emas;
-  * buyum detektori har ikkinchi kadrda ishlaydi (Processor kabi), oraliqda eski natija;
+  * buyum detektori har ikkinchi kadrda ishlaydi, oraliq kadrlarda buyum "qidirilmagan" (searched=[]);
   * "sumka" xatti-harakati uchun haqiqatan sumka ramkasi beriladi;
   * qo'shimcha holatlar: o'z telefonini cho'ntakka qaytarish, savat "sumka" deb aniqlanishi,
     bir kadrda ikki odamning bir vaqtda yashirishi.
@@ -42,15 +42,17 @@ def _bag_box_at_hand(seq: dict) -> np.ndarray:
 def run_seq(frames, items, item_cls=39, item_name="shisha", bags=None, an=None, tid=1, shift=0.0):
     an = an or Analyzer("eval")
     by_t = {round(t, 3): b for t, b in items}
-    last: list = []
+    bag_objs = [Obj(b, 0.8, 26, "sumka", "bag") for b in (bags or [])]
     alerts = []
     for j, (t, k, box) in enumerate(frames[::STEP]):
-        if j % 2 == 0:   # buyum detektori har 2-kadrda
+        if j % 2 == 0:   # buyum detektori har 2-kadrda (butun kadr)
             ib = by_t.get(round(t, 3))
-            last = [Obj(ib, 0.8, item_cls, item_name, "item")] if ib is not None else []
-            last += [Obj(b, 0.8, 26, "sumka", "bag") for b in (bags or [])]
-        a, _ = an.update([Person(box=box, score=0.9, kpts=k, track_id=tid)], last, t + shift,
-                         synthetic.W, synthetic.H)
+            objs = ([Obj(ib, 0.8, item_cls, item_name, "item")] if ib is not None else []) + bag_objs
+            searched = None
+        else:            # oraliq kadr: buyum qidirilmagan (eski natija "hozir ham bor" deb olinmaydi)
+            objs, searched = list(bag_objs), []
+        a, _ = an.update([Person(box=box, score=0.9, kpts=k, track_id=tid)], objs, t + shift,
+                         synthetic.W, synthetic.H, searched=searched)
         alerts += a
     return alerts
 
@@ -118,7 +120,6 @@ def two_people(rng, n):
         fa = {round(t, 3): (k, bx) for t, k, bx in a["frames"][::STEP]}
         fb = {round(t + 1.0, 3): (t, k, bx) for t, k, bx in b["frames"][::STEP]}
         ids = set()
-        last: list = []
         for j, t in enumerate(sorted(set(fa) | set(fb))):
             persons = []
             cur = []
@@ -138,9 +139,8 @@ def two_people(rng, n):
                     ob = ob.copy()
                     ob[[0, 2]] += dx
                     cur.append(Obj(ob, 0.8, 39, "shisha", "item"))
-            if j % 2 == 0:
-                last = cur
-            al, _ = an.update(persons, last, t, synthetic.W, synthetic.H)
+            al, _ = an.update(persons, cur if j % 2 == 0 else [], t, synthetic.W, synthetic.H,
+                              searched=None if j % 2 == 0 else [])
             ids |= {x["track_id"] for x in al}
         caught += len(ids)
         both += len(ids) == 2
