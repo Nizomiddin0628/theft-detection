@@ -78,6 +78,18 @@ def test_api() -> None:
     ok("Hodisalar va Telegram yaratilmadi", (db.scalar("SELECT COUNT(*) FROM events") or 0) == 0)
     ok("Tarix ro'yxatida ko'rinadi", any(x["id"] == run_id for x in c.get("/api/eval/runs").json()))
     ok("Sahifa ochiladi", c.get("/eval").status_code == 200)
+    # Ikki model to'plamini bir xil videolarda solishtirish
+    r = c.post("/api/eval/run", json={"model_sets": ["yolo11", "open"]})
+    ok("Ikki to'plam navbat bilan baholanadi", r.status_code == 200 and len(r.json()["run_ids"]) == 2, r.text[:120])
+    t0 = time.time()
+    while time.time() - t0 < 600 and c.get("/api/eval/status").json()["running"]:
+        time.sleep(1)
+    runs = {x["id"]: x for x in c.get("/api/eval/runs").json()}
+    rr = [runs[i] for i in r.json()["run_ids"]]
+    ok("Har biri tugadi, modeli va og'irligi yozilgan", all(x["status"] == "tayyor" and x["speed"] for x in rr) and
+       [x["settings"]["model_set"] for x in rr] == ["yolo11", "open"],
+       " | ".join(f"{x['settings']['model_set']}: TP {x['tp']} FP {x['fp']} FN {x['fn']}, {x['speed']}×" for x in rr))
+    ok("Jonli kameralar modeli o'zgarmadi", db.get_setting("model_set") in (None, "yolo11"))
     c.post(f"/api/eval/videos/{vid}/delete")
     ok("Video o'chirildi", not c.get("/api/eval/videos").json())
 

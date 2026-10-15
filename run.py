@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import secrets
 import socket
 import subprocess
 import sys
@@ -29,6 +30,8 @@ if sys.stdout is None or sys.stderr is None:
     _console = open(LOG_DIR / "console.log", "a", encoding="utf-8", buffering=1)
     sys.stdout = sys.stdout or _console
     sys.stderr = sys.stderr or _console
+    # Jurnal (app.log) konsol fayliga ikkinchi marta yozilmasin (app/logutil.py shu belgini ko'radi)
+    os.environ["HUSHYOR_NO_CONSOLE_LOG"] = "1"
 
 
 def local_ip() -> str:
@@ -53,12 +56,59 @@ def _slog(msg: str) -> None:
         pass
 
 
+# Tizim proksisi (Windows sozlamasi) chetlab o'tiladi: 127.0.0.1 ga so'rov proksiga ketib "javob yo'q" bo'lmasin
+_LOCAL = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+
+
 def _healthy(port: int) -> bool:
     try:
-        with urllib.request.urlopen(f"http://127.0.0.1:{port}/healthz", timeout=5) as r:
+        with _LOCAL.open(f"http://127.0.0.1:{port}/healthz", timeout=5) as r:
             return r.status == 200
     except Exception:
         return False
+
+
+def port_busy(host: str, port: int) -> bool:
+    """Port band (boshqa Hushyor AI nusxasi yoki boshqa dastur) — ikkinchi nusxa bazaga, kameralarga va botga
+    TEGMASDAN chiqishi uchun (uvicorn avval ilovani ishga tushirib, keyin portni ochadi)."""
+    try:
+        with socket.create_connection(("127.0.0.1", port), timeout=1):
+            return True
+    except OSError:
+        pass
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    if os.name != "nt":
+        # Linux/macOS: yaqinda yopilgan ulanishlar (TIME_WAIT) "band" deb ko'rinmasin (uvicorn ham shunday ochadi)
+        s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    try:
+        s.bind((host if host not in ("", "localhost") else "127.0.0.1", port))
+        return False
+    except OSError:
+        return True
+    finally:
+        s.close()
+
+
+def stop_child(proc, port: int, token: str, wait_s: float = 20.0) -> None:
+    """Bola jarayonni toza to'xtatish: HTTP buyruq → kameralar, kliplar, bot yopiladi.
+    TerminateProcess (Windows'da darhol o'ldirish) — faqat zaxira."""
+    if proc.poll() is not None:
+        return
+    try:
+        req = urllib.request.Request(f"http://127.0.0.1:{port}/healthz/shutdown", data=b"", method="POST",
+                                     headers={"X-Shutdown-Token": token})
+        _LOCAL.open(req, timeout=5).close()
+        proc.wait(wait_s)
+        _slog("dastur toza to'xtatildi")
+        return
+    except Exception as e:  # noqa: BLE001
+        _slog(f"toza to'xtatib bo'lmadi ({e.__class__.__name__}) — majburiy to'xtatiladi")
+    try:
+        proc.terminate()
+        proc.wait(15)
+    except Exception:  # noqa: BLE001
+        proc.kill()
+        proc.wait(10)
 
 
 def supervise(a) -> None:
@@ -67,8 +117,12 @@ def supervise(a) -> None:
     * jarayon to'xtasa (xato bilan yoki kutilmaganda) — qayta ishga tushiradi (3 s dan 60 s gacha kutib);
     * /healthz ketma-ket 3 marta javob bermasa (dastur qotib qolgan) — to'xtatib, qayta ishga tushiradi.
     """
+    if port_busy(a.host, a.port):
+        _slog(f"{a.port}-port band — Hushyor AI allaqachon ishlayapti (ikkinchi nazoratchi ishga tushmaydi)")
+        return
     cmd = [sys.executable, str(ROOT / "run.py"), "--child", "--no-browser", "--host", a.host, "--port", str(a.port)]
-    env = dict(os.environ, HUSHYOR_PARENT_PID=str(os.getpid()))
+    token = secrets.token_hex(16)
+    env = dict(os.environ, HUSHYOR_PARENT_PID=str(os.getpid()), HUSHYOR_SHUTDOWN_TOKEN=token)
     flags = getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0
     backoff = 3.0
     opened = False
@@ -97,12 +151,7 @@ def supervise(a) -> None:
                     _slog(f"dastur javob bermayapti ({fails}/3)")
                     if fails >= 3:
                         _slog("dastur qotib qoldi — qayta ishga tushirilmoqda")
-                        proc.terminate()
-                        try:
-                            proc.wait(15)
-                        except subprocess.TimeoutExpired:
-                            proc.kill()
-                            proc.wait(10)
+                        stop_child(proc, a.port, token, wait_s=10)
                         break
             code = proc.poll()
             ran = time.time() - t0
@@ -113,11 +162,8 @@ def supervise(a) -> None:
     except KeyboardInterrupt:
         _slog("to'xtatildi (Ctrl+C)")
         if proc is not None and proc.poll() is None:
-            try:
-                proc.terminate()
-                proc.wait(15)
-            except Exception:
-                proc.kill()
+            stop_child(proc, a.port, token)
+        _slog("nazoratchi to'xtadi (kod 0)")
 
 
 def _watch_parent() -> None:
@@ -134,6 +180,16 @@ def _watch_parent() -> None:
         while True:
             time.sleep(5)
             if not psutil.pid_exists(ppid):
+                # Nazoratchi o'ldirildi (Windows vazifasi to'xtatildi): toza to'xtash, 20 s da bo'lmasa — majburan
+                try:
+                    from app import web
+
+                    web.SHUTDOWN.set()
+                    if web.SERVER.get("server") is not None:
+                        web.SERVER["server"].should_exit = True
+                except Exception:  # noqa: BLE001
+                    pass
+                time.sleep(20)
                 os._exit(0)
     threading.Thread(target=loop, daemon=True, name="parent-watch").start()
 
@@ -159,6 +215,11 @@ def main() -> None:
     if a.supervise:
         supervise(a)
         return
+    if port_busy(a.host, a.port):
+        # Ilova import qilinmasdan oldin: ikkinchi nusxa bazani, kameralarni va Telegram botini band qilmaydi
+        print(f"\n{a.port}-port band: Hushyor AI allaqachon ishlayapti (yoki boshqa dastur shu portda).")
+        print(f"Panel: http://localhost:{a.port}   Boshqa port: python run.py --port {a.port + 1}\n")
+        sys.exit(2)
     if a.child:
         _watch_parent()
 
@@ -174,7 +235,23 @@ def main() -> None:
     print("=" * 62 + "\n")
     if not a.no_browser and os.environ.get("HUSHYOR_NO_BROWSER") != "1":
         threading.Thread(target=lambda: (time.sleep(2.5), webbrowser.open(url)), daemon=True).start()
-    uvicorn.run("app.web:app", host=a.host, port=a.port, log_level="warning", access_log=False)
+    from app import web
+
+    class Server(uvicorn.Server):
+        def handle_exit(self, sig, frame):
+            # Ochiq jonli oqimlar (brauzer sahifalari) darhol yopilsin — aks holda server ularni kutib qoladi
+            # va ikkinchi Ctrl+C dagi majburiy to'xtash xato matnlarini chiqaradi
+            web.SHUTDOWN.set()
+            super().handle_exit(sig, frame)
+
+    server = Server(uvicorn.Config(web.app, host=a.host, port=a.port, log_level="warning", access_log=False,
+                                   timeout_graceful_shutdown=5))
+    web.SERVER["server"] = server
+    try:
+        server.run()
+    except KeyboardInterrupt:
+        pass          # uvicorn to'xtagach Ctrl+C signalini qayta ko'taradi — bu xato emas
+    print("Hushyor AI to'xtatildi.")
 
 
 def _has(mod: str) -> bool:

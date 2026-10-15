@@ -40,7 +40,26 @@ LABEL_KINDS = {
 PLAYABLE_EXT = {".mp4", ".m4v", ".mov", ".webm"}
 H264_FOURCC = {"avc1", "h264", "H264", "x264", "X264", "AVC1"}
 SETTING_KEYS = ("sensitivity", "threshold", "dwell_sec", "ai_fps", "calm_fps", "use_ml", "ml_weight",
-                "infer_size", "person_conf", "object_conf", "personal_items")
+                "infer_size", "person_conf", "object_conf", "personal_items", "model_set", "ai_runtime")
+_engines: dict = {}     # baholash uchun boshqa model to'plamlari (jonli kameralar o'zinikida qoladi)
+
+
+def engine_for(model_set: str | None):
+    """Jonli kameralar ishlatayotgan to'plam bo'lsa — o'sha Engine; boshqasi bo'lsa — alohida (navbati umumiy)."""
+    from .ai.engine import Engine
+
+    main = Engine.get()
+    if not model_set or model_set == main.model_set:
+        return main
+    eng = _engines.get(model_set)
+    if eng is None:
+        # Jonli kameralar bilan bir xil muhit; tezlik o'lchovi qayta o'tkazilmaydi va saqlanmaydi
+        eng = Engine(model_set=model_set, runtime_pref=main.runtime, save_bench=False)
+        if eng.model_set != model_set:
+            raise ValueError(f"{model_set} modellari topilmadi")
+        _engines[model_set] = eng
+    eng.run_lock = main.run_lock          # jonli kameralar baribir birinchi
+    return eng
 
 
 # ----------------------------------------------------------------------------- video
@@ -115,7 +134,7 @@ def clean_labels(raw) -> list[dict]:
 
 # ----------------------------------------------------------------------------- tahlil va solishtirish
 def analyze(path: str, zone_source_id: int | None = None, stop_evt: threading.Event | None = None,
-            progress=None) -> dict:
+            progress=None, model_set: str | None = None) -> dict:
     """Videoni jonli kameradagi kabi tahlil qiladi; signallar ro'yxatini qaytaradi (hodisa yaratilmaydi)."""
     from .ai.worker import Processor
 
@@ -128,7 +147,8 @@ def analyze(path: str, zone_source_id: int | None = None, stop_evt: threading.Ev
     total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
     ai_fps = max(1.0, db.fnum("ai_fps", 8))
     calm_fps = db.fnum("calm_fps", 4)
-    proc = Processor("Baholash", source_id=zone_source_id, background=True)
+    eng = engine_for(model_set)
+    proc = Processor("Baholash", source_id=zone_source_id, background=True, engine=eng)
     alerts: list[dict] = []
     idx = 0
     last_ai = -1e9
@@ -156,7 +176,7 @@ def analyze(path: str, zone_source_id: int | None = None, stop_evt: threading.Ev
     finally:
         cap.release()
     return {"alerts": alerts, "duration": round(idx / fps, 2), "steps": dict(proc.counts),
-            "seconds": round(time.time() - t_cpu, 1)}
+            "seconds": round(time.time() - t_cpu, 1), "model_set": eng.model_set}
 
 
 def match(labels: list[dict], alerts: list[dict]) -> dict:
@@ -221,11 +241,14 @@ class EvalRunner:
     def busy(self) -> bool:
         return bool(self.thread and self.thread.is_alive())
 
-    def start(self, video_ids: list[int] | None = None) -> int:
+    def start(self, video_ids: list[int] | None = None, model_sets: list[str] | None = None) -> list[int]:
+        """Baholashni boshlash. model_sets — bir nechta to'plam berilsa, har biri alohida baholanadi
+        (bir xil videolarda) va tarixda yonma-yon solishtiriladi."""
+        from .ai import model_zoo
+
         if self.busy():
             raise RuntimeError("Baholash allaqachon ishlayapti")
-        q = "SELECT * FROM eval_videos WHERE reviewed=1"
-        vids = db.rows(q + " ORDER BY id")
+        vids = db.rows("SELECT * FROM eval_videos WHERE reviewed=1 ORDER BY id")
         if video_ids:
             want = {int(x) for x in video_ids}
             vids = [v for v in vids if v["id"] in want]
@@ -233,35 +256,61 @@ class EvalRunner:
             raise ValueError("Baholash uchun video yo'q: videoni yuklang, hodisalarni belgilang va "
                              "\"Belgilash tugallandi\" ni yoqing")
         s = db.get_settings()
-        run_id = db.execute(
-            "INSERT INTO eval_runs(created_at, status, progress, version, settings, videos) VALUES(?,?,?,?,?,?)",
-            (time.time(), "ishlanmoqda", 0.0, APP_VERSION,
-             json.dumps({k: s.get(k) for k in SETTING_KEYS}, ensure_ascii=False), len(vids)))
+        sets = [m for m in (model_sets or [s.get("model_set", "yolo11")]) if m]
+        for m in sets:
+            if m not in model_zoo.MODEL_SETS:
+                raise ValueError(f"Noto'g'ri model to'plami: {m}")
+            if model_zoo.missing(m):
+                raise ValueError(f"{m}: model fayllari yo'q ({', '.join(model_zoo.missing(m))})")
+        run_ids = []
+        for m in sets:
+            snap = {k: s.get(k) for k in SETTING_KEYS}
+            snap["model_set"] = m
+            run_ids.append(db.execute(
+                "INSERT INTO eval_runs(created_at, status, progress, version, settings, videos) VALUES(?,?,?,?,?,?)",
+                (time.time(), "navbatda" if run_ids else "ishlanmoqda", 0.0, APP_VERSION,
+                 json.dumps(snap, ensure_ascii=False), len(vids))))
         self.stop_evt.clear()
-        self.state = {"running": True, "run_id": run_id, "progress": 0.0, "current": "", "done": 0,
-                      "total": len(vids)}
-        self.thread = threading.Thread(target=self._run, args=(run_id, vids), daemon=True, name="eval")
+        self.state = {"running": True, "run_id": run_ids[0], "progress": 0.0, "current": "", "done": 0,
+                      "total": len(vids) * len(sets)}
+        self.thread = threading.Thread(target=self._run_all, args=(list(zip(run_ids, sets)), vids), daemon=True,
+                                       name="eval")
         self.thread.start()
-        return run_id
+        return run_ids
 
     def stop(self) -> None:
         self.stop_evt.set()
 
-    def _run(self, run_id: int, vids: list[dict]) -> None:
+    def _run_all(self, jobs: list[tuple[int, str]], vids: list[dict]) -> None:
+        n = len(jobs)
+        for i, (run_id, ms) in enumerate(jobs):
+            if self.stop_evt.is_set():
+                db.execute("UPDATE eval_runs SET status='toxtatildi', finished_at=? WHERE id=?", (time.time(), run_id))
+                continue
+            self.state["run_id"] = run_id
+            db.execute("UPDATE eval_runs SET status='ishlanmoqda' WHERE id=?", (run_id,))
+            self._run(run_id, vids, ms, i, n)
+        _engines.clear()          # qo'shimcha modellar xotiradan bo'shatiladi
+        self.state.update({"running": False, "progress": 1.0, "current": ""})
+
+    def _run(self, run_id: int, vids: list[dict], model_set: str, k: int = 0, n: int = 1) -> None:
         per_video, err = [], None
         total_dur = sum(max(v.get("duration") or 1.0, 1.0) for v in vids)
         done_dur = 0.0
+
+        def overall(x: float) -> float:
+            return min(0.999, (k + x) / n)
         try:
             for v in vids:
                 if self.stop_evt.is_set():
                     break
-                self.state["current"] = v["filename"]
+                self.state["current"] = f"{v['filename']} — {model_set}" if n > 1 else v["filename"]
                 dur = max(v.get("duration") or 1.0, 1.0)
 
                 def prog(x, base=done_dur, d=dur):
-                    self.state["progress"] = min(0.999, (base + x * d) / total_dur)
+                    self.state["progress"] = overall((base + x * d) / total_dur)
 
-                res = analyze(v["path"], v.get("zone_source_id"), self.stop_evt, prog)
+                res = analyze(v["path"], v.get("zone_source_id"), self.stop_evt, prog, model_set=model_set)
                 if self.stop_evt.is_set():
                     break
                 m = match(clean_labels(v["labels"]), res["alerts"])
@@ -270,22 +319,24 @@ class EvalRunner:
                                   "steps": res["steps"], "seconds": res["seconds"], **m})
                 done_dur += dur
                 self.state["done"] += 1
-                self.state["progress"] = min(0.999, done_dur / total_dur)
-                db.execute("UPDATE eval_runs SET progress=? WHERE id=?", (round(self.state["progress"] * 100, 1), run_id))
+                self.state["progress"] = overall(done_dur / total_dur)
+                db.execute("UPDATE eval_runs SET progress=? WHERE id=?", (round(done_dur / total_dur * 100, 1), run_id))
         except Exception as e:  # noqa: BLE001
             err = str(e)
             log.exception("Baholashda xato")
         sm = summarize(per_video)
+        vsec = sum(v["duration"] for v in per_video)
+        speed = round(sum(v["seconds"] for v in per_video) / vsec, 3) if vsec else None
         status = "xato" if err else ("toxtatildi" if self.stop_evt.is_set() else "tayyor")
         db.execute("UPDATE eval_runs SET finished_at=?, status=?, progress=?, hours=?, tp=?, fp=?, fn=?, dup=?, "
-                   "precision=?, recall=?, f1=?, fp_per_hour=?, latency_med=?, details=?, error=?, videos=? "
+                   "precision=?, recall=?, f1=?, fp_per_hour=?, latency_med=?, details=?, error=?, videos=?, speed=? "
                    "WHERE id=?",
-                   (time.time(), status, 100.0 if status == "tayyor" else round(self.state["progress"] * 100, 1),
+                   (time.time(), status, 100.0 if status == "tayyor" else round(done_dur / total_dur * 100, 1),
                     sm["hours"], sm["tp"], sm["fp"], sm["fn"], sm["dup"], sm["precision"], sm["recall"], sm["f1"],
                     sm["fp_per_hour"], sm["latency_med"], json.dumps(per_video, ensure_ascii=False), err,
-                    len(per_video), run_id))
-        self.state.update({"running": False, "progress": 1.0, "current": ""})
-        log.info("Baholash #%d tugadi: %s, TP %d FP %d FN %d", run_id, status, sm["tp"], sm["fp"], sm["fn"])
+                    len(per_video), speed, run_id))
+        log.info("Baholash #%d (%s) tugadi: %s, TP %d FP %d FN %d", run_id, model_set, status, sm["tp"], sm["fp"],
+                 sm["fn"])
 
 
 _runner: EvalRunner | None = None

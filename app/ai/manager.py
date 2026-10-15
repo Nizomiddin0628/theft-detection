@@ -236,7 +236,9 @@ class Manager:
             log.exception("Klip yaratishda xato (hodisa #%d)", p.event_id)
             res = {"clip": None, "thumb": None, "crop": None, "clip_start": None}
         old = db.get_event(p.event_id) or {}
-        upd = {"clip_path": res["clip"], "crop_path": res["crop"], "clip_start": res.get("clip_start")}
+        upd = {"clip_path": res["clip"], "crop_path": res["crop"], "clip_start": res.get("clip_start"),
+               # Klip chiqmadi — Telegram xabarida "tayyorlanmoqda" o'rniga "klip yaratilmadi" yoziladi
+               "clip_error": 0 if res["clip"] else 1}
         if res["thumb"]:
             upd["thumb_path"] = res["thumb"]
             # Signal lahzasidagi tezkor rasm endi kerak emas — klipdan olingan rasm bilan almashadi
@@ -284,6 +286,7 @@ class Manager:
                 if not h["alerted"] and now - h["since"] >= alert_sec:
                     h["alerted"] = True
                     log.warning("Kamera ishlamayapti: %s (%s)", w.src["name"], reason)
+                    self._sync_health(w.src, "down", reason, h["since"])
                     if enabled and self.notifier is not None:
                         from ..telegram_bot import esc
                         self.notifier.send_text_all(
@@ -296,12 +299,23 @@ class Manager:
                     secs = now - h["since"]
                     dur = f"{secs / 60:.0f} daqiqa" if secs >= 90 else f"{secs:.0f} soniya"
                     log.info("Kamera tiklandi: %s (%s)", w.src["name"], dur)
+                    self._sync_health(w.src, "up", f"{dur} ishlamadi", h["since"])
                     if enabled and self.notifier is not None:
                         from ..telegram_bot import esc
                         self.notifier.send_text_all(f"✅ <b>Kamera tiklandi:</b> {esc(w.src['name'])} "
                                                     f"({dur} ishlamadi)")
         for sid in [s for s in self.health if s not in seen]:
             self.health.pop(sid, None)   # foydalanuvchi o'zi to'xtatgan manba
+
+    @staticmethod
+    def _sync_health(src: dict, state: str, reason: str, since: float | None) -> None:
+        """Kamera holati o'zgarishi bulut navbatiga (sozlangan bo'lsa)."""
+        try:
+            from .. import sync
+
+            sync.enqueue_health(src, state, reason, since)
+        except Exception:  # noqa: BLE001
+            log.exception("Kamera holatini bulut navbatiga qo'yishda xato")
 
     def _cleanup(self) -> None:
         """Eski hodisa fayllarini o'chirish (sozlamadagi kun soniga ko'ra)."""
@@ -317,11 +331,19 @@ class Manager:
             # Rad etilgan hodisa — modelni o'qitish uchun eng qimmatli ma'lumot: video o'chiriladi,
             # lekin skelet izi va qo'riqchi javobi arxivda qoladi
             archive_feedback(ev)
+            try:
+                from .. import sync
+
+                sync.forget_event(ev["id"])
+            except Exception:  # noqa: BLE001
+                pass
             delete_event_files(ev)
             db.execute("DELETE FROM events WHERE id=?", (ev["id"],))
             db.execute("DELETE FROM tg_messages WHERE event_id=?", (ev["id"],))
         if old:
             log.info("%d ta eski hodisa o'chirildi", len(old))
+        # Kechikish jurnali ham cheksiz o'smasin (hodisalar bilan bir xil muddat)
+        db.execute("DELETE FROM notify_log WHERE t_sent < ?", (cutoff,))
         # Eski yuklangan videolar (tahlil qilib bo'lingan) ham disk to'lmasligi uchun o'chiriladi
         running = {str(j.job.get("path")) for j in list(self.jobs.values())}
         live_files = {str(w.src.get("uri")) for w in list(self.workers.values()) if w.is_alive()}

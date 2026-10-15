@@ -4,3 +4,13 @@ data/*
 __pycache__/
 *.pyc
 .env
+
+# Bulut qabul qiluvchi (cloud/server.py) ma'lumotlari
+cloud/data/
+
+# Bulut paneli: manba cloud/panel (Next.js), tayyor statik build cloud/panel_dist — u commit qilinadi
+cloud/panel/node_modules/
+cloud/panel/.next/
+cloud/panel/out/
+cloud/panel/*.tsbuildinfo
+cloud/panel/next-env.d.ts

@@ -1,11 +1,12 @@
-"""ONNX Runtime orqali YOLO11 pose (skelet) va obyekt detektsiyasi.
+"""Odam, skelet va buyum modellari (ONNX; ONNX Runtime yoki OpenVINO orqali, PyTorch kerak emas).
 
-PyTorch kerak emas: modellar oldindan ONNX formatiga o'tkazilgan.
+Model to'plamlari va litsenziyalari — model_zoo.py, ishga tushirish muhiti — runtime.py.
 """
 from __future__ import annotations
 
 import heapq
 import itertools
+import json
 import math
 import os
 import threading
@@ -16,7 +17,7 @@ from dataclasses import dataclass, field
 import cv2
 import numpy as np
 
-from ..config import DET_MODEL, POSE_MODEL, env
+from ..config import env
 from ..logutil import get_logger
 
 log = get_logger("engine")
@@ -192,43 +193,143 @@ def _nms(boxes_xyxy: np.ndarray, scores: np.ndarray, iou: float) -> list[int]:
     return [int(i) for i in np.array(idx).reshape(-1)] if len(idx) else []
 
 
+_YOLOX_GRIDS: dict = {}
+
+
+def _yolox_grids(h: int, w: int) -> tuple[np.ndarray, np.ndarray]:
+    key = (h, w)
+    if key not in _YOLOX_GRIDS:
+        g, st = [], []
+        for stride in (8, 16, 32):
+            hs, ws = h // stride, w // stride
+            xv, yv = np.meshgrid(np.arange(ws), np.arange(hs))
+            g.append(np.stack((xv, yv), 2).reshape(-1, 2))
+            st.append(np.full((hs * ws, 1), stride))
+        _YOLOX_GRIDS[key] = (np.concatenate(g).astype(np.float32), np.concatenate(st).astype(np.float32))
+    return _YOLOX_GRIDS[key]
+
+
+def decode_yolo(out: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """YOLO11 (1, 4+C, N) -> qutilar (N,4 xyxy) va sinf ballari (N,C)."""
+    o = out[0].T
+    cx, cy, w, h = o[:, 0], o[:, 1], o[:, 2], o[:, 3]
+    return np.column_stack([cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2]), o[:, 4:]
+
+
+def decode_yolox(out: np.ndarray, h: int, w: int) -> tuple[np.ndarray, np.ndarray]:
+    """YOLOX (1, N, 5+C) -> qutilar (N,4 xyxy) va sinf ballari (N,C) = obyekt × sinf."""
+    o = out[0]
+    g, st = _yolox_grids(h, w)
+    xy = (o[:, :2] + g) * st
+    wh = np.exp(np.minimum(o[:, 2:4], 10.0)) * st
+    return np.column_stack([xy - wh / 2, xy + wh / 2]), o[:, 4:5] * o[:, 5:]
+
+
+RTM_W, RTM_H = 192, 256
+RTM_MEAN = np.array([123.675, 116.28, 103.53], np.float32)
+RTM_STD = np.array([58.395, 57.12, 57.375], np.float32)
+MAX_POSE_PERSONS = 12      # bitta kadrda skeleti hisoblanadigan eng ko'p odam (eng ishonchlilari)
+
+
 class Engine:
-    """Barcha kameralar uchun umumiy model sessiyalari (ORT run() thread-safe)."""
+    """Barcha kameralar uchun umumiy modellar (bitta navbat orqali chaqiriladi).
+
+    Model to'plami (model_zoo.MODEL_SETS) va muhit (ONNX Runtime / OpenVINO) sozlamalardan olinadi;
+    o'zgartirilganda Engine.reload() yangisini yaratadi — kameralar keyingi kadrda unga o'tadi.
+    """
 
     _instance: "Engine | None" = None
     _lock = threading.Lock()
 
-    def __init__(self) -> None:
-        import onnxruntime as ort
+    def __init__(self, model_set: str | None = None, runtime_pref: str | None = None,
+                 save_bench: bool = True, strict: bool = False) -> None:
+        """model_set / runtime_pref berilmasa — sozlamadan. save_bench=False: tezlik o'lchovini bazaga yozmaydi
+        (baholash uchun yaratiladigan qo'shimcha nusxalar asosiy tanlovga ta'sir qilmasin).
+        strict=True: so'ralgan to'plam yuklanmasa xato (YOLO11 ga jimgina o'tmaydi) — panelda almashtirishda
+        eski to'plam joyida qoladi."""
+        from .. import db
+        from . import model_zoo
 
-        providers = []
-        avail = ort.get_available_providers()
-        for p in ("CUDAExecutionProvider", "CoreMLExecutionProvider", "DmlExecutionProvider"):
-            if p in avail:
-                providers.append(p)
-        providers.append("CPUExecutionProvider")
+        s = db.get_settings()
+        want = model_set or s.get("model_set", "yolo11")
+        if want not in model_zoo.MODEL_SETS:
+            want = "yolo11"
         self.threads = ai_threads()
-        opts = ort.SessionOptions()
-        opts.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
-        opts.intra_op_num_threads = self.threads
-        opts.inter_op_num_threads = 1
-        opts.execution_mode = ort.ExecutionMode.ORT_SEQUENTIAL
-        # Standart holatda ORT oqimlari ish bo'lmasa ham "aylanib" CPU ni 100% band qiladi
-        opts.add_session_config_entry("session.intra_op.allow_spinning", "0")
-        opts.add_session_config_entry("session.inter_op.allow_spinning", "0")
-        if not POSE_MODEL.exists():
-            raise FileNotFoundError(f"Pose modeli topilmadi: {POSE_MODEL}")
-        self.pose = ort.InferenceSession(str(POSE_MODEL), opts, providers=providers)
-        self.det = ort.InferenceSession(str(DET_MODEL), opts, providers=providers) if DET_MODEL.exists() else None
-        self.providers = self.pose.get_providers()
-        self.pose_input = self.pose.get_inputs()[0].name
-        self.det_input = self.det.get_inputs()[0].name if self.det else None
-        shape = self.pose.get_inputs()[0].shape
-        self.fixed_size = shape[2] if isinstance(shape[2], int) else None
+        pref = runtime_pref or s.get("ai_runtime", "auto")
+        try:
+            self._build(want, pref, s, save_bench)
+        except Exception as e:  # noqa: BLE001 — buzuq/yo'q model kameralarni to'xtatmasin
+            if want == "yolo11" or strict:
+                raise
+            log.error("%s modellarini yuklab bo'lmadi (%s) — YOLO11 ishlatiladi", want, e)
+            self._build("yolo11", pref, s, save_bench)
         # Bir nechta kamera bir vaqtda modelni chaqirsa, oqimlar bir-biriga xalaqit beradi —
         # navbat bilan ishlatish umumiy tezlikni oshiradi va kompyuterni qotirmaydi
         self.run_lock = PriorityLock()
-        log.info("Modellar yuklandi. Qurilma: %s, AI oqimlari: %d", ", ".join(self.providers), self.threads)
+        log.info("Modellar yuklandi: %s (%s), muhit: %s, qurilma: %s, AI oqimlari: %d", self.model_set,
+                 ", ".join(self.licenses), self.runtime, ", ".join(self.providers), self.threads)
+
+    def _build(self, want: str, pref: str, s: dict, save_bench: bool) -> None:
+        from .. import db
+        from . import model_zoo, runtime
+
+        ms = model_zoo.MODEL_SETS[want]
+        # Buyum detektori ixtiyoriy: fayli bo'lmasa skelet va qoidalar ishlayveradi (faqat "qo'lda buyum" yo'q)
+        miss = [k for k in model_zoo.missing(want) if k != ms.get("det")]
+        if miss:
+            raise FileNotFoundError(f"model fayli yo'q: {', '.join(miss)}")
+        self.model_set = want
+        self.pose_name = ms["pose"]
+        self.person_name = ms.get("person")
+        self.det_name = ms.get("det")
+        probe = model_zoo.path(self.person_name or self.pose_name)
+        # O'lchov natijalari har model uchun alohida saqlanadi: {barmoq izi: natija}
+        try:
+            allc = json.loads(s.get("runtime_auto") or "{}")
+            if not isinstance(allc, dict) or "choice" in allc:
+                allc = {}
+        except ValueError:
+            allc = {}
+        fp = runtime.fingerprint(probe)
+        self.runtime, info = runtime.choose(pref, probe, self.threads, allc.get(fp))
+        if save_bench and info.get("fp") and allc.get(fp) != info:
+            allc[fp] = info
+            db.set_settings({"runtime_auto": runtime.dumps(dict(list(allc.items())[-6:]))})
+        self.runtime_info = info
+
+        def mk(key: str):
+            try:
+                return runtime.Runner(model_zoo.path(key), self.runtime, self.threads)
+            except Exception as e:  # noqa: BLE001
+                if self.runtime != "onnxruntime":
+                    log.warning("%s OpenVINO'da yuklanmadi (%s) — ONNX Runtime ishlatiladi", key, e)
+                try:
+                    return runtime.Runner(model_zoo.path(key), "onnxruntime", self.threads)
+                except Exception:
+                    # ONNX Runtime ham ocholmadi — fayl buzuq: chetga olinadi, panelda qayta yuklash mumkin bo'ladi
+                    model_zoo.mark_broken(key)
+                    raise
+
+        self.pose = mk(self.pose_name)
+        self.person = mk(self.person_name) if self.person_name else None
+        self.det = None
+        if self.det_name and model_zoo.path(self.det_name).exists():
+            try:
+                self.det = mk(self.det_name)
+            except Exception as e:  # noqa: BLE001
+                log.error("Buyum modeli (%s) yuklanmadi: %s — buyum qidirish o'chiq", self.det_name, e)
+        elif self.det_name:
+            log.warning("Buyum modeli fayli yo'q (%s) — buyum qidirish o'chiq", model_zoo.FILES[self.det_name]["file"])
+        for r, key in ((self.person, self.person_name), (self.det, self.det_name)):
+            # YOLOX faqat o'lchami o'zgaruvchan (dinamik) shaklda ishlaydi — rasmiy statik 416x416 fayl emas
+            if r is not None and key and key.startswith("yolox") and r.fixed_hw:
+                raise ValueError(f"{model_zoo.path(key).name} statik o'lchamli — dastur orqali qayta yuklab oling")
+        self.providers = self.pose.providers
+        self.fixed_size = None
+        if self.person is None and self.pose.fixed_hw:
+            self.fixed_size = self.pose.fixed_hw[0]
+        self.licenses = sorted({model_zoo.FILES[k]["license"]
+                                for k in (self.pose_name, self.person_name, self.det_name if self.det else None) if k})
 
     @classmethod
     def get(cls) -> "Engine":
@@ -236,6 +337,23 @@ class Engine:
             if cls._instance is None:
                 cls._instance = Engine()
             return cls._instance
+
+    @classmethod
+    def reload(cls, model_set: str | None = None, runtime_pref: str | None = None) -> "Engine":
+        """Sozlama o'zgarganda: yangi modellar yuklanadi. Navbat (run_lock) umumiy qoladi — yangi nusxa
+        ko'rinishidan OLDIN beriladi, shunda eski va yangi chaqiruvlar hech qachon to'qnashmaydi."""
+        new = Engine(model_set=model_set, runtime_pref=runtime_pref, strict=True)
+        with cls._lock:
+            old = cls._instance
+            if old is not None:
+                new.run_lock = old.run_lock
+            cls._instance = new
+        return new
+
+    def info(self) -> dict:
+        return {"model_set": self.model_set, "runtime": self.runtime, "providers": self.providers,
+                "threads": self.threads, "licenses": self.licenses, "runtime_info": {
+                    k: v for k, v in self.runtime_info.items() if k != "fp"}}
 
     def _size(self, size: int) -> int:
         if self.fixed_size:
@@ -246,12 +364,15 @@ class Engine:
         s = self._size(size)
         return letterbox(frame, s, rect=not self.fixed_size)
 
+    # ------------------------------------------------------------------ odamlar va skelet
     def detect_persons(self, frame: np.ndarray, size: int = 640, conf: float = 0.4,
                        iou: float = 0.5, prio: int = 1) -> list[Person]:
+        if self.person is not None:
+            return self._persons_topdown(frame, size, conf, iou, prio)
         img, r, left, top = self._prep(frame, size)
         blob = _to_blob(img)
         with self.run_lock.hold(prio):
-            out = self.pose.run(None, {self.pose_input: blob})[0][0].T  # (N, 56)
+            out = self.pose(blob)[0].T  # (N, 56)
         out = out[out[:, 4] >= conf]
         if len(out) == 0:
             return []
@@ -272,24 +393,81 @@ class Engine:
             persons.append(Person(box=b, score=float(out[i, 4]), kpts=k))
         return persons
 
+    def _persons_topdown(self, frame: np.ndarray, size: int, conf: float, iou: float, prio: int) -> list[Person]:
+        """Ikki bosqich: YOLOX odamlarni topadi, RTMPose har odamni alohida (kattalashtirib) skeletlaydi."""
+        from . import model_zoo
+
+        img, r, left, top = letterbox(frame, self._size(size), rect=True)
+        x = np.ascontiguousarray(img.transpose(2, 0, 1)[None].astype(np.float32))   # YOLOX: BGR, 0..255
+        with self.run_lock.hold(prio):
+            out = self.person(x)
+            boxes, scores = decode_yolox(out, img.shape[0], img.shape[1])
+            sc = scores[:, 0]
+            m = sc >= conf
+            boxes, sc = boxes[m], sc[m]
+            keep = _nms(boxes, sc, iou)[:MAX_POSE_PERSONS]
+            if not keep:
+                return []
+            boxes, sc = boxes[keep], sc[keep]
+            H, W = frame.shape[:2]
+            boxes[:, [0, 2]] = ((boxes[:, [0, 2]] - left) / r).clip(0, W - 1)
+            boxes[:, [1, 3]] = ((boxes[:, [1, 3]] - top) / r).clip(0, H - 1)
+            crops, metas = self._rtm_crops(frame, boxes)
+            sx, sy = self._rtm_run(crops)
+        kx, ky = sx.argmax(2), sy.argmax(2)
+        vals = model_zoo.calibrate(self.pose_name, 0.5 * (sx.max(2) + sy.max(2)))
+        persons = []
+        for i, (cx, cy, bw, bh) in enumerate(metas):
+            k = np.zeros((17, 3), np.float32)
+            k[:, 0] = kx[i] / 2.0 / RTM_W * bw + cx - bw / 2
+            k[:, 1] = ky[i] / 2.0 / RTM_H * bh + cy - bh / 2
+            k[:, 2] = vals[i]
+            persons.append(Person(box=boxes[i].astype(np.float32), score=float(sc[i]), kpts=k))
+        return persons
+
+    @staticmethod
+    def _rtm_crops(frame: np.ndarray, boxes: np.ndarray, pad: float = 1.25):
+        rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        crops, metas = [], []
+        for b in boxes:
+            cx, cy = (b[0] + b[2]) / 2, (b[1] + b[3]) / 2
+            bw, bh = max(b[2] - b[0], 2.0) * pad, max(b[3] - b[1], 2.0) * pad
+            if bw > bh * RTM_W / RTM_H:
+                bh = bw * RTM_H / RTM_W
+            else:
+                bw = bh * RTM_W / RTM_H
+            s = RTM_W / bw
+            M = np.array([[s, 0, RTM_W / 2 - s * cx], [0, s, RTM_H / 2 - s * cy]], np.float32)
+            crop = cv2.warpAffine(rgb, M, (RTM_W, RTM_H), flags=cv2.INTER_LINEAR)
+            crops.append(((crop.astype(np.float32) - RTM_MEAN) / RTM_STD).transpose(2, 0, 1))
+            metas.append((cx, cy, bw, bh))
+        return np.ascontiguousarray(np.stack(crops)), metas
+
+    def _rtm_run(self, crops: np.ndarray):
+        sx, sy = self.pose.run_all(crops)[:2]
+        return sx, sy
+
+    # ------------------------------------------------------------------ buyumlar
     def detect_objects(self, frame: np.ndarray, size: int = 640, conf: float = 0.3,
-                       iou: float = 0.5, prio: int = 1) -> list[Obj]:
+                       iou: float = 0.5, prio: int = 1, square: bool = False) -> list[Obj]:
         if self.det is None:
             return []
-        img, r, left, top = self._prep(frame, size)
-        blob = _to_blob(img)
+        yolox = self.det_name.startswith("yolox")
+        img, r, left, top = letterbox(frame, max(320, int(round(size / 32)) * 32), rect=not square)
+        if yolox:
+            x = np.ascontiguousarray(img.transpose(2, 0, 1)[None].astype(np.float32))
+        else:
+            x = _to_blob(img)
         with self.run_lock.hold(prio):
-            out = self.det.run(None, {self.det_input: blob})[0][0].T  # (N, 84)
-        scores_all = out[:, 4:]
+            out = self.det(x)
+        boxes, scores_all = decode_yolox(out, img.shape[0], img.shape[1]) if yolox else decode_yolo(out)
         cls = scores_all.argmax(1)
         scores = scores_all[np.arange(len(cls)), cls]
         wanted = np.isin(cls, list(ITEM_CLASSES) + list(BAG_CLASSES))
         m = (scores >= conf) & wanted
-        out, cls, scores = out[m], cls[m], scores[m]
-        if len(out) == 0:
+        boxes, cls, scores = boxes[m], cls[m], scores[m]
+        if len(boxes) == 0:
             return []
-        cx, cy, w, h = out[:, 0], out[:, 1], out[:, 2], out[:, 3]
-        boxes = np.column_stack([cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2])
         # Sinf bo'yicha NMS: har bir sinf uchun alohida siljitish
         offs = boxes + (cls[:, None] * 4096.0)
         keep = _nms(offs, scores, iou)
@@ -315,13 +493,16 @@ class Engine:
 
         Qism model kirishiga kattalashtiriladi, shuning uchun butun kadrda juda kichik ko'ringan
         qo'ldagi buyum ham topiladi. Natija ramkalari butun kadr koordinatalariga qaytariladi.
+        OpenVINO'da kirish doim kvadrat (bir xil o'lcham — har safar qayta moslashmaydi), ONNX Runtime'da
+        qism nisbatida (tezroq).
         """
         H, W = frame.shape[:2]
         x1, y1 = max(0, int(box[0])), max(0, int(box[1]))
         x2, y2 = min(W, int(box[2])), min(H, int(box[3]))
         if x2 - x1 < 16 or y2 - y1 < 16:
             return []
-        objs = self.detect_objects(frame[y1:y2, x1:x2], size=size, conf=conf, iou=iou, prio=prio)
+        objs = self.detect_objects(frame[y1:y2, x1:x2], size=size, conf=conf, iou=iou, prio=prio,
+                                   square=self.runtime == "openvino")
         for o in objs:
             o.box[[0, 2]] += x1
             o.box[[1, 3]] += y1

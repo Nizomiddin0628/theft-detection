@@ -10,7 +10,8 @@
 <div class="login-wrap">
   <form class="login" method="post" action="/login">
     <div class="brand">{{ logo(40) }}<div><b style="font-size:18px">{{ app_name }}</b><span>Do'kon kameralari uchun sun'iy intellekt</span></div></div>
-    {% if error %}<div class="note danger" style="margin-bottom:14px">Login yoki parol noto'g'ri.</div>{% endif %}
+    {% if wait %}<div class="note danger" style="margin-bottom:14px">Ko'p noto'g'ri urinish. {{ wait }} soniyadan keyin qayta urining.</div>
+    {% elif error %}<div class="note danger" style="margin-bottom:14px">Login yoki parol noto'g'ri.</div>{% endif %}
     <input type="hidden" name="next" value="{{ next }}">
     <div class="field"><label class="f">Login</label><input type="text" name="username" value="admin" autocomplete="username" required></div>
     <div class="field"><label class="f">Parol</label><input type="password" name="password" autocomplete="current-password" required autofocus></div>

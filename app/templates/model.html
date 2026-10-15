@@ -2,6 +2,24 @@
 {% from "_icons.html" import icon %}
 {% block subtitle %}<div class="muted small">Qanday ishlaydi, qanchalik aniq va qanday qayta o'qitiladi</div>{% endblock %}
 {% block content %}
+<div class="card" style="margin-bottom:16px">
+  <div class="card-h"><h2>Ko'rish modellari</h2><span class="muted small">odam, skelet va buyumni topadi</span><div class="grow"></div><span class="badge" id="vstate"></span></div>
+  <div class="card-b">
+    <div class="grid g3" id="vsets"></div>
+    <div class="row" style="margin-top:14px;gap:12px;align-items:flex-end">
+      <div class="field" style="margin:0;min-width:240px"><label class="f">Ishlash muhiti</label>
+        <select id="vrt"><option value="auto">Avto — shu kompyuterda o'lchab, tezini tanlaydi</option><option value="onnxruntime">ONNX Runtime</option><option value="openvino">OpenVINO</option></select></div>
+      <button class="btn" onclick="saveRt()">{{ icon('check', 14) }} Saqlash</button>
+      <button class="btn ghost" onclick="bench()">{{ icon('activity', 14) }} Tezlikni qayta o'lchash</button>
+      <div class="small muted" id="vbench" style="flex:1;min-width:220px"></div>
+    </div>
+    <div class="row small" style="margin-top:12px;gap:10px">
+      <label class="btn sm ghost" style="cursor:pointer">{{ icon('upload', 14) }} Model faylini qo'lda yuklash<input type="file" id="vfile" accept=".zip,.onnx" style="display:none"></label>
+      <span class="muted">Internetdan yuklanmasa: rasmiy saytdan olingan RTMPose zip yoki YOLOX onnx fayli.</span>
+    </div>
+    <div class="note" style="margin-top:12px">{{ icon('info') }}<div class="small">Qaysi to'plam sizning do'koningizda aniqroq ishlashini <a href="/eval">Aniqlik sinovi</a> sahifasida o'z videolaringizda solishtiring: to'plamni tanlab, "Baholashni boshlash" ni bosing va natijalar tarixini taqqoslang. Tanlash kameralarni to'xtatmaydi — keyingi kadrdan yangi model ishlaydi.</div></div>
+  </div>
+</div>
 <div class="grid g3">
   <div class="card span2">
     <div class="card-h"><h2>Faol xulq modeli</h2><div class="grow"></div><span class="badge info" id="mver">—</span></div>
@@ -45,9 +63,9 @@
 <div class="card card-b prose" style="margin-top:16px">
   <h2>Tizim qanday qaror qiladi?</h2>
   <ol>
-    <li><b>Odamni topish va skelet:</b> YOLO11n-pose har kadrda odamlarni va 17 ta tana nuqtasini topadi (<span id="prov"></span>).</li>
+    <li><b>Odamni topish va skelet:</b> tanlangan ko'rish modeli odamlarni va 17 ta tana nuqtasini topadi (<span id="prov"></span>).</li>
     <li><b>Kuzatish:</b> har odamga doimiy raqam beriladi (#1, #2...), shunda uning harakat tarixi saqlanadi.</li>
-    <li><b>Buyumlar:</b> YOLO11n qo'ldagi buyumlarni (telefon, shisha, stakan, meva, kitob...) va sumka/ryukzaklarni topadi. Buyum qo'l bilan <i>birga harakatlansa</i>gina "ushlangan" hisoblanadi.</li>
+    <li><b>Buyumlar:</b> buyum modeli faqat faol qo'l atrofida qo'ldagi buyumlarni (telefon, shisha, stakan, meva, kitob...) va sumka/ryukzaklarni topadi. Buyum qo'l bilan <i>birga harakatlansa</i>gina "ushlangan" hisoblanadi.</li>
     <li><b>Qoidalar:</b> qo'l faol holatdan (polkaga uzatilgan, buyum ushlagan) bel/cho'ntak, qorin (kiyim ichi), sumka zonasiga borib, u yerda turib qolsa — shubha. Tirsak burchagi osilib turgan qo'lni cho'ntakka kirgan qo'ldan ajratadi.</li>
     <li><b>Xulq modeli:</b> oxirgi 2,5 soniyalik skelet harakatidan {{ n_features }} ta belgi hisoblanib, Gradient Boosting modeli "shubhali" ehtimolini beradi.</li>
     <li><b>Ball:</b> barcha dalillar qo'shiladi (yurib ketayotgan odam, orqa tomondan ko'rinish kabi qarshi dalillar ayiriladi). Ball chegaradan ({{ settings.threshold }}) oshsa — klip kesiladi va Telegramga yuboriladi.</li>
@@ -122,6 +140,49 @@ async function poll() {
   clearTimeout(pt);
   if (s.running) pt = setTimeout(poll, 1000); else if (s.result) load();
 }
-load(); poll();
+// ---- ko'rish modellari
+let vbusy = false;
+async function loadV() {
+  const r = await H.api("/api/models");
+  const act = r.active || {};
+  vbusy = r.state.busy;
+  const st = document.getElementById("vstate");
+  st.textContent = r.state.busy ? r.state.task + "…" : (r.state.error ? "xato" : (act.runtime ? `${act.runtime} · ${act.threads} oqim` : ""));
+  st.className = "badge " + (r.state.busy ? "info" : (r.state.error ? "tasdiqlangan" : "on"));
+  if (r.state.error) H.toast("⚠️ " + H.esc(r.state.error), "alert");
+  const comp = { person: "odam", pose: "skelet", det: "buyum" };
+  document.getElementById("vsets").innerHTML = Object.entries(r.sets).map(([k, m]) => {
+    const isAct = act.model_set === k, miss = m.missing || [];
+    const lic = m.license === "Apache-2.0" ? `<span class="badge on">${m.license}</span>` : `<span class="badge yangi">${H.esc(m.license)}</span>`;
+    const parts = Object.entries(comp).filter(([c]) => m[c]).map(([c, n]) => `${n}: <b>${H.esc(m[c])}</b>`).join(" · ");
+    const btn = isAct ? `<span class="badge on">✓ faol</span>`
+      : (miss.length ? `<button class="btn sm" onclick="dl('${k}')" ${vbusy ? "disabled" : ""}>{{ icon('download', 14) }} Yuklab olish</button><div class="muted small" style="margin-top:4px">yo'q: ${H.esc(miss.join(", "))}</div>`
+        : `<button class="btn sm primary" onclick="pickSet('${k}')" ${vbusy ? "disabled" : ""}>Tanlash</button>`);
+    return `<div class="card" style="box-shadow:none;${isAct ? "border-color:var(--brand)" : ""}"><div class="card-b">
+      <div class="row between"><b>${H.esc(m.label)}</b>${lic}</div>
+      <div class="small muted" style="margin:6px 0">${H.esc(m.hint)}</div>
+      <div class="small" style="margin-bottom:10px">${parts}</div>${btn}</div></div>`;
+  }).join("");
+  document.getElementById("vrt").value = r.ai_runtime;
+  const b = r.bench || {};
+  document.getElementById("vbench").textContent = (b.onnxruntime || b.openvino)
+    ? `O'lchov: ONNX Runtime ${b.onnxruntime ?? "—"} ms, OpenVINO ${b.openvino ?? "—"} ms — tanlangan: ${b.choice}`
+    : (r.openvino ? (act.runtime_info && act.runtime_info.reason ? act.runtime_info.reason : "") : "OpenVINO o'rnatilmagan (pip install openvino)");
+  if (vbusy) setTimeout(loadV, 1500);
+}
+async function pickSet(k) { const r = await H.post("/api/models/activate", { model_set: k }); if (r && r.ok) { H.toast("Modellar yuklanmoqda…", "ok"); setTimeout(loadV, 500); } }
+async function saveRt() { const r = await H.post("/api/models/activate", { ai_runtime: document.getElementById("vrt").value }); if (r && r.ok) { H.toast("Saqlandi, modellar qayta yuklanmoqda…", "ok"); setTimeout(loadV, 500); } }
+async function bench() { const r = await H.post("/api/models/benchmark"); if (r && r.ok) { H.toast("O'lchanmoqda (bir necha soniya)…", "ok"); setTimeout(loadV, 500); } }
+async function dl(k) { const r = await H.post("/api/models/download", { model_set: k }); if (r && r.ok) { H.toast("Yuklab olinmoqda…", "ok"); setTimeout(loadV, 500); } }
+document.getElementById("vfile").addEventListener("change", async (e) => {
+  const f = e.target.files[0]; if (!f) return;
+  const fd = new FormData(); fd.append("file", f);
+  H.toast("Yuklanmoqda…", "ok");
+  const res = await fetch("/api/models/upload", { method: "POST", body: fd });
+  const j = await res.json().catch(() => ({}));
+  if (res.ok) H.toast(`Model tayyor: ${H.esc(j.model)}`, "ok"); else H.toast("⚠️ " + H.esc(j.detail || "Xato"), "alert");
+  e.target.value = ""; loadV();
+});
+load(); poll(); loadV();
 </script>
 {% endblock %}

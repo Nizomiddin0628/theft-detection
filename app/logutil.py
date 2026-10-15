@@ -40,7 +40,11 @@ def setup_logging() -> None:
     root.addHandler(fh)
     import sys
 
-    if sys.stderr is not None:   # pythonw.exe (oynasiz) rejimida konsol yo'q
+    import os
+
+    # pythonw.exe (oynasiz): konsol yo'q, run.py chiqishni console.log ga yo'naltiradi — jurnal u yerga ikkinchi
+    # marta yozilmaydi (app.log yetarli)
+    if sys.stderr is not None and os.environ.get("HUSHYOR_NO_CONSOLE_LOG") != "1":
         sh = logging.StreamHandler()
         sh.setFormatter(fmt)
         root.addHandler(sh)

@@ -34,8 +34,14 @@ if not exist ".venv\Scripts\python.exe" (
   )
 )
 
-if not exist ".venv\.installed" (
-  echo [2/3] Kutubxonalar o'rnatilmoqda - birinchi marta 3-10 daqiqa...
+rem requirements.txt o'zgarsa (yangi versiya) kutubxonalar o'zi yangilanadi: belgi faylida uning xeshi
+set "REQHASH="
+for /f "tokens=* delims=" %%h in ('certutil -hashfile requirements.txt SHA256 ^| findstr /v ":"') do set "REQHASH=%%h"
+set "REQHASH=%REQHASH: =%"
+set "OLDHASH="
+if exist ".venv\.installed" set /p OLDHASH=<".venv\.installed"
+if not "%REQHASH%"=="%OLDHASH%" (
+  echo [2/3] Kutubxonalar o'rnatilmoqda yoki yangilanmoqda - 3-10 daqiqa...
   ".venv\Scripts\python.exe" -m pip install --upgrade pip
   ".venv\Scripts\python.exe" -m pip install -r requirements.txt
   if errorlevel 1 (
@@ -43,7 +49,7 @@ if not exist ".venv\.installed" (
     pause
     exit /b 1
   )
-  echo ok> ".venv\.installed"
+  > ".venv\.installed" echo %REQHASH%
 )
 
 echo [3/3] Dastur ishga tushmoqda... Brauzer o'zi ochiladi: http://localhost:8000

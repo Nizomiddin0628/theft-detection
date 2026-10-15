@@ -30,6 +30,11 @@
 <div class="kpis" id="kpis"></div>
 <div class="card" style="margin-top:12px">
   <div class="card-b row">
+    <select id="runSet" style="width:auto" title="Qaysi ko'rish modellari bilan baholash">
+      <option value="">Joriy modellar ({{ settings.model_set }})</option>
+      {% for k, m in model_sets.items() %}{% if not m.missing %}<option value="{{ k }}">{{ m.label }}</option>{% endif %}{% endfor %}
+      <option value="__all__">Hammasini solishtirish</option>
+    </select>
     <button class="btn primary" id="btnRun" onclick="runEval()">{{ icon('play', 16) }} Baholashni boshlash</button>
     <button class="btn hidden" id="btnStop" onclick="stopEval()">{{ icon('stop', 16) }} To'xtatish</button>
     <div style="flex:1;min-width:200px">
@@ -99,7 +104,7 @@
 <div class="card" style="margin-top:16px">
   <div class="card-h"><h2>Baholashlar tarixi</h2><div class="grow"></div><span class="muted small">Sozlamani o'zgartirib qayta baholang va solishtiring</span></div>
   <div class="table-wrap"><table>
-    <thead><tr><th>#</th><th>Vaqt</th><th>Holat</th><th>Video / soat</th><th>To'g'ri</th><th>Xato</th><th>O'tkazilgan</th><th>Aniqlik</th><th>Topish</th><th>Xato/soat</th><th>Sozlama</th></tr></thead>
+    <thead><tr><th>#</th><th>Vaqt</th><th>Holat</th><th>Modellar</th><th>Video / soat</th><th>To'g'ri</th><th>Xato</th><th>O'tkazilgan</th><th>Aniqlik</th><th>Topish</th><th>Xato/soat</th><th title="Tahlil vaqti / video vaqti — kichigi yengil">Og'irlik</th><th>Sozlama</th></tr></thead>
     <tbody id="runs"></tbody>
   </table></div>
 </div>
@@ -272,13 +277,20 @@ async function loadRuns() {
   renderKpis(lastRun);
   document.getElementById("runs").innerHTML = runs.length ? runs.map((r) => `<tr style="cursor:pointer" onclick="showRun(${r.id})">
     <td>${r.id}</td><td class="small">${new Date(r.created_at * 1000).toLocaleString("uz")}</td><td class="small">${H.esc(r.status)}${r.error ? ` <span style="color:#b42318">${H.esc(r.error)}</span>` : ""}</td>
+    <td class="small"><b>${H.esc(r.settings.model_set || "yolo11")}</b></td>
     <td class="num">${r.videos ?? "—"} / ${(r.hours || 0).toFixed(2)}</td><td class="num">${r.tp ?? "—"}</td><td class="num">${r.fp ?? "—"}</td><td class="num">${r.fn ?? "—"}</td>
-    <td class="num"><b>${pct(r.precision)}</b></td><td class="num"><b>${pct(r.recall)}</b></td><td class="num">${r.fp_per_hour ?? "—"}</td>
+    <td class="num"><b>${pct(r.precision)}</b></td><td class="num"><b>${pct(r.recall)}</b></td><td class="num">${r.fp_per_hour ?? "—"}</td><td class="num">${r.speed != null ? r.speed.toFixed(2) + "×" : "—"}</td>
     <td class="small muted">${H.esc(r.settings.sensitivity || "")} · chegara ${H.esc(r.settings.threshold || "")} · ${H.esc(r.version || "")}</td></tr>`).join("")
-    : `<tr><td colspan="11" class="muted small">Hali baholash o'tkazilmagan.</td></tr>`;
+    : `<tr><td colspan="13" class="muted small">Hali baholash o'tkazilmagan.</td></tr>`;
 }
 async function showRun(id) { const r = await H.api(`/api/eval/runs/${id}`); if (r.status !== "tayyor" && r.status !== "toxtatildi") return; lastRun = r; runDetail = r; renderKpis(r); renderList(); if (cur) renderVideo(false); H.toast(`#${id} baholash natijasi ko'rsatilmoqda`, "ok"); }
-async function runEval() { const r = await H.post("/api/eval/run", {}); if (r && r.ok) { H.toast("Baholash boshlandi", "ok"); poll(); } }
+const SETS = {{ model_sets | tojson }};
+async function runEval() {
+  const v = document.getElementById("runSet").value;
+  const sets = v === "__all__" ? Object.keys(SETS).filter((k) => !(SETS[k].missing || []).length) : (v ? [v] : []);
+  const r = await H.post("/api/eval/run", { model_sets: sets });
+  if (r && r.ok) { H.toast(sets.length > 1 ? `${sets.length} ta model to'plami navbat bilan baholanadi` : "Baholash boshlandi", "ok"); poll(); }
+}
 async function stopEval() { await H.post("/api/eval/stop"); }
 async function poll() {
   const s = await H.api("/api/eval/status");

@@ -12,10 +12,13 @@ import threading
 import time
 
 from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
 
 app = FastAPI()
 CALLS: list[dict] = []
 UPDATES: list[dict] = []
+FAIL_NEXT: dict[str, int] = {}     # method -> keyingi shuncha chaqiruv xato bilan qaytadi (tarmoq xatosi taqlidi)
+FAIL_STATUS: dict[str, int] = {}   # method -> xato kodi (sukut 500; 403 — "bot bloklangan")
 _uid = [1000]
 _mid = [1]
 
@@ -61,6 +64,11 @@ async def method(token: str, method: str, request: Request):
     if delay or (bw and up):
         await asyncio.sleep(delay + (up / bw if bw else 0))
     CALLS.append({"method": method, "token": token, "data": data, "files": files, "t": time.time()})
+    if FAIL_NEXT.get(method, 0) > 0:
+        FAIL_NEXT[method] -= 1
+        code = FAIL_STATUS.get(method, 500)
+        desc = "Forbidden: bot was blocked by the user" if code == 403 else "soxta tarmoq xatosi"
+        return JSONResponse(status_code=code, content={"ok": False, "error_code": code, "description": desc})
     if method == "getMe":
         return {"ok": True, "result": {"id": 42, "is_bot": True, "first_name": "Hushyor", "username": "hushyor_test_bot"}}
     if method == "getUpdates":

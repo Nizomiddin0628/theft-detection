@@ -1,0 +1,17 @@
+# Satr oxirlari: repoda LF, Windows nusxasida git o'zi moslaydi (CRLF ogohlantirishlari chiqmaydi)
+* text=auto
+*.py text eol=lf
+*.html text eol=lf
+*.js text eol=lf
+*.css text eol=lf
+*.md text eol=lf
+*.ps1 text eol=crlf
+*.bat text eol=crlf
+*.onnx binary
+*.joblib binary
+*.mp4 binary
+*.jpg binary
+*.png binary
+*.pdf binary
+# Bulut panelining tayyor build fayllari o'zgarishsiz saqlansin (Windows CRLF almashtirishi Next.js RSC fayllarini buzadi)
+cloud/panel_dist/** -text

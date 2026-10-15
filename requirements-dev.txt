@@ -1,0 +1,5 @@
+# Faqat sinovlar uchun (ishlab turgan tizimga kerak emas)
+-r requirements.txt
+playwright==1.56.0   # tests/test_panel.py — bulut panelini haqiqiy brauzerda sinash
+                     # birinchi marta: python -m playwright install chromium
+http-ece>=1.1        # tests/test_notify.py — push yukini yechib tekshirish (pywebpush bilan keladi)

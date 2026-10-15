@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import shutil
 import subprocess
+import tempfile
 import threading
 from collections import deque
 from dataclasses import dataclass
@@ -109,6 +110,9 @@ def render_frames(frames: list[BufFrame], highlight: int | None, banner: str,
     return list(iter_rendered(frames, highlight, banner, live, susp))
 
 
+FFMPEG_TIMEOUT = 120
+
+
 def write_mp4(images, path: Path, fps: float) -> bool:
     """H.264 MP4 yozish. images — ro'yxat yoki har chaqirilganda yangi iterator qaytaradigan funksiya
     (ffmpeg ishlamasa, zaxira yozuvchi uchun kadrlar qaytadan chiziladi)."""
@@ -131,13 +135,33 @@ def write_mp4(images, path: Path, fps: float) -> bool:
                "-threads", "2", "-pix_fmt", "yuv420p", "-movflags", "+faststart", str(path)]
         try:
             flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
-            proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, stderr=subprocess.PIPE, creationflags=flags)
-            proc.stdin.write(np.ascontiguousarray(fit(first)).tobytes())
-            for img in it:
-                proc.stdin.write(np.ascontiguousarray(fit(img)).tobytes())
-            proc.stdin.close()
-            err = proc.stderr.read().decode(errors="ignore")
-            proc.wait(timeout=120)
+            # stderr faylga (PIPE to'lib qolsa ffmpeg osilib qolardi); ffmpeg osilsa 120 s da to'xtatiladi
+            with tempfile.TemporaryFile() as errf:
+                proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, stderr=errf, creationflags=flags)
+                # Qo'riqchi taymer: yozish paytida ham (stdin bloklangan bo'lsa) osilib qolmaydi
+                killed = threading.Event()
+                guard = threading.Timer(FFMPEG_TIMEOUT, lambda: (killed.set(), proc.kill()))
+                guard.daemon = True
+                guard.start()
+                try:
+                    proc.stdin.write(np.ascontiguousarray(fit(first)).tobytes())
+                    for img in it:
+                        proc.stdin.write(np.ascontiguousarray(fit(img)).tobytes())
+                    proc.stdin.close()
+                    proc.wait(timeout=FFMPEG_TIMEOUT)
+                except BaseException:
+                    if proc.poll() is None:
+                        proc.kill()
+                        proc.wait(10)
+                    if killed.is_set():
+                        raise RuntimeError(f"ffmpeg {FFMPEG_TIMEOUT} s da tugamadi — to'xtatildi") from None
+                    raise
+                finally:
+                    guard.cancel()
+                if killed.is_set():
+                    raise RuntimeError(f"ffmpeg {FFMPEG_TIMEOUT} s da tugamadi — to'xtatildi")
+                errf.seek(0)
+                err = errf.read().decode(errors="ignore")
             if proc.returncode == 0 and path.exists() and path.stat().st_size > 0:
                 return True
             log.warning("ffmpeg xatosi (%s): %s", proc.returncode, err[-300:])

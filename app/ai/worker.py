@@ -71,8 +71,16 @@ def open_capture(kind: str, uri: str) -> cv2.VideoCapture:
         cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
         return cap
     if kind == "rtsp":
-        return cv2.VideoCapture(uri, cv2.CAP_FFMPEG)
+        # Kamera elektrdan uzilsa yoki tarmoq osilib qolsa o'quvchi abadiy kutmasin: ochish va o'qish 8 s
+        params = [cv2.CAP_PROP_OPEN_TIMEOUT_MSEC, RTSP_TIMEOUT_MS, cv2.CAP_PROP_READ_TIMEOUT_MSEC, RTSP_TIMEOUT_MS]
+        try:
+            return cv2.VideoCapture(uri, cv2.CAP_FFMPEG, params)
+        except (TypeError, cv2.error):      # juda eski OpenCV: parametrlarsiz
+            return cv2.VideoCapture(uri, cv2.CAP_FFMPEG)
     return cv2.VideoCapture(uri)
+
+
+RTSP_TIMEOUT_MS = 8000
 
 
 @dataclass
@@ -156,6 +164,7 @@ class Processor:
     source_name: str
     source_id: int | None = None                        # zonalar shu manbadan olinadi
     background: bool = False                            # fon vazifasi (baholash): jonli kameralardan keyin navbat
+    engine: object = None                               # boshqa model to'plami bilan baholash uchun (odatda umumiy)
     tracker: Tracker = field(default_factory=Tracker)
     analyzer: Analyzer = field(default=None)  # type: ignore[assignment]
     last_objects: list = field(default_factory=list)
@@ -217,7 +226,7 @@ class Processor:
         self.last_full_t = t
         self.ran = True
         self.counts[self.mode] += 1
-        eng = Engine.get()
+        eng = self.engine or Engine.get()
         s = db.get_settings()
         size = int(float(s.get("infer_size", 640)))
         pconf = float(s.get("person_conf", 0.4))
@@ -520,6 +529,11 @@ class SourceWorker(threading.Thread):
                 log.exception("AI xatosi (%s)", self.src["name"])
                 time.sleep(1)
                 continue
+            if self.state == "xato" and self.error.startswith("AI xatosi"):
+                # Bitta kadrdagi xato o'tib ketdi — kamera ishlayapti (aks holda "ishlamayapti" xabari ketib,
+                # "tiklandi" hech qachon kelmas edi)
+                self.state, self.error = "ishlayapti", ""
+                log.info("%s: AI yana ishlayapti", self.src["name"])
             self.ring.set_annotations(ann)
             self.ring.seconds = ring_seconds()
             self.track_status = status

@@ -150,6 +150,36 @@ CREATE TABLE IF NOT EXISTS model_versions (
     data_desc TEXT,
     active INTEGER DEFAULT 0
 );
+-- Bulutga yuborish navbati (store-and-forward): internet bo'lmasa ham yoziladi, yetkazilgach o'chadi
+CREATE TABLE IF NOT EXISTS outbox (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    kind TEXT NOT NULL,           -- event | clip | metrics | health
+    key TEXT NOT NULL,            -- idempotent kalit (serverda takror aniqlanadi), masalan ev:12
+    payload TEXT NOT NULL,        -- JSON
+    created_at REAL,
+    attempts INTEGER DEFAULT 0,   -- vaqtinchalik xatolar soni (ma'lumot uchun)
+    next_try REAL DEFAULT 0,      -- shu vaqtdan oldin urinilmaydi (eksponensial kutish)
+    sending INTEGER DEFAULT 0,    -- 1: hozir yuborilmoqda (yangilanish shu qatorga qo'shilmaydi)
+    failed INTEGER DEFAULT 0,     -- 1: server qabul qilmadi (rad etilgan) — navbatni to'smaydi, panelda ko'rinadi
+    last_error TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_outbox_key ON outbox(key);
+-- Daqiqalik ko'rsatkichlar (kamera va tizim): hisobotlar va bulut uchun
+CREATE TABLE IF NOT EXISTS metrics_minute (
+    minute INTEGER NOT NULL,      -- unix vaqt, daqiqa boshiga yaxlitlangan
+    source_id INTEGER NOT NULL,   -- 0 — tizim (CPU, RAM, navbat)
+    source_name TEXT,
+    persons_avg REAL,
+    persons_max INTEGER,
+    fps_ai REAL,
+    active_pct REAL,              -- vaqtning qancha ulushi "faol" rejimda
+    up_pct REAL,                  -- kamera ishlagan vaqt ulushi
+    alerts INTEGER,
+    cpu REAL,
+    ram REAL,
+    extra TEXT,
+    PRIMARY KEY (minute, source_id)
+);
 """
 
 
@@ -190,12 +220,19 @@ EXTRA_COLUMNS = {
         "t_detect": "REAL",     # hodisa aniqlangan devor vaqti (kechikish o'lchovi uchun)
         "claimed_by": "TEXT",   # "Ko'ryapman" bosgan qo'riqchi
         "claimed_at": "REAL",
+        "clip_error": "INTEGER DEFAULT 0",   # 1 — klip yaratib bo'lmadi (Telegram'da "tayyorlanmoqda" qolmasin)
     },
     "subscribers": {
         "kb_cleared": "INTEGER DEFAULT 0",   # eski botdan qolgan pastki tugmalar tozalanganmi
     },
     "jobs": {
         "zone_source_id": "INTEGER",          # yuklangan videoga qaysi kameraning zonalari qo'llanadi
+    },
+    "eval_runs": {
+        "speed": "REAL",                      # tahlil vaqti / video vaqti (model og'irligi)
+    },
+    "outbox": {
+        "failed": "INTEGER DEFAULT 0",        # 1.5.0 ishlab chiqish nusxalari uchun (jadval shu versiyada paydo bo'ldi)
     },
 }
 
@@ -236,6 +273,9 @@ def init_db() -> None:
             c.execute("INSERT OR IGNORE INTO settings(key, value) VALUES(?, ?)", (k, v))
         c.execute("INSERT OR IGNORE INTO settings(key, value) VALUES('connect_code', ?)",
                   (f"{secrets.randbelow(900000) + 100000}",))
+        # Qurilma identifikatori (bulutda shu do'kon kompyuterini ajratish uchun) — bir marta yaratiladi
+        c.execute("INSERT OR IGNORE INTO settings(key, value) VALUES('device_id', ?)", (secrets.token_hex(6),))
+        c.execute("UPDATE outbox SET sending=0 WHERE sending=1")   # dastur to'xtaganda yarim qolgan yuborishlar
         # Ishlanmay qolgan vazifalarni yopish (dastur qayta ishga tushganda)
         c.execute("UPDATE jobs SET status='toxtatildi' WHERE status IN ('navbatda','ishlanmoqda')")
 
@@ -304,6 +344,21 @@ def flag(key: str) -> bool:
 
 
 # ---------- Hodisalar ----------
+# Hodisa yozilgach/yangilangach chaqiriladigan funksiyalar: fn(event_id, fields_dict) — bulut navbati shu
+# orqali to'ldiriladi (db.py sync'ni import qilmaydi, aylanma import bo'lmasin)
+EVENT_HOOKS: list = []
+
+
+def _notify_hooks(event_id: int, fields: dict) -> None:
+    for fn in list(EVENT_HOOKS):
+        try:
+            fn(event_id, fields)
+        except Exception:  # noqa: BLE001 — bulut navbati xatosi hodisa yozilishini to'xtatmasin
+            import logging
+
+            logging.getLogger("hushyor.db").exception("Hodisa hook xatosi")
+
+
 def insert_event(data: dict) -> int:
     data = dict(data)
     for k in ("reasons", "breakdown"):
@@ -311,7 +366,9 @@ def insert_event(data: dict) -> int:
             data[k] = json.dumps(data[k], ensure_ascii=False)
     cols = ", ".join(data.keys())
     marks = ", ".join("?" for _ in data)
-    return execute(f"INSERT INTO events({cols}) VALUES({marks})", data.values())
+    ev_id = execute(f"INSERT INTO events({cols}) VALUES({marks})", data.values())
+    _notify_hooks(ev_id, {"_new": True, **data})
+    return ev_id
 
 
 def update_event(event_id: int, **fields) -> None:
@@ -319,6 +376,7 @@ def update_event(event_id: int, **fields) -> None:
         return
     sets = ", ".join(f"{k}=?" for k in fields)
     execute(f"UPDATE events SET {sets} WHERE id=?", [*fields.values(), event_id])
+    _notify_hooks(event_id, fields)
 
 
 def decode_event(ev: dict | None) -> dict | None:

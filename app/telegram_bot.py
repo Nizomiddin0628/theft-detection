@@ -10,6 +10,7 @@ Long polling ishlatiladi — tashqi IP yoki webhook kerak emas. Ulanish: web pan
 """
 from __future__ import annotations
 
+import hmac
 import html
 import itertools
 import json
@@ -17,7 +18,7 @@ import queue
 import threading
 import time
 from collections import defaultdict
-from concurrent.futures import ThreadPoolExecutor, wait
+from concurrent.futures import Future, wait
 from pathlib import Path
 
 import httpx
@@ -40,6 +41,11 @@ MIN_GAP_PRIVATE = 0.05
 MIN_GAP_GROUP = 1.0
 VIDEO_LIMIT = 49_000_000     # Bot API orqali video 50 MB gacha
 PHOTO_LIMIT = 9_500_000      # rasm 10 MB gacha
+WORKERS = 6                  # navbatdan o'zi oladigan bajaruvchilar (ustuvorlik haqiqatan ishlaydi)
+CLIP_RETRY_SEC = 15.0        # klip tarmoq xatosi bilan yetmasa — shuncha soniyadan keyin qayta
+CLIP_RETRIES = 2
+CODE_TRIES = 5               # ulanish kodi: bitta chatdan 10 daqiqada shuncha xato urinish — blok
+CODE_ROTATE_AFTER = 30       # hamma chatlardan 10 daqiqada shuncha xato — kod avtomatik almashadi
 
 HELP = (
     "🛡 <b>Hushyor AI — do'kon qo'riqchisi boti</b>\n\n"
@@ -55,6 +61,52 @@ HELP = (
     "/yordam — shu yordam\n\n"
     "⚠️ Bot hech kimni ayblamaydi: u faqat \"tekshirib ko'ring\" deydi. Qaror har doim odamniki."
 )
+
+
+class DaemonPool:
+    """Oddiy oqimlar havzasi (daemon). concurrent.futures.ThreadPoolExecutor dastur yopilishida barcha ishlarini
+    kutadi (atexit) — 2 daqiqalik video yuklash dasturni to'xtatmay qo'yardi. Bu havza kutmaydi."""
+
+    def __init__(self, workers: int, name: str):
+        self._q: "queue.Queue" = queue.Queue()
+        self._stop = False
+        self._threads = [threading.Thread(target=self._run, daemon=True, name=f"{name}-{i}") for i in range(workers)]
+        for t in self._threads:
+            t.start()
+
+    def submit(self, fn, *args) -> Future:
+        fut: Future = Future()
+        if self._stop:
+            fut.cancel()
+            return fut
+        self._q.put((fn, args, fut))
+        return fut
+
+    def _run(self) -> None:
+        while True:
+            item = self._q.get()
+            if item is None:
+                return
+            fn, args, fut = item
+            if not fut.set_running_or_notify_cancel():
+                continue
+            try:
+                fut.set_result(fn(*args))
+            except BaseException as e:  # noqa: BLE001
+                fut.set_exception(e)
+
+    def shutdown(self, wait: bool = False, cancel_futures: bool = True) -> None:
+        self._stop = True
+        if cancel_futures:
+            while True:
+                try:
+                    item = self._q.get_nowait()
+                except queue.Empty:
+                    break
+                if item is not None:
+                    item[2].cancel()
+        for _ in self._threads:
+            self._q.put(None)
 
 
 def esc(s) -> str:
@@ -122,10 +174,14 @@ class TelegramBot:
         # Doimiy ulanishlar (keep-alive): har xabar uchun qaytadan TLS ulanish ochilmaydi
         self.client = httpx.Client(timeout=httpx.Timeout(40.0, connect=10.0),
                                    limits=httpx.Limits(max_connections=32, max_keepalive_connections=16))
-        # Ikki alohida pool: vazifalar (hodisa, klip, yangilash) va ular ichidagi har chatga yuborish.
-        # Bitta pool bo'lsa, vazifalar ichki yuborishlarni kutib qolib, bir-birini to'sib qo'yishi mumkin.
-        self.pool = ThreadPoolExecutor(max_workers=6, thread_name_prefix="tg-task")
-        self.io_pool = ThreadPoolExecutor(max_workers=16, thread_name_prefix="tg-io")
+        # Vazifalar (hodisa, klip, yangilash) — WORKERS ta bajaruvchi oqim navbatdan O'ZI oladi: hammasi katta
+        # video yuklayotgan bo'lsa ham, bo'shagan birinchi oqim eng ustuvor vazifani (yangi signal rasmi) oladi.
+        # (Avval navbat darhol pool'ga to'kilardi va pool o'z FIFO tartibida bajarardi — ustuvorlik yo'qolardi.)
+        # Har chatga yuborish — alohida io_pool; tugma bosilishi — o'z oqimida (yuklashlar uni kutdirmaydi).
+        self.io_pool = DaemonPool(16, "tg-io")
+        self.cb_pool = DaemonPool(2, "tg-cb")
+        self._code_fails: dict[int, list[float]] = defaultdict(list)
+        self._code_fails_all: list[float] = []
         self._chat_locks: dict[int, threading.Lock] = defaultdict(threading.Lock)
         self._chat_next: dict[int, float] = {}
         self._alert_done: dict[int, threading.Event] = {}
@@ -193,14 +249,21 @@ class TelegramBot:
             self.status = "o'chirilgan"
             log.warning("TELEGRAM_BOT_TOKEN berilmagan — bot ishlamaydi")
             return
-        t1 = threading.Thread(target=self._poll_loop, daemon=True, name="tg-poll")
-        t2 = threading.Thread(target=self._dispatch_loop, daemon=True, name="tg-send")
-        self._threads = [t1, t2]
-        t1.start()
-        t2.start()
+        self._threads = [threading.Thread(target=self._poll_loop, daemon=True, name="tg-poll")]
+        self._threads += [threading.Thread(target=self._worker_loop, daemon=True, name=f"tg-send-{i}")
+                          for i in range(WORKERS)]
+        for t in self._threads:
+            t.start()
 
     def stop(self) -> None:
+        """Toza to'xtash: navbat kutilmaydi, davom etayotgan yuklashlar (2 daqiqalik video ham) uziladi."""
         self.stop_evt.set()
+        for p in (self.io_pool, self.cb_pool):
+            p.shutdown(wait=False, cancel_futures=True)
+        try:
+            self.client.close()
+        except Exception:  # noqa: BLE001
+            pass
 
     def _init(self) -> bool:
         try:
@@ -314,8 +377,8 @@ class TelegramBot:
                     if "message" in upd:
                         self._on_message(upd["message"])
                     elif "callback_query" in upd:
-                        # Tugma bosilishi pool'da: sekin tarmoq polling'ni to'xtatmasin
-                        self.pool.submit(self._safe, self._on_callback, upd["callback_query"])
+                        # Tugma bosilishi alohida oqimda: video yuklashlar ham, sekin tarmoq ham uni kutdirmaydi
+                        self.cb_pool.submit(self._safe, self._on_callback, upd["callback_query"])
                 except Exception:
                     log.exception("Telegram yangilanishini qayta ishlashda xato")
 
@@ -364,13 +427,19 @@ class TelegramBot:
         cmd = parts[0].split("@")[0].lower() if parts else ""
         arg = parts[1] if len(parts) > 1 else ""
 
-        if cmd in ("/start", "/ulash") and arg:
-            if arg == code:
+        guess = arg if cmd in ("/start", "/ulash") and arg else (text if text.isdigit() and len(text) == 6 else "")
+        if guess and not self._is_sub(chat_id):
+            if self._code_blocked(chat_id):
+                self._reply(chat_id, "⛔ Ko'p noto'g'ri urinish. 10 daqiqadan keyin qayta urining.")
+                return
+            if hmac.compare_digest(guess.encode(), code.encode()):
+                self._code_fails.pop(chat_id, None)
                 self._subscribe(msg)
             else:
+                self._code_fail(chat_id)
                 self._reply(chat_id, "❌ Kod noto'g'ri. Kodni web paneldagi <b>Telegram</b> bo'limidan oling.")
             return
-        if text == code:
+        if guess and guess == code:
             self._subscribe(msg)
             return
         if not self._is_sub(chat_id):
@@ -394,6 +463,27 @@ class TelegramBot:
                 "🟡 <b>Javob kutayotgan hodisalar</b>"))
         else:
             self._reply(chat_id, "Buyruqni tushunmadim. /yordam ni bosing.")
+
+    def _code_blocked(self, chat_id: int) -> bool:
+        now = time.time()
+        f = [t for t in self._code_fails.get(chat_id, []) if now - t < 600]
+        self._code_fails[chat_id] = f
+        return len(f) >= CODE_TRIES
+
+    def _code_fail(self, chat_id: int) -> None:
+        """Ulanish kodini tavakkal qilish: chat bo'yicha blok; ko'p chatdan urinish bo'lsa kod o'zi almashadi."""
+        now = time.time()
+        self._code_fails[chat_id].append(now)
+        self._code_fails_all = [t for t in self._code_fails_all if now - t < 600] + [now]
+        if len(self._code_fails) > 2000:
+            for k in [k for k, v in self._code_fails.items() if not v or now - v[-1] > 600]:
+                self._code_fails.pop(k, None)
+        if len(self._code_fails_all) >= CODE_ROTATE_AFTER:
+            import secrets
+
+            db.set_settings({"connect_code": f"{secrets.randbelow(900000) + 100000}"})
+            self._code_fails_all = []
+            log.warning("Telegram ulanish kodi ko'p marta noto'g'ri terildi — kod avtomatik almashtirildi")
 
     def _status_text(self) -> str:
         day0 = time.mktime(time.localtime()[:3] + (0, 0, 0, 0, 0, -1))
@@ -499,7 +589,9 @@ class TelegramBot:
         for r in reasons[:6]:
             lines.append(f"• {esc(r)}")
         lines += ["", f"🆔 Hodisa #{ev['id']}"]
-        if clip_pending:
+        if clip_pending and ev.get("clip_error"):
+            lines.append("⚠️ <i>Video klip yaratilmadi — rasm va sabablarga qarab tekshiring</i>")
+        elif clip_pending:
             lines.append("⏳ <i>Video klip tayyorlanmoqda — bir necha soniyada shu xabarga qo'shiladi</i>")
         lines.append("<i>Bu ayblov emas — videoni ko'rib, o'zingiz qaror qiling.</i>")
         if ev.get("status") == "yangi" and ev.get("claimed_by"):
@@ -581,8 +673,8 @@ class TelegramBot:
         """Hodisa holati o'zgarganda (Telegram yoki web orqali) barcha xabarlarni yangilash."""
         self._enqueue(PRIO_REFRESH, "refresh", event_id)
 
-    def _dispatch_loop(self) -> None:
-        """Navbatdan olib, pool'da parallel bajaradi — bitta sekin xabar boshqalarini kutdirmaydi."""
+    def _worker_loop(self) -> None:
+        """Bajaruvchi: navbatdan eng ustuvor vazifani o'zi oladi va bajaradi (WORKERS ta parallel)."""
         while not self.stop_evt.is_set():
             try:
                 prio, _, kind, a, b, t_q = self.q.get(timeout=1.0)
@@ -590,8 +682,8 @@ class TelegramBot:
                 continue
             fn = {"alert": self._send_alert, "clip": self._send_clip, "full": self._send_full,
                   "refresh": self._refresh, "text": self._send_text}.get(kind)
-            if fn:
-                self.pool.submit(self._safe, fn, a, b, t_q)
+            if fn and not self.stop_evt.is_set():
+                self._safe(fn, a, b, t_q)
 
     # --------------------------------------------------------------- yuborish
     def _log(self, event_id, stage, chat_id, t_event, t_queued, t_sent, res, err="") -> None:
@@ -661,7 +753,10 @@ class TelegramBot:
         finally:
             done.set()
 
-    def _send_clip(self, event_id: int, _b, t_q: float) -> None:
+    def _send_clip(self, event_id: int, opts, t_q: float) -> None:
+        """opts: None (birinchi urinish) yoki {"retry": n, "chats": [...]} — tarmoq xatosi bo'lgan chatlarga qayta."""
+        opts = opts or {}
+        retry = int(opts.get("retry", 0))
         done = self._alert_done.get(event_id)
         if done is not None:
             done.wait(60)   # rasm xabarlari yuborilib bo'lishini kutish (message_id kerak)
@@ -669,8 +764,15 @@ class TelegramBot:
         if not ev:
             return
         msgs = db.rows("SELECT * FROM tg_messages WHERE event_id=?", (event_id,))
-        if not msgs:
+        if not msgs and not retry:
             self._send_full(event_id, None, t_q)
+            return
+        # Video allaqachon qo'shilgan xabarlar o'tkazib yuboriladi (takroriy chaqiruv yoki qayta urinish)
+        msgs = [m for m in msgs if m["kind"] in ("photo", "text")]
+        if opts.get("chats") is not None:
+            want = {int(c) for c in opts["chats"]}
+            msgs = [m for m in msgs if int(m["chat_id"]) in want]
+        if not msgs:
             return
         clip = CLIPS_DIR / ev["clip_path"] if ev.get("clip_path") else None
         use_video = (db.flag("telegram_send_video") and clip is not None and clip.exists()
@@ -684,6 +786,7 @@ class TelegramBot:
         small = _small_jpeg(thumb) if thumb and thumb.exists() else None
         t_ev = event_time(ev)
         file_id: list[str] = []
+        failed: list[int] = []
 
         def media(ref: str) -> str:
             m = {"type": "video", "media": ref, "caption": cap, "parse_mode": "HTML", "supports_streaming": True}
@@ -709,6 +812,7 @@ class TelegramBot:
                                                         "reply_markup": markup}, chat_id=chat_id)
                 if not res or not res.get("ok"):
                     # Matnli xabarga media qo'shib bo'lmasa — klip javob sifatida alohida yuboriladi
+                    reply_kind = f"{m['kind']}_video"
                     if file_id:
                         res = self.api("sendVideo", {"chat_id": chat_id, "video": file_id[0],
                                                      "caption": f"🎬 Hodisa #{event_id} klipi",
@@ -719,14 +823,21 @@ class TelegramBot:
                                                          "reply_to_message_id": str(m["message_id"]),
                                                          "supports_streaming": "true"},
                                            files={"video": (clip.name, fv, "video/mp4")}, timeout=120, chat_id=chat_id)
+                    if res and res.get("ok"):
+                        # Rasm/matn xabari joyida qoldi, video — alohida javob: yangilashda "tayyorlanmoqda" yozilmaydi
+                        db.execute("UPDATE tg_messages SET kind=? WHERE event_id=? AND chat_id=?",
+                                   (reply_kind, event_id, chat_id))
                 else:
                     db.execute("UPDATE tg_messages SET kind='video' WHERE event_id=? AND chat_id=?", (event_id, chat_id))
+                if not res or (not res.get("ok") and int(res.get("error_code") or 0) in (0, 429, 500, 502, 503, 504)):
+                    failed.append(chat_id)
                 self._log(event_id, "clip", chat_id, t_ev, t_q, time.time(), res)
                 if res and res.get("ok") and not file_id:
                     v = (res.get("result") or {}).get("video") if isinstance(res.get("result"), dict) else None
                     if v and v.get("file_id"):
                         file_id.append(v["file_id"])
             except Exception as e:
+                failed.append(chat_id)
                 self._log(event_id, "clip", chat_id, t_ev, t_q, time.time(), None, str(e))
 
         # Video katta — bir marta yuklanadi, qolgan chatlarga file_id bilan (parallel)
@@ -736,6 +847,16 @@ class TelegramBot:
             futs = [self.io_pool.submit(self._safe, edit, m, not file_id) for m in rest]
             wait(futs, timeout=180)
         self._alert_done.pop(event_id, None)
+        if failed and not self.stop_evt.is_set():
+            if retry < CLIP_RETRIES:
+                log.warning("Hodisa #%d klipi %d ta chatga yetmadi — %.0f s dan keyin qayta (%d/%d)", event_id,
+                            len(failed), CLIP_RETRY_SEC, retry + 1, CLIP_RETRIES)
+                t = threading.Timer(CLIP_RETRY_SEC, self._enqueue,
+                                    (PRIO_CLIP, "clip", event_id, {"retry": retry + 1, "chats": failed}))
+                t.daemon = True
+                t.start()
+            else:
+                log.error("Hodisa #%d klipi %d ta chatga yuborilmadi (%d urinish)", event_id, len(failed), retry + 1)
 
     def _send_full(self, event_id: int, _b, t_q: float) -> None:
         """Bor narsa bilan bitta xabar (qayta yuborish yoki rasm bosqichi o'tkazib yuborilgan bo'lsa)."""
@@ -802,7 +923,7 @@ class TelegramBot:
         for m in db.rows("SELECT * FROM tg_messages WHERE event_id=?", (event_id,)):
             pending = m["kind"] == "photo" and bool(db.flag("telegram_send_video")) and not ev.get("clip_path")
             cap = self._caption(ev, clip_pending=pending)
-            if m["kind"] == "text":
+            if m["kind"] in ("text", "text_video"):
                 self.api("editMessageText", {"chat_id": m["chat_id"], "message_id": m["message_id"], "text": cap,
                                              "parse_mode": "HTML", "reply_markup": markup}, chat_id=m["chat_id"])
             else:

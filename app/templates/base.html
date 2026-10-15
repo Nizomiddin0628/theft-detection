@@ -32,6 +32,9 @@
       {% block actions %}{% endblock %}
     </div>
     <div class="content">
+      {% if insecure_default %}
+      <div class="note danger" style="margin-bottom:16px" data-testid="insecure-default">{{ icon('alert') }}<div><b>Panel standart parol (admin123) bilan tarmoqqa ochiq!</b> Shu Wi-Fi/tarmoqdagi istalgan odam kira oladi. <code>.env</code> faylida <code>ADMIN_PASSWORD</code> ni o'zgartiring va dasturni qayta ishga tushiring (yoki faqat shu kompyuter uchun <code>HOST=127.0.0.1</code>).</div></div>
+      {% endif %}
       {% if settings.sensitivity == 'demo' and active in ('dashboard', 'live') %}
       <div class="note warn" style="margin-bottom:16px">{{ icon('zap') }}<div><b>Sinov (demo) rejimi yoqilgan.</b> Tizim juda sezgir — oddiy harakatlarga ham signal berishi mumkin. Do'konda ishlatishdan oldin <a href="/settings">Sozlamalar</a>dan "Oddiy" rejimga o'ting.</div></div>
       {% endif %}

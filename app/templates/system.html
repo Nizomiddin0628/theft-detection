@@ -19,6 +19,14 @@
   </div>
 </div>
 <div class="card" style="margin-top:16px">
+  <div class="card-h"><h2>Bulut (edge agent)</h2><div class="grow"></div>
+    <button class="btn small" id="sync-test">Ulanishni tekshirish</button>
+    <button class="btn small ghost" id="sync-retry" style="display:none">Xatolarni qayta yuborish</button></div>
+  <div class="card-b"><table class="small" id="sync"></table>
+    <div class="hint" style="margin-top:8px">Internet bo'lmasa hodisalar, kliplar va ko'rsatkichlar shu kompyuterda navbatda saqlanadi, ulanish tiklangach yuboriladi. Sozlash: <code>.env</code> dagi <code>CLOUD_URL</code> va <code>EDGE_TOKEN</code>.</div>
+  </div>
+</div>
+<div class="card" style="margin-top:16px">
   <div class="card-h"><h2>Jurnal</h2><div class="grow"></div><label class="switch small"><input type="checkbox" id="auto" checked> Avtomatik yangilash</label></div>
   <div class="card-b"><div class="console" id="logs"></div></div>
 </div>
@@ -43,12 +51,41 @@ async function load() {
   document.getElementById("srcs").innerHTML = r.sources.length ? r.sources.map((s) => `<tr><td><b>${H.esc(s.name)}</b></td><td><span class="dot ${down[s.id] ? "off" : (s.running ? "on" : "")}"></span> ${H.esc(s.state)}${down[s.id] ? `<div class="small" style="color:#b42318">${H.esc(down[s.id].reason)} · ${H.fmtDur(Date.now() / 1000 - down[s.id].since)}</div>` : ""}</td>
     <td class="num">${s.fps_cam}</td><td class="num">${s.fps_ai}${s.running && s.mode ? `<div class="small muted">${H.esc(s.mode)}</div>` : ""}</td><td class="num">${s.persons}</td><td class="num">${s.alerts}</td><td>${s.running ? H.fmtDur(s.uptime) : "—"}</td></tr>`).join("")
     : `<tr><td colspan="7" class="muted">Manba yo'q</td></tr>`;
+  renderSync(r.sync || {configured: false});
   if (document.getElementById("auto").checked) {
     const c = document.getElementById("logs");
     c.innerHTML = r.logs.map((l) => `<span class="${l.level === "WARNING" ? "w" : (l.level === "ERROR" ? "e" : "")}">${l.t}  ${H.esc(l.name)}: ${H.esc(l.msg)}</span>`).join("\n");
     c.scrollTop = c.scrollHeight;
   }
 }
+function renderSync(s) {
+  const t = document.getElementById("sync");
+  if (!s.configured) {
+    t.innerHTML = `<tr><td class="muted">Holat</td><td>o'chirilgan — <code>.env</code> da bulut berilmagan (hamma narsa faqat shu kompyuterda)</td></tr>
+      <tr><td class="muted">Qurilma</td><td class="mono">${H.esc(s.device_id || "")}</td></tr>`;
+    document.getElementById("sync-retry").style.display = "none";
+    return;
+  }
+  const p = s.pending || {}; const kinds = p.by_kind || {};
+  const stateIcon = s.state === "ishlayapti" ? "🟢" : (s.state === "token xato" ? "🔴" : "🟡");
+  const rows = [["Holat", `${stateIcon} ${H.esc(s.state)}${s.backoff ? ` (qayta urinish ${s.backoff} s)` : ""}`],
+    ["Server", H.esc(s.url)], ["Qurilma", `<span class="mono">${H.esc(s.device_id)}</span>`],
+    ["Navbatda", `${p.total || 0} ta` + (p.total ? ` (hodisa ${kinds.event || 0}, klip ${kinds.clip || 0} — ${((p.clip_bytes || 0) / 1e6).toFixed(1)} MB, ko'rsatkich ${kinds.metrics || 0}, kamera holati ${kinds.health || 0})` : "") + (p.oldest ? ` · eng eskisi ${H.fmtDur(Date.now() / 1000 - p.oldest)} oldin` : "")],
+    ["Yuborildi", `hodisa ${s.sent.event}, klip ${s.sent.clip}, ko'rsatkich ${s.sent.metrics}, kamera holati ${s.sent.health}`],
+    ["Oxirgi muvaffaqiyat", s.last_ok ? H.fmtDur(Date.now() / 1000 - s.last_ok) + " oldin" : "—"],
+    ["Oxirgi xato", s.last_error ? `<span style="color:#b42318">${H.esc(s.last_error)}</span>` : "—"],
+    ["Soat farqi (server − shu kompyuter)", s.clock_skew === null || s.clock_skew === undefined ? "—" : s.clock_skew + " s"]];
+  if (p.failed) rows.push(["Rad etilgan", `<span style="color:#b42318">${p.failed} ta qator — server qabul qilmadi (jurnalga qarang)</span>`]);
+  t.innerHTML = rows.map(([k, v]) => `<tr><td class="muted" style="white-space:nowrap">${k}</td><td style="word-break:break-all">${v}</td></tr>`).join("");
+  document.getElementById("sync-retry").style.display = p.failed ? "" : "none";
+}
+document.getElementById("sync-test").onclick = async () => {
+  const b = document.getElementById("sync-test"); b.disabled = true;
+  try { const r = await H.api("/api/sync/test", {method: "POST"}); H.toast(r.ok ? "✅ Bulut javob berdi" : "❌ " + (r.error || "ulanmadi")); }
+  catch (e) { H.toast("❌ " + (e.message || e)); }
+  b.disabled = false; load();
+};
+document.getElementById("sync-retry").onclick = async () => { const r = await H.api("/api/sync/retry", {method: "POST"}); H.toast(r.count + " ta qator qayta navbatga qo'yildi"); load(); };
 load(); setInterval(load, 3000);
 </script>
 {% endblock %}
