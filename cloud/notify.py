@@ -52,11 +52,20 @@ PUSH_HOSTS = ("fcm.googleapis.com", "updates.push.services.mozilla.com", "push.s
               "notify.windows.com", "web.push.apple.com", "push.apple.com")
 
 DEFAULT_PREFS = {
-    "guard": {"event": True, "min_score": 0, "camera": False, "offline": False, "escalation": False},
-    "manager": {"event": True, "min_score": 0, "camera": True, "offline": True, "escalation": True},
-    "owner": {"event": True, "min_score": 75, "camera": True, "offline": True, "escalation": True},
+    "guard": {"event": True, "min_score": 0, "camera": False, "offline": False, "escalation": False,
+              "queue": False, "queue_low": False},
+    "manager": {"event": True, "min_score": 0, "camera": True, "offline": True, "escalation": True,
+                "queue": True, "queue_low": False},
+    "owner": {"event": True, "min_score": 75, "camera": True, "offline": True, "escalation": True,
+              "queue": True, "queue_low": False},
 }
-PREF_BOOL = ("event", "camera", "offline", "escalation")
+# 2.0.0: queue — navbat qoidalari 1, 2, 4 (va egasiga 5 — tarmoq signali); queue_low — 3-qoida ("kassir kerak emas")
+PREF_BOOL = ("event", "camera", "offline", "escalation", "queue", "queue_low")
+QUEUE_RULES = {"R1": "Qo'shimcha kassa oching", "R2": "Kassani tekshiring", "R3": "Qo'shimcha kassir kerak emas",
+               "R4": "Kassir jadvali", "R5": "Tarmoq signali"}
+QUEUE_ICON = {"R1": "🧾", "R2": "⚠️", "R3": "ℹ️", "R4": "📅", "R5": "🌐"}
+NET_WINDOW = 15 * 60              # 5-qoida: shu vaqt ichida ≥ 2 filialda 1/2-qoida
+NET_COOLDOWN = 30 * 60
 
 
 @dataclass
@@ -360,6 +369,61 @@ def on_status_change(uid: str, status: str, by: str | None) -> int:
     return n
 
 
+def plain_text(s: str, limit: int = 1500) -> str:
+    """Edge'dan kelgan HTML (Telegram uchun <b>, ekranlangan nomlar) → oddiy matn: bulutda yana ekranlanadi.
+    Avval teglar olinadi, keyin ekranlash ochiladi — nomdagi "<" belgisi (&lt;) yo'qolmasin."""
+    return html.unescape(re.sub(r"<[^>]+>", "", str(s or "")))[:limit]
+
+
+def on_queue_alert(branch: dict, alert: dict) -> int:
+    """2.0.0: edge navbat qoidasi signali (bulutga yangi kelgan va eskirmagan). 1-2-4 → "queue" sozlamasi bo'yicha
+    (qo'riqchiga sukut bo'yicha yo'q), 3 → "queue_low" (sukut bo'yicha hech kimga). Keyin 5-qoida tekshiriladi."""
+    rule = str(alert.get("rule") or "")
+    p = {"branch_id": branch["id"], "branch": branch.get("name"), "rule": rule, "title": alert.get("title"),
+         "zone": alert.get("zone_name"), "text": alert.get("text"), "t_event": time.time()}
+    n = notify_branch(branch["id"], "queue", str(alert.get("key") or "")[:120], p,
+                      "queue_low" if rule == "R3" else "queue")
+    if rule in ("R1", "R2"):
+        n += check_network(int(branch["company_id"]))
+    return n
+
+
+def check_network(company_id: int, now: float | None = None) -> int:
+    """5-qoida: bir vaqtda (NET_WINDOW) ≥ 2 filialda 1/2-qoida — kompaniya egalariga bitta xabar (NET_COOLDOWN da
+    bir marta). Bir vaqtda hamma joyda navbat — ko'pincha umumiy sabab: to'lov terminali / internet / kassa dasturi."""
+    now = time.time() if now is None else now
+    rows = cdb.rows("SELECT a.branch_id, b.name, MAX(a.t) AS t, COUNT(*) AS n FROM queue_alerts a JOIN branches b "
+                    "ON b.id=a.branch_id WHERE a.company_id=:c AND a.rule IN ('R1','R2') AND a.t >= :t "
+                    "GROUP BY a.branch_id, b.name ORDER BY a.branch_id", {"c": company_id, "t": now - NET_WINDOW})
+    if len(rows) < 2:
+        return 0
+    last = cdb.scalar("SELECT MAX(t) FROM queue_alerts WHERE company_id=:c AND rule='R5'", {"c": company_id})
+    if last and now - float(last) < NET_COOLDOWN:
+        return 0
+    names = [str(r["name"]) for r in rows]
+    text = (f"Oxirgi {NET_WINDOW // 60} daqiqada {len(rows)} ta filialda navbat signali: {', '.join(names)}. "
+            "Bir vaqtda hamma joyda navbat bo'lsa — umumiy sabab bo'lishi mumkin: to'lov terminali, internet, kassa "
+            "dasturi yoki aksiya. Tekshiring.")
+    key = f"net:{company_id}:{int(now)}"
+    if not cdb.upsert(cdb.queue_alerts, {"key": key, "company_id": company_id, "branch_id": None, "t": now,
+                                         "rule": "R5", "level": "danger", "zone_name": "", "source_name": "",
+                                         "title": QUEUE_RULES["R5"], "text": text,
+                                         "data": {"branches": [int(r["branch_id"]) for r in rows]},
+                                         "received_at": now}, ["key"]):
+        return 0
+    p = {"branch_id": None, "branch": f"{len(rows)} ta filial", "rule": "R5", "title": QUEUE_RULES["R5"], "zone": "",
+         "text": text, "t_event": now}
+    n = 0
+    for u in cdb.rows("SELECT id, email, name, role, company_id FROM users WHERE company_id=:c AND role='owner' "
+                      "AND active=:a ORDER BY id", {"c": company_id, "a": True}):
+        if not get_prefs(u).get("queue"):
+            continue
+        for t in targets(u["id"]):
+            enqueue(u["id"], t, "queue", key, p)
+            n += 1
+    return n
+
+
 def on_health(branch: dict, item: dict) -> int:
     state_ = str(item.get("state") or "")
     if state_ not in ("down", "up"):
@@ -499,6 +563,13 @@ def render(kind: str, p: dict) -> tuple[str, str, str]:
     if kind == "test":
         return ("Hushyor AI: sinov xabari", "🧪 <b>Sinov xabari</b>\nBildirishnomalar shu manzilga yetib kelmoqda ✅",
                 "/settings/")
+    if kind == "queue":
+        rule = str(p.get("rule") or "")
+        head = f"{QUEUE_ICON.get(rule, '🧾')} <b>{esc(p.get('title') or QUEUE_RULES.get(rule, 'Navbat'))}</b>"
+        where = " · ".join(esc(x) for x in (p.get("branch"), p.get("zone")) if x)
+        body = esc(p.get("text") or "")                      # edge matni oddiy matnga aylantirilgan (qabulda)
+        return (f"{p.get('title') or 'Navbat'}: {p.get('branch') or ''}".strip(": "),
+                f"{head}\n🏪 {where}\n{body}" if where else f"{head}\n{body}", "/queues/")
     return ("Hushyor AI", esc(json.dumps(p, ensure_ascii=False))[:500], "/")
 
 
@@ -1048,9 +1119,32 @@ class TelegramPoller(threading.Thread):
                     if vis or cdb.occupancy_fresh(b.get("occupancy")) else ""
                 lines.append(f"{esc(b['name'])}: {tot} ta hodisa, tekshirilmagan {new}{vtxt}")
             self.reply(chat_id, "\n".join(lines))
+        elif cmd == "/navbat":
+            # 2.0.0: filiallar kassalaridagi navbat (edge hello bilan har daqiqada yuboradi)
+            lines = ["🧾 <b>Navbat — hozir</b>"]
+            icons = {"navbat": "🔴", "kassir_yoq": "🟠", "band": "🟡", "bosh": "🟢", "yopiq": "⚪️"}
+            for b in cdb.rows("SELECT * FROM branches WHERE company_id=:c ORDER BY id", {"c": u["company_id"]}):
+                if b["id"] not in cdb.branch_ids_for(u):
+                    continue
+                items = cdb.queues_fresh(b.get("queues"))
+                if items is None:
+                    if cdb.json_load(b.get("queues")):
+                        lines.append(f"🏪 {esc(b['name'])}: ma'lumot eskirgan (aloqa yo'q)")
+                    continue
+                for x in items:
+                    if not x.get("live"):
+                        lines.append(f"⚪️ {esc(b['name'])} · {esc(x.get('name'))}: kamera ishlamayapti")
+                        continue
+                    cash = "" if x.get("cashier") is None else (" · kassir bor" if x.get("cashier") else " · kassir yo'q")
+                    lines.append(f"{icons.get(x.get('state'), '⚪️')} {esc(b['name'])} · {esc(x.get('name'))}: "
+                                 f"{int(x.get('length') or 0)} kishi" + (f", eng uzoq kutayotgan {fmt_dur(x.get('max_wait') or 0)}"
+                                                                        if x.get("length") else "") + cash)
+            if len(lines) == 1:
+                lines.append("Kassa navbati zonasi chizilgan filial yo'q.")
+            self.reply(chat_id, "\n".join(lines))
         else:
-            self.reply(chat_id, "Buyruqlar: /holat — do'konlar holati, /bugun — bugungi hodisalar.\n"
-                                "Hodisa xabaridagi ✅/❌ tugmalari bilan tekshiring.")
+            self.reply(chat_id, "Buyruqlar: /holat — do'konlar holati, /bugun — bugungi hodisalar, /navbat — kassalardagi "
+                                "navbat.\nHodisa xabaridagi ✅/❌ tugmalari bilan tekshiring.")
 
     def on_callback(self, cb: dict) -> None:
         def answer(t: str) -> None:

@@ -178,8 +178,15 @@ def analyze(path: str, zone_source_id: int | None = None, stop_evt: threading.Ev
     counter = getattr(proc, "counter", None)            # 1.9.0: sanash chizig'i bo'lsa (persist=False — xotirada)
     crossings = [{"t": round(float(c.t), 2), "dir": c.dir, "line": c.line_name, "staff": bool(c.staff)}
                  for c in (counter.events if counter is not None else [])]
-    return {"alerts": alerts, "crossings": crossings, "duration": round(idx / fps, 2), "steps": dict(proc.counts),
-            "seconds": round(time.time() - t_cpu, 1), "model_set": eng.model_set}
+    qm = getattr(counter, "queue", None) if counter is not None else None   # 2.0.0: kassa navbati zonasi bo'lsa
+    queue = None
+    if qm is not None:
+        qm.close()
+        queue = {"waits": [{"zone_id": w["zone_id"], "t_in": round(w["t_in"], 2), "t_out": round(w["t_out"], 2),
+                            "wait": w["wait"], "ids": w["ids"]} for w in qm.waits],
+                 "trace": [{"t": round(float(t_), 2), "zone_id": z, "length": n, "raw": r} for t_, z, n, r in qm.trace]}
+    return {"alerts": alerts, "crossings": crossings, "queue": queue, "duration": round(idx / fps, 2),
+            "steps": dict(proc.counts), "seconds": round(time.time() - t_cpu, 1), "model_set": eng.model_set}
 
 
 def match(labels: list[dict], alerts: list[dict]) -> dict:

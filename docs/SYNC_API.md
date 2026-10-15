@@ -90,6 +90,52 @@ sanashsiz qayta kelgan qator u yerdan o'chiriladi.
 chizig'i bo'lsa): edge'dagi "hozir ichkarida" (qo'lda "0 qilish" va do'kon yopiq payti hisobga olingan). Bulut uni
 10 daqiqa ichida kelgan bo'lsa ko'rsatadi, aks holda — bugungi (kirdi + tashqari kirdi) − (chiqdi + tashqari chiqdi).
 
+## 2.0.0 — kassa navbati
+
+**Imkoniyatlar (`features`).** 2.0.0 bulut hello javobiga `"features": ["queues"]` qo'shadi. Edge buni
+`settings.cloud_features` ga yozadi va navbat yozuvlarini (`queue`, `qalert`) **faqat shundan keyin** outbox'ga
+qo'yadi. Sabab: outbox tartib bo'yicha yuboriladi — eski bulut bilmagan yo'lga (404) yozuv qo'yilsa, uning ortidagi
+hodisalar ham to'xtab qolardi. Eski bulut bilan navbat ma'lumoti faqat do'kon kompyuterida qoladi (Navbat sahifasi
+va Telegram ishlayveradi).
+
+**Hello.** Navbat zonasi bo'lsa: `"queues": [{"zone_id", "name", "source_name", "length", "max_wait", "cashier",
+"state", "live"}]` — har kassa hozir. `state`: `navbat` (≥ me'yor) | `band` | `bosh` | `yopiq` (kassir yo'q, navbat
+yo'q) | `kassir_yoq` (navbat bor, kassir yo'q) | `nomalum` (kamera ishlamayapti, `live: false`). `cashier`: `true` /
+`false` / `null` (kassir joyi chizilmagan). Bulut `branches.queues = {"at", "items"}` ga yozadi (≤ 64 ta, qiymatlar
+tozalanadi), 3 daqiqadan eskisi "aloqa yo'q" deb ko'rsatiladi.
+
+### `POST /api/v1/edge/queues` — daqiqalik yig'indi (har kassa)
+```json
+{"device_id": "...", "items": [
+  {"key": "qm:1760400000:11", "minute": 1760400000, "zone_id": 11, "zone_name": "1-kassa", "source_id": 3,
+   "t_obs": 60.0, "len_sum": 182.5, "len_max": 5, "long_sec": 31.0, "busy_sec": 60.0, "cashier_sec": 60.0,
+   "cashier_known": 1, "served": 2, "wait_sum": 241.5, "wait_n": 2, "wait_max": 151.0}
+]}
+```
+`t_obs` — kuzatilgan soniyalar; `len_sum` — uzunlik × soniya (o'rtacha = `len_sum / t_obs`); `long_sec` — navbat ≥
+me'yor (`queue_max_len`); `busy_sec` — navbatda ≥ 1 kishi; `served`, `wait_*` — shu daqiqada navbatdan chiqqanlar
+(≥ 5 s kutgan). Kechikkan qism (odam 8 s ko'rinmay ketgani keyin aniqlandi) edge'da o'sha daqiqaga qo'shilib, butun
+qator **xuddi shu `key` bilan** qayta yuboriladi — server `(branch, minute, zone_id)` bo'yicha almashtiradi.
+
+### `POST /api/v1/edge/queue_alerts` — qoida signallari (1-4)
+```json
+{"device_id": "...", "items": [
+  {"key": "qa:17", "local_id": 17, "t": 1760400030.5, "rule": "R1", "level": "warning", "source_id": 3,
+   "source_name": "Kassa", "zone_id": 11, "zone_name": "1-kassa", "title": "Qo'shimcha kassa oching",
+   "text": "1-kassa: navbatda <b>5 kishi</b> (40 s dan beri) …", "data": {"reason": "len", "length": 5}}
+]}
+```
+`rule`: `R1` qo'shimcha kassa oching | `R2` kassani tekshiring | `R3` qo'shimcha kassir kerak emas | `R4` kassir jadvali.
+Server `(device_id, local_id)` bo'yicha bir marta yozadi; matndagi teglar olib tashlanadi (oddiy matn). Yangi va
+10 daqiqadan eski bo'lmagan signal — bildirishnoma (`queue` sozlamasi: menejer va ega — yoqilgan, qo'riqchi —
+o'chirilgan; R3 — `queue_low`, sukut bo'yicha hech kimga). **R5 — tarmoq signali** bulutda: 15 daqiqa ichida
+kompaniyaning ≥ 2 filialida R1/R2 bo'lsa — egalarga bitta xabar (30 daqiqada ko'pi bilan bir marta).
+
+### `GET /api/v1/queues?days=14&branch_id=` (panel)
+Filiallar: `live` (hello), `today` (o'tdi, o'rtacha/eng uzoq kutish, eng uzun navbat, uzun navbat daqiqalari, o'rtacha
+uzunlik), `hours_len`, `hours_served`; `days` — kunlar bo'yicha; `alerts` — oxirgi 50 ta (filial doirasida; tarmoq
+signali faqat egaga). Bulut boti: `/navbat`.
+
 ## `POST /api/v1/edge/health` — kamera holati
 
 ```json

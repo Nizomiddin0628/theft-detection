@@ -66,6 +66,56 @@ export interface Visits {
   day0: number;
 }
 
+// 2.0.0: kassa navbati (edge navbat zonasi → hello holati, daqiqalik yig'indi, qoida signallari)
+export type QueueState = "navbat" | "band" | "bosh" | "yopiq" | "kassir_yoq" | "nomalum";
+export interface QueueLive {
+  zone_id: number;
+  name: string;
+  source_name: string;
+  length: number;
+  max_wait: number;
+  cashier: boolean | null;
+  state: QueueState;
+  live: boolean;
+}
+export interface QueueBranch {
+  id: number;
+  name: string;
+  live: QueueLive[] | null;
+  stale: boolean;
+  today: { served: number; avg_wait: number | null; max_wait: number; max_len: number; long_min: number; avg_len: number | null };
+  hours_len: number[];
+  hours_served: number[];
+}
+export interface QueueDay {
+  day: number;
+  served: number;
+  avg_wait: number | null;
+  wait_max: number;
+  len_max: number;
+  long_min: number;
+  branches: Record<string, { served: number; max_len: number; avg_wait: number | null }>;
+}
+export interface QueueAlert {
+  id: number;
+  branch_id: number | null;
+  branch_name: string | null;
+  t: number;
+  rule: "R1" | "R2" | "R3" | "R4" | "R5";
+  level: string;
+  zone_name: string;
+  title: string;
+  text: string;
+}
+export interface Queues {
+  branches: QueueBranch[];
+  days: QueueDay[];
+  alerts: QueueAlert[];
+  rules: Record<string, string>;
+  tz_offset: number;
+  day0: number;
+}
+
 export interface EventRow {
   uid: string;
   branch_id: number;
@@ -118,6 +168,8 @@ export interface Prefs {
   camera: boolean;
   offline: boolean;
   escalation: boolean;
+  queue: boolean;
+  queue_low: boolean;
 }
 
 export interface Target {

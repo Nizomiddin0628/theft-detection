@@ -153,7 +153,7 @@ CREATE TABLE IF NOT EXISTS model_versions (
 -- Bulutga yuborish navbati (store-and-forward): internet bo'lmasa ham yoziladi, yetkazilgach o'chadi
 CREATE TABLE IF NOT EXISTS outbox (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    kind TEXT NOT NULL,           -- event | clip | metrics | health
+    kind TEXT NOT NULL,           -- event | clip | metrics | health | queue | qalert
     key TEXT NOT NULL,            -- idempotent kalit (serverda takror aniqlanadi), masalan ev:12
     payload TEXT NOT NULL,        -- JSON
     created_at REAL,
@@ -205,6 +205,78 @@ CREATE TABLE IF NOT EXISTS count_sessions (
     taps TEXT,                    -- JSON [[t, "in"|"out"], ...]
     note TEXT
 );
+-- Kassa navbati (2.0.0, app/ai/queues.py): har xaridorning navbatda kutgan vaqti, 90 kun
+CREATE TABLE IF NOT EXISTS queue_waits (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    source_id INTEGER,
+    zone_id INTEGER,              -- zones.id (kind='navbat')
+    zone_name TEXT,
+    t_in REAL NOT NULL,           -- navbatga kirdi
+    t_out REAL NOT NULL,          -- navbatdan chiqdi (to'lab bo'ldi)
+    wait REAL NOT NULL,           -- soniya
+    track_id INTEGER,
+    ids INTEGER DEFAULT 1         -- kuzatuvda necha ID ulangan (to'silish)
+);
+CREATE INDEX IF NOT EXISTS idx_qwaits_t ON queue_waits(t_out);
+CREATE INDEX IF NOT EXISTS idx_qwaits_zone ON queue_waits(zone_id, t_out);
+-- Daqiqalik navbat ko'rsatkichlari (har kassa): hisobot, 3-4-qoida va bulut uchun
+CREATE TABLE IF NOT EXISTS queue_minute (
+    minute INTEGER NOT NULL,
+    zone_id INTEGER NOT NULL,
+    zone_name TEXT,
+    source_id INTEGER,
+    source_name TEXT,
+    t_obs REAL DEFAULT 0,         -- kuzatilgan soniyalar (kamera ishlagan)
+    len_sum REAL DEFAULT 0,       -- navbat uzunligi × soniya (o'rtacha = len_sum / t_obs)
+    len_max INTEGER DEFAULT 0,
+    long_sec REAL DEFAULT 0,      -- navbat ≥ queue_max_len bo'lgan soniyalar
+    busy_sec REAL DEFAULT 0,      -- navbatda ≥ 1 kishi bo'lgan soniyalar (kassa band)
+    cashier_sec REAL DEFAULT 0,   -- kassir joyida odam bo'lgan soniyalar
+    cashier_known INTEGER DEFAULT 0,   -- kassir joyi chizilganmi
+    served INTEGER DEFAULT 0,     -- navbatdan chiqqanlar (≥ 5 s kutgan)
+    wait_sum REAL DEFAULT 0,
+    wait_n INTEGER DEFAULT 0,
+    wait_max REAL DEFAULT 0,
+    PRIMARY KEY (minute, zone_id)
+);
+-- Navbat qoidalari signallari (1-4; 5-qoida — bulutda)
+CREATE TABLE IF NOT EXISTS queue_alerts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    t REAL NOT NULL,
+    rule TEXT NOT NULL,           -- R1 .. R4
+    level TEXT,
+    source_id INTEGER,
+    source_name TEXT,
+    zone_id INTEGER,
+    zone_name TEXT,
+    title TEXT,
+    text TEXT,                    -- Telegram HTML (nomlar ekranlangan)
+    data TEXT,                    -- JSON
+    tg_sent INTEGER DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_qalerts_t ON queue_alerts(t);
+-- Navbat aniqligi darvozasi: kadrdagi navbatni egasi sanaydi (manual), tizim o'sha lahzadagi soni (auto)
+CREATE TABLE IF NOT EXISTS queue_samples (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    t REAL NOT NULL,
+    source_id INTEGER,
+    zone_id INTEGER,
+    zone_name TEXT,
+    auto INTEGER,                 -- ko'rsatilgan (mediana) son
+    raw INTEGER,                  -- shu kadrdagi xom son
+    manual INTEGER,               -- egasi sanagan (NULL — hali javob yo'q)
+    img TEXT                      -- kadr fayli (data/queue_samples/)
+);
+-- Navbat aniqligi darvozasi: sekundomer (odam navbatga turdi — chiqdi)
+CREATE TABLE IF NOT EXISTS queue_timings (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    source_id INTEGER,
+    zone_id INTEGER NOT NULL,
+    zone_name TEXT,
+    t0 REAL NOT NULL,
+    t1 REAL,
+    note TEXT
+);
 """
 
 
@@ -249,6 +321,7 @@ EXTRA_COLUMNS = {
     },
     "subscribers": {
         "kb_cleared": "INTEGER DEFAULT 0",   # eski botdan qolgan pastki tugmalar tozalanganmi
+        "queue_alerts": "INTEGER DEFAULT 1",  # 2.0.0: navbat signallari shu chatga (/navbat tugmasi bilan o'chiriladi)
     },
     "jobs": {
         "zone_source_id": "INTEGER",          # yuklangan videoga qaysi kameraning zonalari qo'llanadi

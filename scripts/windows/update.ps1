@@ -1,6 +1,6 @@
 # Hushyor AI - yangi versiyaga yangilash (do'kon kompyuterida). Ma'lumot (data\, cloud\data\, .env) saqlanadi.
 #
-#   powershell -ExecutionPolicy Bypass -File scripts\windows\update.ps1 -Zip "$HOME\Downloads\hushyor_ai_1.9.0_yangilanish.zip"
+#   powershell -ExecutionPolicy Bypass -File scripts\windows\update.ps1 -Zip "$HOME\Downloads\hushyor_ai_2.0.0_yangilanish.zip"
 #   powershell -ExecutionPolicy Bypass -File scripts\windows\update.ps1            # git pull bilan (repo bo'lsa)
 #
 # Tartib: ZIP vaqtinchalik papkada ochilib tekshiriladi -> vazifalar to'xtatiladi -> zaxira (.env, bazalar WAL bilan,

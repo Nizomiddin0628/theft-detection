@@ -115,6 +115,31 @@ def enqueue_metrics(rows: list[dict]) -> None:
         enqueue("metrics", f"m:{r['minute']}:{r['source_id']}", {"device_id": device_id(), **r})
 
 
+# 2.0.0: bulut qo'llaydigan qo'shimcha turlar (hello javobidagi "features"). Eski bulut bilmagan turni (404) navbatga
+# qo'ysak, tartib bo'yicha yuborishda butun navbat (hodisalar ham) to'xtab qolardi — shuning uchun faqat bulut
+# e'lon qilgandan keyin yoziladi (oldingisi lokalda qoladi, hisobotga ta'sir yo'q).
+def cloud_supports(feature: str) -> bool:
+    if not configured():
+        return False
+    return feature in (db.get_setting("cloud_features", "") or "").split(",")
+
+
+def enqueue_queue_minutes(rows: list[dict]) -> None:
+    if not rows or not cloud_supports("queues"):
+        return
+    for r in rows:
+        enqueue("queue", f"qm:{r['minute']}:{r['zone_id']}", {"device_id": device_id(), **r})
+
+
+def enqueue_queue_alert(a: dict) -> None:
+    if not a.get("id") or not cloud_supports("queues"):
+        return
+    enqueue("qalert", f"qa:{a['id']}", {"device_id": device_id(), "local_id": a["id"],
+                                         **{k: a.get(k) for k in ("t", "rule", "level", "source_id", "source_name",
+                                                                  "zone_id", "zone_name", "title", "text", "data")}},
+            coalesce=False)
+
+
 def forget_event(event_id: int) -> None:
     """Hodisa lokal bazadan o'chirilganda uning navbatdagi qatorlari ham olib tashlanadi
     (aks holda klip qatori "fayl yo'q" bilan qizil "rad etilgan" bo'lib qolardi)."""
@@ -256,6 +281,14 @@ class SyncWorker(threading.Thread):
                 payload["occupancy"] = occ
         except Exception:  # noqa: BLE001
             log.exception("Sanash holatini olib bo'lmadi")
+        try:
+            from .ai import queues               # 2.0.0: kassalar hozirgi holati (eski bulut bu maydonni e'tiborsiz qoldiradi)
+
+            if queues.has_queues():
+                payload["queues"] = [{k: x[k] for k in ("zone_id", "name", "source_name", "length", "max_wait",
+                                                         "cashier", "state", "live")} for x in queues.board()]
+        except Exception:  # noqa: BLE001
+            log.exception("Navbat holatini olib bo'lmadi")
         t0 = time.time()
         payload["time"] = t0
         code, body = self._post(f"/api/v{API_VERSION}/edge/hello", payload, timeout=15)
@@ -268,6 +301,11 @@ class SyncWorker(threading.Thread):
                 # Ulanish tiklandi — kutayotgan qatorlar darhol urinilsin
                 db.execute("UPDATE outbox SET next_try=0 WHERE sending=0 AND failed=0 AND next_try > 0")
                 self.hello_failed = False
+            feats = body.get("features")
+            feats = ",".join(sorted(str(f)[:40] for f in feats if isinstance(f, str)))[:500] if isinstance(feats, list) else ""
+            if feats != (db.get_setting("cloud_features", "") or ""):
+                db.set_settings({"cloud_features": feats})
+                log.info("Bulut imkoniyatlari: %s", feats or "—")
             cmds = body.get("commands")
             if isinstance(cmds, list) and cmds:
                 self._apply_commands([c for c in cmds if isinstance(c, dict)])
@@ -419,7 +457,8 @@ class SyncWorker(threading.Thread):
                 items.append({"key": r["key"]})
         if kind == "clip":
             return self._send_clip(batch[0], items[0])
-        path = {"event": "events", "metrics": "metrics", "health": "health"}.get(kind)
+        path = {"event": "events", "metrics": "metrics", "health": "health", "queue": "queues",
+                "qalert": "queue_alerts"}.get(kind)
         if path is None:
             self._fail(ids, f"noma'lum tur: {kind}", terminal=True)
             return True

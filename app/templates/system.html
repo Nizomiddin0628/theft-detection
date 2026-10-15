@@ -70,8 +70,9 @@ function renderSync(s) {
   const stateIcon = s.state === "ishlayapti" ? "🟢" : (s.state === "token xato" ? "🔴" : "🟡");
   const rows = [["Holat", `${stateIcon} ${H.esc(s.state)}${s.backoff ? ` (qayta urinish ${s.backoff} s)` : ""}`],
     ["Server", H.esc(s.url)], ["Qurilma", `<span class="mono">${H.esc(s.device_id)}</span>`],
-    ["Navbatda", `${p.total || 0} ta` + (p.total ? ` (hodisa ${kinds.event || 0}, klip ${kinds.clip || 0} — ${((p.clip_bytes || 0) / 1e6).toFixed(1)} MB, ko'rsatkich ${kinds.metrics || 0}, kamera holati ${kinds.health || 0})` : "") + (p.oldest ? ` · eng eskisi ${H.fmtDur(Date.now() / 1000 - p.oldest)} oldin` : "")],
-    ["Yuborildi", `hodisa ${s.sent.event}, klip ${s.sent.clip}, ko'rsatkich ${s.sent.metrics}, kamera holati ${s.sent.health}`],
+    ["Navbatda", `${p.total || 0} ta` + (p.total ? ` (hodisa ${kinds.event || 0}, klip ${kinds.clip || 0} — ${((p.clip_bytes || 0) / 1e6).toFixed(1)} MB, ko'rsatkich ${kinds.metrics || 0}, kamera holati ${kinds.health || 0}${(kinds.queue || kinds.qalert) ? `, navbat ${(kinds.queue || 0) + (kinds.qalert || 0)}` : ""})` : "") + (p.oldest ? ` · eng eskisi ${H.fmtDur(Date.now() / 1000 - p.oldest)} oldin` : "")],
+    ["Yuborildi", `hodisa ${s.sent.event}, klip ${s.sent.clip}, ko'rsatkich ${s.sent.metrics}, kamera holati ${s.sent.health}` +
+      ((s.sent.queue || s.sent.qalert) ? `, navbat ${(s.sent.queue || 0) + (s.sent.qalert || 0)}` : "")],
     ["Oxirgi muvaffaqiyat", s.last_ok ? H.fmtDur(Date.now() / 1000 - s.last_ok) + " oldin" : "—"],
     ["Oxirgi xato", s.last_error ? `<span style="color:#b42318">${H.esc(s.last_error)}</span>` : "—"],
     ["Soat farqi (server − shu kompyuter)", s.clock_skew === null || s.clock_skew === undefined ? "—" : s.clock_skew + " s"]];

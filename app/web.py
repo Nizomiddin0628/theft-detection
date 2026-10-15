@@ -29,7 +29,7 @@ from .ai.manager import archive_feedback, delete_event_files, get_manager
 from .config import (ADMIN_PASSWORD, ADMIN_USER, APP_NAME, APP_VERSION, BASE_DIR, CLIPS_DIR, DATA_DIR,
                      EVAL_DIR, HOST, MODELS_DIR, PUBLIC_URL, SECRET_KEY, SENSITIVITY_PRESETS, UPLOADS_DIR, env)
 from .logutil import MEMORY_LOG, get_logger, setup_logging
-from . import evaluation, visits
+from . import evaluation, queue_web, visits
 from .ai import zones as zones_mod
 from .telegram_bot import KIND_UZ, get_bot, latency_stats, susp_info
 
@@ -53,6 +53,7 @@ async def lifespan(_app):
 app = FastAPI(title=APP_NAME, version=APP_VERSION, docs_url=None, redoc_url=None, lifespan=lifespan)
 app.mount("/static", StaticFiles(directory=str(APP_DIR / "static")), name="static")
 app.include_router(visits.router)        # 1.9.0: odamlarni sanash — /api/counts/*, /api/export/counts.csv
+app.include_router(queue_web.router)     # 2.0.0: kassa navbati — /api/queues/*, /api/export/queues.csv
 
 PUBLIC_PATHS = ("/login", "/static", "/favicon.ico", "/healthz")
 VIDEO_EXT = {".mp4", ".avi", ".mov", ".mkv", ".webm", ".m4v", ".mpg", ".mpeg", ".wmv", ".flv", ".3gp", ".ts"}
@@ -67,6 +68,7 @@ NAV = [
     ("telegram", "/telegram", "Telegram bot", "send"),
     ("reports", "/reports", "Hisobotlar", "chart"),
     ("visits", "/visits", "Tashriflar", "users"),
+    ("queues", "/navbat", "Navbat", "cart"),
     ("eval", "/eval", "Aniqlik sinovi", "target"),
     ("settings", "/settings", "Sozlamalar", "sliders"),
     ("system", "/system", "Tizim holati", "activity"),
@@ -91,6 +93,9 @@ def _startup() -> None:
     bot = get_bot()
     bot.manager = mgr
     mgr.notifier = bot
+    from .ai import queues
+
+    queues.set_notifier(bot)                # 2.0.0: navbat qoidalari signallari
     bot.start()
     # Edge agent: bulut navbati (CLOUD_URL berilgan bo'lsa) va daqiqalik ko'rsatkichlar
     sync.install_hooks()
@@ -470,6 +475,11 @@ def visits_page(request: Request):
     return page(request, "visits.html", "visits", "Tashriflar", sources=srcs)
 
 
+@app.get("/navbat", response_class=HTMLResponse)
+def queues_page(request: Request):
+    return page(request, "navbat.html", "queues", "Navbat")
+
+
 @app.get("/settings", response_class=HTMLResponse)
 def settings_page(request: Request, saved: int = 0):
     return page(request, "settings.html", "settings", "Sozlamalar", saved=saved)
@@ -574,7 +584,22 @@ def api_summary():
         "sensitivity": db.get_setting("sensitivity"), "last_id": latest[0]["id"] if latest else 0,
         "jobs_running": cnt("SELECT COUNT(*) FROM jobs WHERE status IN ('navbatda','ishlanmoqda')"),
         "visits": _visits_brief(d0),
+        "queues": _queues_brief(d0),
     }
+
+
+def _queues_brief(d0: float) -> dict | None:
+    """2.0.0: navbat zonasi bo'lsa — hozirgi eng uzun navbat, kassir yo'q kassalar, bugun o'rtacha kutish."""
+    from .ai import queues
+
+    if not queues.has_queues():
+        return None
+    live = [x for x in queues.live_status() if x["live"]]
+    s = queues.summary(d0, time.time() + 60)
+    worst = max(live, key=lambda x: (x["length"], x["max_wait"]), default=None)
+    return {"n": len(live), "max_len": worst["length"] if worst else 0, "max_name": worst["name"] if worst else "",
+            "no_cashier": sum(1 for x in live if x["state"] == "kassir_yoq"), "served": s["served"],
+            "avg_wait": s["avg_wait"], "long": sum(1 for x in live if x["state"] == "navbat")}
 
 
 def _visits_brief(d0: float) -> dict | None:

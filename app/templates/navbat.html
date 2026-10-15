@@ -1,0 +1,279 @@
+{% extends "base.html" %}
+{% from "_icons.html" import icon %}
+{% block subtitle %}<div class="muted small">Har kassada navbat va kutish vaqti, kassir bor/yo'q, qoidalar bo'yicha signal va kassir jadvali tavsiyasi</div>{% endblock %}
+{% block actions %}
+<a class="btn" href="/api/export/queues.csv?days=30">{{ icon('download') }} CSV</a>
+<a class="btn" href="#gate-card">{{ icon('target') }} Aniqlik sinovi</a>
+{% endblock %}
+{% block content %}
+<style>
+  .qcards { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 12px; }
+  .qcard { border: 1px solid var(--line, #e2e8f0); border-radius: 12px; padding: 14px; background: #fff; border-left-width: 5px; }
+  .qcard .big { font-size: 34px; font-weight: 700; line-height: 1.1; font-variant-numeric: tabular-nums; }
+  .qcard .nm { font-weight: 600; display: flex; justify-content: space-between; gap: 8px; align-items: center; }
+  .qcard.navbat { border-left-color: #dc2626; } .qcard.kassir_yoq { border-left-color: #ea580c; }
+  .qcard.band { border-left-color: #ca8a04; } .qcard.bosh { border-left-color: #16a34a; }
+  .qcard.yopiq, .qcard.nomalum { border-left-color: #94a3b8; }
+  .st-navbat { background: #fee2e2; color: #b91c1c; } .st-kassir_yoq { background: #ffedd5; color: #c2410c; }
+  .st-band { background: #fef9c3; color: #854d0e; } .st-bosh { background: #dcfce7; color: #166534; }
+  .st-yopiq, .st-nomalum { background: #eef2f6; color: #475569; }
+  .rule { display: inline-block; min-width: 26px; text-align: center; border-radius: 6px; font-size: 11px; font-weight: 700; padding: 1px 5px; }
+  .rule.R1 { background: #fee2e2; color: #b91c1c; } .rule.R2 { background: #ffedd5; color: #c2410c; }
+  .rule.R3 { background: #e0f2fe; color: #0369a1; } .rule.R4 { background: #ede9fe; color: #6d28d9; } .rule.R5 { background: #fce7f3; color: #be185d; }
+  .numpad { display: grid; grid-template-columns: repeat(6, 1fr); gap: 8px; }
+  .numpad button { padding: 16px 0; font-size: 20px; justify-content: center; }
+  #s-img { max-width: 100%; border-radius: 10px; border: 1px solid #e2e8f0; display: block; margin: 8px 0; }
+  .timer-row { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-bottom: 1px solid #eef2f6; }
+  .timer-row .tm { font-size: 22px; font-weight: 700; font-variant-numeric: tabular-nums; min-width: 72px; }
+  .set-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 10px 14px; }
+  .set-grid input[type=number] { width: 100%; }
+  @media (max-width: 760px) { .numpad { grid-template-columns: repeat(4, 1fr); } .qcard .big { font-size: 30px; } }
+</style>
+<div id="no-zone" class="note warn hidden" style="margin-bottom:16px">{{ icon('info') }}<div>
+  <b>Kassa navbati zonasi hali chizilmagan.</b> Kassani ko'radigan kamerani tanlang: <a href="/sources">Kameralar</a> →
+  <b>Zonalar</b> → <b>"Kassa navbati"</b> — kassa oldida xaridorlar turadigan joyni, to'lov joyi bilan birga chizing
+  (har kassaga alohida, nomi: "1-kassa"). Keyin <b>"Kassir joyi"</b> — peshtaxta orti. Kamera navbatga ro'paradan yoki
+  yuqoridan qarasin (yon tomondan qarasa odamlar bir-birini to'sadi).</div></div>
+<div id="no-hook" class="note danger hidden" style="margin-bottom:16px">{{ icon('alert') }}<div>
+  <b>Navbat o'lchash kamera jarayoniga ulanmagan</b> (sanash bilan bir xil ulanish). Dastur papkasida bir marta:
+  <code>.venv\Scripts\python scripts\apply_counting_hook.py</code>, keyin dasturni qayta ishga tushiring.</div></div>
+<div id="no-cash" class="note hidden" style="margin-bottom:16px">{{ icon('info') }}<div id="no-cash-t"></div></div>
+
+<div class="card">
+  <div class="card-h"><h2>Kassalar — hozir</h2><div class="grow"></div><span class="muted small" id="rec"></span></div>
+  <div class="card-b"><div class="qcards" id="cards"><div class="muted">Yuklanmoqda…</div></div></div>
+</div>
+
+<div class="grid g5" style="margin-top:16px">
+  <div class="card kpi"><div class="label">{{ icon('users', 14) }} Bugun navbatdan o'tdi</div><div class="value" id="k-served">—</div><div class="sub">≥ 5 s kutganlar</div></div>
+  <div class="card kpi"><div class="label">{{ icon('clock', 14) }} O'rtacha kutish</div><div class="value" id="k-avg">—</div><div class="sub" id="k-p90"></div></div>
+  <div class="card kpi"><div class="label">Eng uzoq kutish</div><div class="value" id="k-max">—</div><div class="sub">bugun</div></div>
+  <div class="card kpi"><div class="label">Eng uzun navbat</div><div class="value" id="k-len">—</div><div class="sub">kishi, bugun</div></div>
+  <div class="card kpi"><div class="label">Uzun navbat vaqti</div><div class="value" id="k-long">—</div><div class="sub" id="k-long-sub">daqiqa (navbat ≥ me'yor)</div></div>
+</div>
+
+<div class="grid g2" style="margin-top:16px">
+  <div class="card"><div class="card-h"><h2>Bugun: o'rtacha navbat (kishi)</h2></div><div class="card-b"><div id="ch-len"></div></div></div>
+  <div class="card"><div class="card-h"><h2>Bugun: navbatdan o'tganlar</h2></div><div class="card-b"><div id="ch-served"></div></div></div>
+</div>
+
+<div class="grid g2" style="margin-top:16px">
+  <div class="card">
+    <div class="card-h"><h2>Signallar</h2><div class="grow"></div><button class="btn sm" id="tg-test">{{ icon('send', 14) }} Telegram sinovi</button></div>
+    <div class="card-b"><div class="table-wrap"><table class="small" id="alerts"></table></div>
+      <div class="hint">Telegram'da <b>/navbat</b> — hozirgi holat; o'sha xabardagi tugma bilan har kim navbat signallarini o'zi uchun o'chira oladi (hodisa signallari kelaveradi).</div></div>
+  </div>
+  <div class="card">
+    <div class="card-h"><h2>Qoidalar</h2></div>
+    <div class="card-b">
+      <div class="set-grid">
+        <div class="field"><label class="f">1. Navbat uzun: kishi (≥)</label><input type="number" id="s-max_len" min="2" max="30"></div>
+        <div class="field"><label class="f">… shuncha soniya davomida</label><input type="number" id="s-long_sec" min="5" max="600"></div>
+        <div class="field"><label class="f">… yoki kutish (daqiqa, ≥)</label><input type="number" id="s-max_wait_min" min="1" max="60"></div>
+        <div class="field"><label class="f">2. Kassir yo'q: soniya (navbat ≥ 2)</label><input type="number" id="s-cashier_sec" min="10" max="900"></div>
+        <div class="field"><label class="f">Takror signal: har … daqiqada</label><input type="number" id="s-cooldown_min" min="1" max="240"></div>
+      </div>
+      <div class="stack" style="margin-top:10px;gap:8px;display:flex;flex-direction:column">
+        <label class="switch"><input type="checkbox" id="s-tg"> <span>1–2-qoida Telegram'ga (qo'shimcha kassa oching / kassani tekshiring)</span></label>
+        <label class="switch"><input type="checkbox" id="s-tg_low"> <span>3-qoida Telegram'ga ("qo'shimcha kassir kerak emas" — odatda faqat panelda)</span></label>
+        <label class="switch"><input type="checkbox" id="s-tg_schedule"> <span>4-qoida Telegram'ga (har dushanba: kassir jadvali tavsiyasi)</span></label>
+      </div>
+      <div class="row" style="gap:8px;margin-top:12px"><button class="btn primary" id="s-save">Saqlash</button></div>
+      <ol class="hint" style="margin:12px 0 0 18px;padding:0;line-height:1.6">
+        <li><b>Qo'shimcha kassa oching</b> — navbat uzun yoki kimdir uzoq kutmoqda (boshqa kassalar holati bilan).</li>
+        <li><b>Kassani tekshiring</b> — navbat bor, kassir joyi bo'sh (kassir joyi chizilgan bo'lsa).</li>
+        <li><b>Qo'shimcha kassir kerak emas</b> — 30 daqiqa: ≥ 2 kassa ochiq, navbat deyarli yo'q. <span id="r3now"></span></li>
+        <li><b>Kassir jadvali</b> — 4 haftada bir xil kun va soatda takrorlanadigan navbat (kamida 2 hafta tarix).</li>
+        <li><b>Tarmoq signali</b> — bir vaqtda bir nechta filialda navbat (bulut, egasiga).</li>
+      </ol>
+    </div>
+  </div>
+</div>
+
+<div class="grid g2" style="margin-top:16px">
+  <div class="card">
+    <div class="card-h"><h2>Kassir jadvali tavsiyasi (4-qoida)</h2></div>
+    <div class="card-b" id="sched"><div class="muted">Yuklanmoqda…</div></div>
+  </div>
+  <div class="card">
+    <div class="card-h"><h2>Kunlar bo'yicha</h2></div>
+    <div class="card-b"><div class="table-wrap"><table class="small"><thead><tr><th>Kun</th><th>O'tdi</th><th>O'rtacha kutish</th>
+      <th>90% kutish</th><th>Eng uzoq</th><th>Eng uzun navbat</th><th>Uzun navbat (daq)</th><th>Signal</th></tr></thead><tbody id="daily"></tbody></table></div></div>
+  </div>
+</div>
+
+<div class="card" style="margin-top:16px" id="gate-card">
+  <div class="card-h"><h2>Aniqlik sinovi (4-bosqich darvozasi)</h2></div>
+  <div class="card-b">
+    <p class="small muted" style="margin-bottom:12px">Darvoza: <b>navbat soni ±1 odam aniqlikda namunalarning ≥ 90% ida</b> (kamida 50 namuna, 15 tasida navbatda ≥ 2 kishi)
+      va <b>kutish vaqti xatosi ≤ 20%</b> (kamida 10 kishi sekundomer bilan). Gavjum soatlarda, telefonda shu sahifani ochib qiling.
+      Buyruq qatoridan: <code>python tests\queue_gate.py</code>.</p>
+    <div class="row" style="gap:8px;flex-wrap:wrap;margin-bottom:12px"><label class="f" style="margin:0">Kassa:</label><select id="g-zone"></select></div>
+    <div class="grid g2" style="gap:16px">
+      <div>
+        <h3 style="margin:0 0 6px">1) Navbat soni — namuna</h3>
+        <p class="small muted">"Namuna olish" ni bosing: kamera kadri (navbat zonasi pushti) chiqadi. Zonada <b>navbatda turgan</b> (kutayotgan yoki to'layotgan) odamlarni sanang; o'tib ketayotganni sanamang. Tizim soni javobdan keyin ko'rsatiladi.</p>
+        <button class="btn primary" id="s-new">{{ icon('camera', 16) }} Namuna olish</button>
+        <div id="s-box" class="hidden"><img id="s-img" alt="kadr">
+          <div class="numpad" id="numpad"></div>
+          <div class="row" style="gap:8px;margin-top:8px"><input type="number" id="s-many" min="0" max="60" placeholder="ko'proq" style="max-width:110px"><button class="btn" id="s-many-ok">OK</button></div></div>
+        <div id="s-res" class="hint" style="margin-top:8px"></div>
+        <div class="hint" id="s-gate" style="margin-top:8px"></div>
+      </div>
+      <div>
+        <h3 style="margin:0 0 6px">2) Kutish vaqti — sekundomer</h3>
+        <p class="small muted">Odam navbatga turgan zahoti <b>"Navbatga turdi"</b> ni bosing (izohga belgisini yozing: "qizil kurtka"). U to'lab, navbatdan chiqqanda shu qatordagi <b>"Chiqdi"</b> ni bosing. Bir vaqtda bir nechta odam.</p>
+        <div class="row" style="gap:8px;flex-wrap:wrap"><input type="text" id="t-note" placeholder="izoh (ixtiyoriy)" maxlength="60" style="max-width:200px">
+          <button class="btn ok" id="t-start">{{ icon('play', 16) }} Navbatga turdi</button></div>
+        <div id="t-running" style="margin-top:8px"></div>
+        <div class="table-wrap" style="margin-top:10px"><table class="small"><thead><tr><th>Vaqt</th><th>Qo'lda</th><th>Tizim</th><th>Xato</th><th></th></tr></thead><tbody id="t-list"></tbody></table></div>
+        <div class="hint" id="t-gate" style="margin-top:8px"></div>
+      </div>
+    </div>
+    <div class="hint" id="little" style="margin-top:14px"></div>
+  </div>
+</div>
+
+<div class="card" style="margin-top:16px">
+  <div class="card-h"><h2>Zonalar</h2></div>
+  <div class="card-b"><div id="zones" class="small"></div>
+    <div class="hint">Navbat uzunligi — zonada oyog'i turgan, kamida 1 s turgan odamlar (xodim va kassir joyidagilardan tashqari). Kutish — navbatga kirgandan to'lab chiqqungacha. Bitta kamerada bir nechta kassa bo'lsa, har navbat eng yaqin "Kassir joyi" bilan juftlanadi.</div></div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+const p2 = (n) => String(n).padStart(2, "0");
+const fmtS = (s) => { if (s === null || s === undefined) return "—"; s = Math.max(0, Math.round(s)); if (s < 60) return s + " s"; const m = Math.floor(s / 60), x = s % 60; return m < 60 ? `${m}:${p2(x)}` : `${Math.floor(m / 60)}:${p2(m % 60)}:${p2(x)}`; };
+const fmtT = (t) => { const d = new Date(t * 1000), now = new Date(); const hm = `${p2(d.getHours())}:${p2(d.getMinutes())}`; return d.toDateString() === now.toDateString() ? hm : `${p2(d.getDate())}.${p2(d.getMonth() + 1)} ${hm}`; };
+const fmtDay = (t) => { const d = new Date(t * 1000); return `${p2(d.getDate())}.${p2(d.getMonth() + 1)}`; };
+const pct = (v) => v === null || v === undefined ? "—" : (v * 100).toFixed(1) + "%";
+let stateUz = {}, zones = [], gateTick = null, running = [];
+function safeHtml(s) {
+  // Server matni: faqat <b>, <i> va yangi qator; qolgani matn sifatida
+  const t = document.createElement("template"); t.innerHTML = String(s || ""); const out = document.createElement("div");
+  (function walk(src, dst) { for (const n of src.childNodes) {
+    if (n.nodeType === 3) dst.appendChild(document.createTextNode(n.textContent));
+    else if (n.nodeType === 1 && ["B", "I", "BR"].includes(n.tagName)) { const e = document.createElement(n.tagName); dst.appendChild(e); walk(n, e); }
+    else if (n.nodeType === 1) walk(n, dst); } })(t.content, out);
+  return out.innerHTML.replace(/\n/g, "<br>");
+}
+async function load() {
+  const r = await H.api("/api/queues/status");
+  stateUz = r.state_uz; zones = r.zones;
+  const active = r.zones.filter((z) => z.enabled);
+  document.getElementById("no-zone").classList.toggle("hidden", active.length > 0);
+  document.getElementById("no-hook").classList.toggle("hidden", r.hook_ok !== false || !active.length);
+  const nok = active.filter((z) => !z.cashier_zone);
+  document.getElementById("no-cash").classList.toggle("hidden", !nok.length);
+  document.getElementById("no-cash-t").innerHTML = nok.length ? `<b>${nok.map((z) => H.esc(z.name)).join(", ")}</b>: "Kassir joyi" zonasi chizilmagan — kassir bor/yo'qligi bilinmaydi (2- va 3-qoida ishlamaydi). <a href="/sources/${nok[0].source_id}/zones">Zonalar</a>` : "";
+  const cards = document.getElementById("cards");
+  cards.innerHTML = r.live.length ? r.live.map((x) => `<div class="qcard ${x.state}" data-testid="qcard">
+      <div class="nm"><span>${H.esc(x.name)}</span><span class="badge st-${x.state}">${H.esc(stateUz[x.state] || x.state)}</span></div>
+      <div class="row" style="align-items:baseline;gap:8px;margin-top:6px"><span class="big">${x.live ? x.length : "—"}</span><span class="muted">kishi navbatda</span></div>
+      <div class="small" style="margin-top:4px">${x.length ? `Eng uzoq kutayotgan: <b>${fmtS(x.max_wait)}</b>` : (x.live ? "Navbat yo'q" : "Kamera ishlamayapti")}</div>
+      <div class="small muted" style="margin-top:2px">${x.cashier === null ? "Kassir joyi chizilmagan" : (x.cashier ? "🟢 Kassir bor" : `🔴 Kassir yo'q${x.cashier_absent ? " (" + fmtS(x.cashier_absent) + ")" : ""}`)} · ${H.esc(x.source_name || "")}</div></div>`).join("")
+    : `<div class="muted">${active.length ? "Navbat kamerasi hozir ishlamayapti — Kameralar sahifasida yoqing." : "Navbat zonasi yo'q."}</div>`;
+  document.getElementById("rec").textContent = r.live.length ? "har 3 s yangilanadi" : "";
+  const td = r.today;
+  document.getElementById("k-served").textContent = td.served;
+  document.getElementById("k-avg").textContent = fmtS(td.avg_wait);
+  document.getElementById("k-p90").textContent = td.p90_wait !== null ? `90% xaridor ≤ ${fmtS(td.p90_wait)}` : "";
+  document.getElementById("k-max").textContent = td.max_wait ? fmtS(td.max_wait) : "—";
+  document.getElementById("k-len").textContent = td.max_len;
+  document.getElementById("k-long").textContent = Math.round(td.long_sec / 60);
+  document.getElementById("k-long-sub").textContent = `daqiqa (navbat ≥ ${r.settings.queue_max_len} kishi)`;
+  const labels = [...Array(24).keys()].map((h) => p2(h));
+  H.bars(document.getElementById("ch-len"), labels, [{ name: "o'rtacha navbat", color: "#db2777", values: r.hours_len }], { height: 200, maxLabels: 12 });
+  H.bars(document.getElementById("ch-served"), labels, [{ name: "o'tdi", color: "#4f46e5", values: r.hours_served }], { height: 200, maxLabels: 12 });
+  document.getElementById("alerts").innerHTML = r.alerts.length ? r.alerts.map((a) => `<tr>
+      <td class="num" style="white-space:nowrap">${fmtT(a.t)}</td><td><span class="rule ${H.esc(a.rule)}" title="${H.esc(r.rules[a.rule] || "")}">${H.esc(a.rule.replace("R", ""))}</span></td>
+      <td><b>${H.esc(a.title)}</b>${a.zone_name ? ` <span class="muted">· ${H.esc(a.zone_name)}</span>` : ""}<div class="muted">${safeHtml(a.text)}</div></td>
+      <td class="muted" title="Telegram'ga yuborildi">${a.tg_sent ? "✈ " + a.tg_sent : ""}</td></tr>`).join("")
+    : `<tr><td class="muted">Hali signal yo'q</td></tr>`;
+  for (const k of ["max_len", "long_sec", "max_wait_min", "cashier_sec", "cooldown_min"]) {
+    const el = document.getElementById("s-" + k); if (document.activeElement !== el) el.value = r.settings["queue_" + k];
+  }
+  for (const k of ["tg", "tg_low", "tg_schedule"]) document.getElementById("s-" + k).checked = r.settings["queue_" + k] === "1";
+  document.getElementById("r3now").innerHTML = r.r3 ? `<b style="color:#0369a1">Hozir: ${r.r3.open} ta kassa ochiq, navbat deyarli yo'q.</b>` : "";
+  document.getElementById("zones").innerHTML = r.zones.length ? r.zones.map((z) => `<div>• <a href="/sources/${z.source_id}/zones">${H.esc(z.source_name || "")} — ${H.esc(z.name)}</a>${z.enabled ? "" : " (o'chiq)"} · kassir joyi: ${z.cashier_zone ? H.esc(z.cashier_zone) : "<span class='muted'>yo'q</span>"}</div>`).join("") : "<span class='muted'>Navbat zonasi yo'q</span>";
+  const sel = document.getElementById("g-zone"), cur = sel.value;
+  const opts = active.map((z) => `<option value="${z.id}">${H.esc(z.name)} (${H.esc(z.source_name || "")})</option>`).join("");
+  if (sel.dataset.opts !== opts) { sel.innerHTML = opts; sel.dataset.opts = opts; if (cur) sel.value = cur; }
+  const li = td.little;
+  document.getElementById("little").innerHTML = li ? `Little qonuni tekshiruvi (bugun): o'rtacha navbat ${li.L} kishi, soatiga ${li.per_hour} xaridor → kutilgan kutish ${fmtS(li.W_little)}, o'lchangan ${fmtS(li.W)} — farq ${pct(li.diff)} ${li.ok ? "✅ mos" : "⚠️ katta: izlar uzilyapti yoki odamlar to'silyapti (kamera joyini tekshiring)"}` : "Little qonuni tekshiruvi: bugun hali ma'lumot kam (kamida 10 daqiqa va 5 xaridor).";
+}
+async function loadDaily() {
+  const r = await H.api("/api/queues/daily?days=14");
+  document.getElementById("daily").innerHTML = r.days.map((d) => `<tr><td>${fmtDay(d.day)}</td><td class="num">${d.served}</td><td class="num">${fmtS(d.avg_wait)}</td>
+    <td class="num">${fmtS(d.p90_wait)}</td><td class="num">${d.max_wait ? fmtS(d.max_wait) : "—"}</td><td class="num">${d.max_len}</td><td class="num">${d.long_min}</td><td class="num">${d.alerts || ""}</td></tr>`).join("");
+  const s = await H.api("/api/queues/schedule");
+  document.getElementById("sched").innerHTML = !s.enough ? `<div class="muted">Tavsiya uchun kamida ${s.min_days} kunlik tarix kerak — hozir ${s.days} kun. Kassa kamerasi har kuni ishlasin.</div>`
+    : (s.items.length ? `<p class="small" style="margin-top:0">Oxirgi ${s.days} kunda navbat shu soatlarda takrorlanmoqda — shu vaqtga qo'shimcha kassir qo'ying (yoki tanaffusni boshqa vaqtga suring):</p>` +
+      s.items.map((it) => `<div style="padding:6px 0;border-bottom:1px solid #eef2f6"><b>${H.esc(it.label)} ${H.esc(it.hours)}</b> <span class="muted small">— ${it.days_obs} kundan ${it.days_busy} tasida navbat, eng uzuni ${it.max_len} kishi</span></div>`).join("")
+      : `<div class="muted">Takrorlanadigan navbat soati topilmadi — hozirgi kassirlar soni yetarli.</div>`);
+}
+async function loadGate() {
+  const g = await H.api("/api/queues/gate"), cr = g.criteria;
+  const sg = g.samples_gate;
+  document.getElementById("s-gate").innerHTML = `Namunalar: ${sg.n} (navbatda ≥ 2 kishi: ${sg.busy}), ±${cr.sample_tol} ichida ${sg.good} — <b>${pct(sg.accuracy)}</b>` +
+    (sg.bias !== null ? `, o'rtacha farq ${sg.bias > 0 ? "+" : ""}${sg.bias}` : "") + ". " +
+    (sg.ok ? `<b style="color:#067647">O'tdi ✅</b>` : (!sg.enough ? `Yana ${Math.max(0, cr.sample_min - sg.n)} namuna${sg.busy < cr.sample_min_busy ? `, navbatli ${cr.sample_min_busy - sg.busy} ta` : ""} kerak` : `<b style="color:#b42318">O'tmadi</b> (≥ ${pct(cr.sample_acc)} kerak)`));
+  running = g.timings.filter((x) => x.running);
+  renderRunning();
+  document.getElementById("t-list").innerHTML = g.timings.filter((x) => !x.running).slice(0, 30).map((x) => `<tr>
+    <td>${fmtT(x.t0)}${x.note ? ` <span class="muted">${H.esc(x.note)}</span>` : ""}</td><td class="num">${fmtS(x.manual)}</td>
+    <td class="num">${x.auto !== null ? fmtS(x.auto) : (x.pending ? "…" : "topilmadi")}</td>
+    <td class="num" style="font-weight:600;color:${x.err === null ? (x.pending ? "inherit" : "#b42318") : (x.err <= cr.wait_err ? "#067647" : "#b42318")}">${x.err !== null ? pct(x.err) : (x.pending ? "kutilmoqda" : "100%")}</td>
+    <td><button class="btn sm ghost" title="O'chirish" onclick="delTiming(${x.id})">✕</button></td></tr>`).join("") || `<tr><td colspan="5" class="muted">Hali o'lchov yo'q</td></tr>`;
+  const tg = g.timings_gate;
+  document.getElementById("t-gate").innerHTML = `Sekundomer: ${tg.n} kishi, juftlangan ${tg.matched}, o'rtacha xato <b>${pct(tg.mean_err)}</b> (mediana ${pct(tg.median_err)}). ` +
+    (tg.ok ? `<b style="color:#067647">O'tdi ✅</b>` : (!tg.enough ? `Yana ${cr.timing_min - tg.n} kishi kerak` : `<b style="color:#b42318">O'tmadi</b> (≤ ${pct(cr.wait_err)} kerak)`));
+}
+function renderRunning() {
+  const el = document.getElementById("t-running");
+  el.innerHTML = running.map((x) => `<div class="timer-row"><span class="tm" data-t0="${x.t0}">${fmtS(Date.now() / 1000 - x.t0)}</span>
+    <span class="grow small">${H.esc(x.zone_name || "")} ${x.note ? "· " + H.esc(x.note) : ""}</span>
+    <button class="btn danger" onclick="stopTiming(${x.id}, this)">${"■"} Chiqdi</button></div>`).join("");
+  clearInterval(gateTick);
+  if (running.length) gateTick = setInterval(() => document.querySelectorAll("#t-running .tm").forEach((e) => e.textContent = fmtS(Date.now() / 1000 - Number(e.dataset.t0))), 1000);
+}
+async function stopTiming(id, btn) { btn.disabled = true; await H.post(`/api/queues/timings/${id}/stop`); if (navigator.vibrate) navigator.vibrate(30); loadGate(); }
+async function delTiming(id) { if (!confirm("O'lchovni o'chirasizmi?")) return; await H.post(`/api/queues/timings/${id}/delete`); loadGate(); }
+let sample = null;
+const pad = document.getElementById("numpad");
+pad.innerHTML = [...Array(12).keys()].map((n) => `<button class="btn" data-n="${n}">${n}</button>`).join("");
+pad.querySelectorAll("button").forEach((b) => b.onclick = () => answer(Number(b.dataset.n)));
+document.getElementById("s-many-ok").onclick = () => { const v = document.getElementById("s-many").value; if (v !== "") answer(Number(v)); };
+async function answer(n) {
+  if (!sample) return;
+  const r = await H.post(`/api/queues/samples/${sample}/answer`, { manual: n });
+  document.getElementById("s-res").innerHTML = `Siz: <b>${r.manual}</b>, tizim: <b>${r.auto}</b> — ${r.good ? "<b style='color:#067647'>to'g'ri (±1)</b>" : "<b style='color:#b42318'>xato</b>"}`;
+  sample = null; document.getElementById("s-box").classList.add("hidden"); loadGate();
+}
+document.getElementById("s-new").onclick = async () => {
+  const z = document.getElementById("g-zone").value; if (!z) { H.toast("Avval navbat zonasini chizing", "alert"); return; }
+  const r = await H.post("/api/queues/samples", { zone_id: Number(z) });
+  sample = r.id; document.getElementById("s-img").src = r.img + "?t=" + Date.now();
+  document.getElementById("s-res").textContent = "Kadrdagi navbatda nechta odam turibdi?";
+  document.getElementById("s-many").value = ""; document.getElementById("s-box").classList.remove("hidden");
+};
+document.getElementById("t-start").onclick = async () => {
+  const z = document.getElementById("g-zone").value; if (!z) { H.toast("Avval navbat zonasini chizing", "alert"); return; }
+  await H.post("/api/queues/timings", { zone_id: Number(z), note: document.getElementById("t-note").value });
+  document.getElementById("t-note").value = ""; if (navigator.vibrate) navigator.vibrate(30); loadGate();
+};
+document.getElementById("s-save").onclick = async () => {
+  const d = {};
+  for (const k of ["max_len", "long_sec", "max_wait_min", "cashier_sec", "cooldown_min"]) d["queue_" + k] = document.getElementById("s-" + k).value;
+  for (const k of ["tg", "tg_low", "tg_schedule"]) d["queue_" + k] = document.getElementById("s-" + k).checked ? "1" : "0";
+  await H.post("/api/queues/settings", d); H.toast("Saqlandi", "ok"); load();
+};
+document.getElementById("tg-test").onclick = async () => {
+  const r = await H.post("/api/queues/test-alert"); H.toast(r.sent ? `Yuborildi: ${r.sent} ta chat` : "Navbat signali oladigan obunachi yo'q", r.sent ? "ok" : "alert");
+};
+load(); loadDaily(); loadGate();
+setInterval(load, 3000);
+setInterval(loadGate, 15000);
+setInterval(loadDaily, 120000);
+</script>
+{% endblock %}

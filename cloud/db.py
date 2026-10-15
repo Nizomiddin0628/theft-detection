@@ -94,6 +94,7 @@ branches = Table(                                          # filial = do'kon = b
     Column("clock_skew", Float),
     Column("offline_since", Float),                       # aloqa uzilgan (oxirgi hello) vaqti; None — onlayn
     Column("occupancy", JSON),                            # 1.9.0: hello dagi sanash holati {inside, since, day0, in, out}
+    Column("queues", JSON),                               # 2.0.0: hello dagi kassalar holati {at, items: [...]}
 )
 events = Table(
     "events", meta,
@@ -130,6 +131,42 @@ visits_minute = Table(       # 1.9.0: sanash yig'indisi — metrics_minute dan a
     Column("n_staff", Integer, nullable=False, default=0),      # xodim o'tishlari (ikki yo'nalish)
     Column("n_off_in", Integer, nullable=False, default=0),     # ish vaqtidan tashqari (xodimsiz)
     Column("n_off_out", Integer, nullable=False, default=0),
+)
+queue_minute = Table(        # 2.0.0: kassa navbati — edge daqiqalik yig'indisi (har kassa = edge navbat zonasi)
+    "queue_minute", meta,
+    Column("branch_id", Integer, ForeignKey("branches.id"), primary_key=True),
+    Column("minute", BigInteger, primary_key=True),
+    Column("zone_id", Integer, primary_key=True),             # edge'dagi zona id (filial ichida yagona)
+    Column("zone_name", String(200)),
+    Column("source_id", Integer),
+    Column("t_obs", Float, nullable=False, default=0),        # kuzatilgan soniyalar
+    Column("len_sum", Float, nullable=False, default=0),      # uzunlik × soniya
+    Column("len_max", Integer, nullable=False, default=0),
+    Column("long_sec", Float, nullable=False, default=0),     # navbat ≥ me'yor bo'lgan soniyalar
+    Column("busy_sec", Float, nullable=False, default=0),
+    Column("cashier_sec", Float, nullable=False, default=0),
+    Column("cashier_known", Integer, nullable=False, default=0),
+    Column("served", Integer, nullable=False, default=0),
+    Column("wait_sum", Float, nullable=False, default=0),
+    Column("wait_n", Integer, nullable=False, default=0),
+    Column("wait_max", Float, nullable=False, default=0),
+)
+queue_alerts = Table(        # 2.0.0: navbat qoidalari signallari (edge: 1-4; bulut: 5 — tarmoq, branch_id NULL)
+    "queue_alerts", meta,
+    Column("id", Integer, primary_key=True, autoincrement=True),
+    Column("key", String(120), nullable=False, unique=True),  # <device_id>:<local_id> yoki net:<kompaniya>:<vaqt>
+    Column("company_id", Integer, ForeignKey("companies.id"), nullable=False),
+    Column("branch_id", Integer, ForeignKey("branches.id")),
+    Column("t", Float, nullable=False),                       # bulut soatida
+    Column("rule", String(8), nullable=False),
+    Column("level", String(16)),
+    Column("zone_name", String(200)),
+    Column("source_name", String(200)),
+    Column("title", String(200)),
+    Column("text", Text),                                     # oddiy matn (edge HTML'i tozalangan)
+    Column("data", JSON),
+    Column("received_at", Float),
+    Index("ix_qalerts_company_t", "company_id", "t"),
 )
 health_log = Table(
     "health_log", meta,
@@ -250,7 +287,7 @@ audit_log = Table(                                         # kim, qachon, nima q
 
 # Mavjud bazalarga (1.6.0) qo'shiladigan ustunlar: create_all eski jadvalni o'zgartirmaydi
 EXTRA_COLUMNS = {
-    "branches": {"offline_since": "FLOAT", "occupancy": "JSON"},
+    "branches": {"offline_since": "FLOAT", "occupancy": "JSON", "queues": "JSON"},
     "events": {"received_at": "FLOAT"},
 }
 
@@ -503,6 +540,69 @@ def visits_hourly(branch_ids: list[int], t0: float, t1: float | None = None, off
         return [{"branch_id": int(r.branch_id), "hour": int(r.hour), "in": int(r.n_in or 0), "out": int(r.n_out or 0),
                  "staff": int(r.n_staff or 0), "off_in": int(r.n_off_in or 0), "off_out": int(r.n_off_out or 0)}
                 for r in c.execute(q)]
+
+
+QUEUE_COLS = ("t_obs", "len_sum", "len_max", "long_sec", "busy_sec", "cashier_sec", "cashier_known", "served",
+              "wait_sum", "wait_n", "wait_max")
+QUEUE_INT = {"len_max", "cashier_known", "served", "wait_n"}
+QUEUE_STATES = ("navbat", "band", "bosh", "yopiq", "kassir_yoq", "nomalum")
+QUEUES_FRESH_SEC = 180
+
+
+def _fnum(v, hi: float = 1e9) -> float:
+    try:
+        f = float(v or 0)
+    except (TypeError, ValueError, OverflowError):
+        return 0.0
+    return min(max(f, 0.0), hi) if f == f and f not in (float("inf"), float("-inf")) else 0.0
+
+
+def put_queue_minute(conn, branch_id: int, item: dict) -> bool:
+    """Edge navbat daqiqasi (edge kechikkan qismni o'zida qo'shib, butun qatorni qayta yuboradi — almashtiriladi)."""
+    try:
+        minute, zid = int(item.get("minute")), int(item.get("zone_id"))
+    except (TypeError, ValueError):
+        return False
+    vals = {"branch_id": branch_id, "minute": minute, "zone_id": zid, "zone_name": str(item.get("zone_name") or "")[:200],
+            "source_id": _int(item.get("source_id")) or None}
+    for k in QUEUE_COLS:
+        v = _fnum(item.get(k), 1e7)
+        vals[k] = int(v) if k in QUEUE_INT else round(v, 2)
+    # Edge qatorni faqat kattalashtirib qayta yuboradi (kechikkan qism qo'shiladi). Eski nusxa yangisidan keyin yetib
+    # kelsa (birinchisi xato bilan kutib qolgan edi) — ustiga yozilmaydi
+    upsert(queue_minute, vals, ["branch_id", "minute", "zone_id"], ["zone_name", "source_id", *QUEUE_COLS],
+           where=text("excluded.t_obs >= queue_minute.t_obs AND excluded.served >= queue_minute.served "
+                      "AND excluded.wait_n >= queue_minute.wait_n"), conn=conn)
+    return True
+
+
+def queue_agg(branch_ids: list[int], t0: float, off: int = 0, slot: int = 86400) -> list[dict]:
+    """Navbat yig'indisi SQL'da: filial × mahalliy kun (slot=86400) yoki soat (3600). off — vaqt mintaqasi (soniya)."""
+    if not branch_ids:
+        return []
+    from sqlalchemy import func
+
+    q = queue_minute.c
+    off = int(off)
+    bucket = ((q.minute + off) // slot) * slot - off
+    sel = (select(q.branch_id, bucket.label("b"), func.sum(q.t_obs).label("t_obs"), func.sum(q.len_sum).label("len_sum"),
+                  func.max(q.len_max).label("len_max"), func.sum(q.long_sec).label("long_sec"),
+                  func.sum(q.served).label("served"), func.sum(q.wait_sum).label("wait_sum"),
+                  func.sum(q.wait_n).label("wait_n"), func.max(q.wait_max).label("wait_max"))
+           .where(q.branch_id.in_([int(b) for b in branch_ids]), q.minute >= int(t0))
+           .group_by(q.branch_id, bucket))
+    with engine().connect() as c:
+        return [{"branch_id": int(r.branch_id), "t": int(r.b), "t_obs": float(r.t_obs or 0),
+                 "len_sum": float(r.len_sum or 0), "len_max": int(r.len_max or 0), "long_sec": float(r.long_sec or 0),
+                 "served": int(r.served or 0), "wait_sum": float(r.wait_sum or 0), "wait_n": int(r.wait_n or 0),
+                 "wait_max": float(r.wait_max or 0)} for r in c.execute(sel)]
+
+
+def queues_fresh(v) -> list[dict] | None:
+    d = json_load(v)
+    if not isinstance(d, dict) or time.time() - float(d.get("at") or 0) > QUEUES_FRESH_SEC:
+        return None
+    return d.get("items") if isinstance(d.get("items"), list) else None
 
 
 def occupancy_fresh(occupancy) -> bool:

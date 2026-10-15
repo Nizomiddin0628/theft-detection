@@ -13,6 +13,11 @@ Zona — kamera rasmi ustiga chizilgan ko'pburchak (nuqtalar 0..1 oralig'ida, ra
   etiborsiz  Televizor, oyna, ko'cha ko'rinadigan deraza: bu yerdagi odamlar va harakat tahlil qilinmaydi.
   chiziq     Sanash chizig'i (1.9.0): ikki nuqta, eshik ostonasida. Strelka tomoniga o'tgan odam — "kirdi",
              teskarisi — "chiqdi" (app/ai/counting.py).
+  navbat     Kassa navbati (2.0.0): kassa oldida xaridorlar kutadigan joy, to'lov joyi bilan birga. Navbat uzunligi va
+             kutish vaqti shu yerda o'lchanadi (app/ai/queues.py).
+  kassir     Kassir joyi (2.0.0): peshtaxta orti. Bu yerda odam bo'lmasa va navbat bo'lsa — "kassani tekshiring".
+             Bu yerdagi odam navbatga qo'shilmaydi. O'g'irlik signallarini o'chirmaydi (kassir yo'qligida peshtaxta
+             ortiga o'tgan begona odam ham kuzatilsin) — kassirga signal kelmasin desangiz, "xodim" zonasini ham chizing.
 
 Odamning joyi oyog'i (ramka pastining o'rtasi) bo'yicha, polka esa qo'l (bilak) bo'yicha aniqlanadi.
 """
@@ -41,6 +46,12 @@ ZONE_KINDS = {
                   "hint": "Televizor, oyna, deraza: bu yerdagi odam va harakat tahlil qilinmaydi."},
     "chiziq": {"label": "Sanash chizig'i", "color": "#0891b2", "line": True,
                "hint": "Eshik ostonasiga 2 nuqta. Strelka — ichkari: shu tomonga o'tgan odam 'kirdi', teskarisi 'chiqdi'."},
+    "navbat": {"label": "Kassa navbati", "color": "#db2777",
+               "hint": "Kassa oldida xaridorlar navbat kutadigan joy (to'lov joyi bilan birga). Navbat uzunligi va "
+                       "kutish vaqti shu yerda o'lchanadi. Bir nechta kassa bo'lsa — har biriga alohida zona."},
+    "kassir": {"label": "Kassir joyi", "color": "#4f46e5",
+               "hint": "Peshtaxta orti, kassir turadigan joy. Navbat bo'lib, bu yer bo'sh qolsa — 'kassani tekshiring'. "
+                       "Kassirga o'g'irlik signali kelmasin desangiz — shu joyga 'Xodimlar joyi' ham chizing."},
 }
 LINE_KINDS = {k for k, v in ZONE_KINDS.items() if v.get("line")}
 # Zona sezgirligi: signal chegarasiga qo'shiladi (manfiy — sezgirroq)

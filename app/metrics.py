@@ -122,6 +122,12 @@ class MetricsSampler(threading.Thread):
                 log.exception("Ko'rsatkichlarni bulut navbatiga qo'yishda xato")
         self.acc = defaultdict(_Acc)
         self.sys_acc = {"n": 0, "cpu": 0.0, "ram": 0.0}
+        try:
+            from .ai import queues            # 2.0.0: kassa navbati — daqiqalik yig'indi, 3- va 4-qoida
+
+            queues.on_minute(minute)
+        except Exception:  # noqa: BLE001
+            log.exception("Navbat daqiqasida xato")
         if time.time() - self.last_prune > 3600:
             self.last_prune = time.time()
             db.execute("DELETE FROM metrics_minute WHERE minute < ?", (time.time() - KEEP_DAYS * 86400,))

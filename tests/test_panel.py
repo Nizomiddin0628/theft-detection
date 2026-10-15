@@ -112,7 +112,11 @@ def seed() -> dict:
     cdb.create_user(cid, "menejer@dokon.uz", "Parol12345", "Dilshod", "manager", [a_id])
     cdb.create_user(cid, "qorovul@dokon.uz", "Parol12345", "Sardor", "guard", [b_id])
     assert edge(A_DEV, a_tok, "hello", json={"time": time.time(), "version": "1.7.0", "cameras": CAMS_A,
-                                             "pending": 0}).status_code == 200
+                                             "pending": 0, "queues": [   # 2.0.0: kassalar holati
+        {"zone_id": 11, "name": "1-kassa", "source_name": "Kassa 1", "length": 5, "max_wait": 205, "cashier": True,
+         "state": "navbat", "live": True},
+        {"zone_id": 12, "name": "2-kassa", "source_name": "Kassa 1", "length": 2, "max_wait": 40, "cashier": False,
+         "state": "kassir_yoq", "live": True}]}).status_code == 200
     assert edge(B_DEV, b_tok, "hello", json={"time": time.time(), "version": "1.6.0", "cameras": [
         {"id": 1, "name": "Kassa", "kind": "rtsp", "state": "ishlayapti"}], "pending": 4}).status_code == 200
 
@@ -159,6 +163,29 @@ def seed() -> dict:
         {"key": "h:3:down:1", "t": h0, "source_id": 3, "source_name": "Ombor", "state": "down", "reason": "kadr kelmayapti"},
         {"key": "h:3:up:1", "t": h0 + 540, "source_id": 3, "source_name": "Ombor", "state": "up", "reason": "9 daqiqa ishlamadi"},
     ]}).status_code == 200
+    # 2.0.0: kassa navbati — bugungi daqiqalar (har 10 daqiqada) va qoida signallari
+    d0 = cloud._local_day0()
+    qrows = []
+    for k in range(144):
+        minute = int((now - k * 600) // 60 * 60)
+        if minute < d0:
+            break
+        hour = time.localtime(minute).tm_hour
+        L = 3.5 if hour in (12, 13, 18) else 1.2
+        for zid in (11, 12):
+            qrows.append({"key": f"qm:{minute}:{zid}", "minute": minute, "zone_id": zid, "zone_name": f"{zid - 10}-kassa",
+                          "t_obs": 60, "len_sum": L * 60, "len_max": int(L + 1.5), "long_sec": 30 if L > 3 else 0,
+                          "busy_sec": 55, "cashier_sec": 60, "cashier_known": 1, "served": 2, "wait_sum": 70 * L * 2,
+                          "wait_n": 2, "wait_max": 90 * L})
+    if qrows:
+        assert edge(A_DEV, a_tok, "queues", json={"items": qrows}).status_code == 200
+    assert edge(A_DEV, a_tok, "queue_alerts", json={"items": [
+        {"key": "qa:1", "local_id": 1, "t": now - 1800, "rule": "R1", "level": "warning", "zone_name": "1-kassa",
+         "title": "Qo'shimcha kassa oching", "text": "1-kassa: navbatda <b>5 kishi</b> (40 s dan beri), eng uzoq "
+                                                     "kutayotgan — 3 daq 25 s.\nBoshqa kassalar: 2-kassa — band, 2 kishi"},
+        {"key": "qa:2", "local_id": 2, "t": now - 600, "rule": "R2", "level": "danger", "zone_name": "2-kassa",
+         "title": "Kassani tekshiring", "text": "2-kassa: navbatda <b>2 kishi</b>, kassir joyi 1 daq dan beri bo'sh."}]}
+        ).status_code == 200
     # B do'kon 3 soatdan beri aloqasiz (har qanday edge so'rovi last_seen ni yangilaydi — shuning uchun oxirida)
     cdb.execute("UPDATE branches SET last_seen=:t WHERE id=:b", {"t": time.time() - 3 * 3600, "b": b_id})
     return {"a_id": a_id, "a_tok": a_tok, "b_id": b_id, "b_tok": b_tok}
@@ -392,6 +419,21 @@ def _owner(browser, s: dict) -> None:
     ok("Filial tanlovi: sanashsiz filial — bo'sh holat, Chilonzor — o'sha son",
        int(page.locator(".kpi b").nth(1).inner_text()) == db_in)
     shot(page, "07b_visits")
+
+    # Navbat (2.0.0)
+    page.goto(f"{BASE}/queues/")
+    page.wait_for_selector("[data-testid=queue-now]", timeout=10000)
+    page.wait_for_selector(".chart svg rect", state="attached", timeout=10000)
+    served_db = sum(int(r["served"] or 0) for r in cloud.cdb.rows(
+        "SELECT served FROM queue_minute WHERE branch_id=:b AND minute >= :t", {"b": s["a_id"], "t": cloud._local_day0()}))
+    cards = page.locator("[data-testid=queue-card]")
+    ok("Navbat: kassalar hozir (2 karta), jami 7 kishi, kassir yo'q 1, bugun o'tdi bazaga mos",
+       cards.count() == 2 and page.locator(".kpi b").nth(0).inner_text() == "7"
+       and page.locator(".kpi b").nth(2).inner_text() == "1" and int(page.locator(".kpi b").nth(3).inner_text()) == served_db,
+       f"{cards.count()} karta, o'tdi {page.locator('.kpi b').nth(3).inner_text()} / {served_db}")
+    ok("Navbat: signallar ro'yxati (matn oddiy, teg ko'rinmaydi)", page.locator(".qalerts li").count() == 2
+       and "<b>" not in page.locator(".qalerts").inner_text() and "5 kishi" in page.locator(".qalerts").inner_text())
+    shot(page, "07c_queues")
 
     # Xodimlar
     page.goto(f"{BASE}/users/")

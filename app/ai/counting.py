@@ -171,6 +171,8 @@ class LineCounter:
         self._chain = 0
         self.geom: dict[int, tuple] = {}                   # chiziq -> nuqtalari (o'zgarsa holatlar tashlanadi)
         self._err_t = 0.0
+        self.queue = None                                  # 2.0.0: kassa navbati (app/ai/queues.py) — zonasi bo'lsa
+        self._qerr_t = 0.0
 
     def _new_chain(self) -> int:
         self._chain += 1
@@ -178,14 +180,29 @@ class LineCounter:
 
     def update(self, tracked: list, t: float, w: int, h: int, zoneset=None, status: dict | None = None,
                work_hours: str | None = None) -> list[Crossing]:
-        """Har AI qadamida. Xato bo'lsa ham kamera tahlili to'xtamaydi (xato jurnalga, daqiqada bir marta)."""
+        """Har AI qadamida. Xato bo'lsa ham kamera tahlili to'xtamaydi (xato jurnalga, daqiqada bir marta).
+        2.0.0: shu yerda kassa navbati ham o'lchanadi (worker.py ga yangi ulanish kerak emas); navbatdagi xato sanashga,
+        sanashdagi xato navbatga ta'sir qilmaydi."""
         try:
-            return self._update(tracked, t, w, h, zoneset, status, work_hours)
+            out = self._update(tracked, t, w, h, zoneset, status, work_hours)
         except Exception:  # noqa: BLE001
+            out = []
             if time.time() - self._err_t > 60:
                 self._err_t = time.time()
                 log.exception("Sanash xatosi (%s) — kamera tahlili davom etadi", self.source_name)
-            return []
+        if self.queue is not None or any(getattr(z, "kind", "") == "navbat" for z in getattr(zoneset, "zones", []) or []):
+            try:
+                if self.queue is None:
+                    from . import queues
+
+                    self.queue = queues.QueueMonitor(self.source_id, self.source_name, persist=self.persist)
+                self.queue.source_name = self.source_name
+                self.queue.update(tracked, t, w, h, zoneset, status, persist=self.persist)
+            except Exception:  # noqa: BLE001
+                if time.time() - self._qerr_t > 60:
+                    self._qerr_t = time.time()
+                    log.exception("Navbat o'lchash xatosi (%s) — kamera tahlili davom etadi", self.source_name)
+        return out
 
     def _update(self, tracked: list, t: float, w: int, h: int, zoneset, status: dict | None,
                 work_hours: str | None) -> list[Crossing]:

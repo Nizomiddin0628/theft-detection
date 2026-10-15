@@ -23,6 +23,13 @@
   <div class="card kpi"><div class="label">Xodimlar o'tishi</div><div class="value" id="v-staff">—</div><div class="sub">hisobga olinmaydi</div></div>
 </div>
 
+<div id="queues-row" class="grid g4 hidden" style="margin-top:16px">
+  <div class="card kpi" id="q-len-card"><div class="label">{{ icon('cart', 14) }} Eng uzun navbat</div><div class="value" id="q-len">—</div><div class="sub"><a href="/navbat" id="q-len-sub">Navbat {{ icon('chev-r', 12) }}</a></div></div>
+  <div class="card kpi" id="q-cash-card"><div class="label">Kassir yo'q kassa</div><div class="value" id="q-cash">—</div><div class="sub">navbat bor, kassir joyi bo'sh</div></div>
+  <div class="card kpi"><div class="label">Bugun navbatdan o'tdi</div><div class="value" id="q-served">—</div><div class="sub">xaridorlar</div></div>
+  <div class="card kpi"><div class="label">{{ icon('clock', 14) }} O'rtacha kutish</div><div class="value" id="q-wait">—</div><div class="sub">bugun</div></div>
+</div>
+
 <div class="grid g3" style="margin-top:16px">
   <div class="card span2">
     <div class="card-h"><h2>Faol kameralar</h2><div class="grow"></div><a class="btn sm" href="/live">{{ icon('eye', 14) }} Jonli kuzatuv</a></div>
@@ -70,6 +77,17 @@ document.addEventListener("summary", (e) => {
     document.getElementById("v-in").textContent = v.in;
     document.getElementById("v-out").textContent = v.out;
     document.getElementById("v-staff").textContent = v.staff;
+  }
+  const q = s.queues;
+  document.getElementById("queues-row").classList.toggle("hidden", !q);
+  if (q) {
+    document.getElementById("q-len").textContent = q.n ? q.max_len : "—";
+    document.getElementById("q-len-card").className = "card kpi" + (q.long ? " bad" : "");
+    document.getElementById("q-len-sub").innerHTML = (q.n ? (q.max_len ? H.esc(q.max_name) + " · " : "") : "kamera ishlamayapti · ") + "Navbat ›";
+    document.getElementById("q-cash").textContent = q.n ? q.no_cashier : "—";
+    document.getElementById("q-cash-card").className = "card kpi" + (q.no_cashier ? " alert" : "");
+    document.getElementById("q-served").textContent = q.served;
+    document.getElementById("q-wait").textContent = q.avg_wait === null ? "—" : H.fmtDur(q.avg_wait);
   }
   H.bars(document.getElementById("hours"), [...Array(24).keys()].map((h) => String(h).padStart(2, "0")),
     [{ name: "hodisa", color: "#d97706", values: s.hours }], { height: 200, maxLabels: 8 });

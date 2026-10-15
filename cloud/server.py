@@ -35,6 +35,7 @@ from pathlib import Path
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
+from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from starlette.concurrency import run_in_threadpool
 
@@ -44,7 +45,7 @@ from .db import CLIPS_DIR, DATA_DIR
 from .live import hub
 
 log = logging.getLogger("hushyor.cloud")
-VERSION = "1.9.0"
+VERSION = "2.0.0"
 
 API_VERSION = 1
 ROOT = Path(__file__).resolve().parent
@@ -305,6 +306,8 @@ def _prune(conn) -> None:
     conn.execute(cdb.received.delete().where(cdb.received.c.t < now - RECEIVED_KEEP_DAYS * 86400))
     conn.execute(cdb.metrics_minute.delete().where(cdb.metrics_minute.c.minute < now - METRICS_KEEP_DAYS * 86400))
     conn.execute(cdb.visits_minute.delete().where(cdb.visits_minute.c.minute < now - METRICS_KEEP_DAYS * 86400))
+    conn.execute(cdb.queue_minute.delete().where(cdb.queue_minute.c.minute < now - METRICS_KEEP_DAYS * 86400))
+    conn.execute(cdb.queue_alerts.delete().where(cdb.queue_alerts.c.t < now - METRICS_KEEP_DAYS * 86400))
     conn.execute(cdb.sessions.delete().where(cdb.sessions.c.expires_at < now))
     conn.execute(cdb.commands.delete().where(cdb.commands.c.acked_at.isnot(None), cdb.commands.c.acked_at < now - 7 * 86400))
     conn.execute(cdb.health_log.delete().where(cdb.health_log.c.t < now - METRICS_KEEP_DAYS * 86400))
@@ -336,11 +339,13 @@ def _hello(b: dict, body: dict, ip: str) -> dict:
     occ = body.get("occupancy")
     occ = ({k: float(_num(occ.get(k))) for k in ("inside", "since", "day0", "in", "out")}
            if isinstance(occ, dict) else None)
+    qs = _hello_queues(body.get("queues"))
     with cdb.engine().begin() as c:
         vals = {"last_seen": now, "last_ip": ip[:64],
                 "version": str(body.get("version") or "")[:40], "cameras": cams,
                 "pending": int(_num(body.get("pending"))), "clock_skew": skew,
-                "occupancy": ({**occ, "at": now} if occ else None)}
+                "occupancy": ({**occ, "at": now} if occ else None),
+                "queues": ({"at": now, "items": qs} if qs is not None else None)}
         if b.get("token_hash") == "env" and body.get("name"):
             vals["name"] = str(body.get("name"))[:200]      # muhit tokeni bilan ulangan filial nomi edge'dan
         c.execute(cdb.branches.update().where(cdb.branches.c.id == b["id"]).values(**vals))
@@ -354,7 +359,31 @@ def _hello(b: dict, body: dict, ip: str) -> dict:
             c.execute(cdb.commands.update().where(cdb.commands.c.id.in_([x["id"] for x in cmds])).values(delivered_at=now))
         _prune(c)
     return {"ok": True, "server_time": now, "device": {"id": b["device_id"], "branch_id": b["id"], "name": b["name"]},
-            "commands": [{"id": x["id"], "type": x["type"], **(cdb.json_load(x["payload"]) or {})} for x in cmds]}
+            "commands": [{"id": x["id"], "type": x["type"], **(cdb.json_load(x["payload"]) or {})} for x in cmds],
+            # 2.0.0: edge shu ro'yxatga qarab yangi turdagi yozuvlarni navbatga qo'yadi (eski bulut — yo'q, to'smaydi)
+            "features": list(FEATURES)}
+
+
+FEATURES = ("queues",)
+
+
+def _hello_queues(raw) -> list[dict] | None:
+    """2.0.0: edge kassalar holati (hello) — faqat kerakli maydonlar, cheklangan uzunlikda."""
+    if not isinstance(raw, list):
+        return None
+    out = []
+    for x in raw[:64]:
+        if not isinstance(x, dict):
+            continue
+        st = str(x.get("state") or "")
+        cash = x.get("cashier")
+        out.append({"zone_id": int(_num(x.get("zone_id"))), "name": str(x.get("name") or "")[:200],
+                    "source_name": str(x.get("source_name") or "")[:200],
+                    "length": int(min(max(_num(x.get("length")), 0), 999)),
+                    "max_wait": int(min(max(_num(x.get("max_wait")), 0), 86400)),
+                    "cashier": cash if isinstance(cash, bool) else None,
+                    "state": st if st in cdb.QUEUE_STATES else "nomalum", "live": bool(x.get("live"))})
+    return out
 
 
 @app.post(f"/api/v{API_VERSION}/edge/commands/ack")
@@ -522,6 +551,73 @@ def _edge_metrics(b: dict, items: list[dict]) -> dict:
             cdb.put_visits(c, b["id"], minute, sid, it)          # 1.9.0: sanash — alohida jadvalga (tez hisobot)
             _seen(c, b["device_id"], "metrics", key)
             accepted.append(key)
+    return {"ok": True, "accepted": accepted, "rejected": rejected}
+
+
+@app.post(f"/api/v{API_VERSION}/edge/queues")
+async def edge_queues(request: Request):
+    """2.0.0: kassa navbati daqiqalik yig'indisi (edge app/ai/queues.py)."""
+    b = await _branch(request)
+    items = _items(await _json(request))
+    return await run_in_threadpool(_edge_queues, b, items)
+
+
+def _edge_queues(b: dict, items: list[dict]) -> dict:
+    accepted, rejected = [], []
+    with cdb.engine().begin() as c:
+        for it in items:
+            key = str(it.get("key") or "")
+            if len(json.dumps(it, ensure_ascii=False)) > 4000:
+                rejected.append({"key": key, "reason": "yozuv juda katta"})
+                continue
+            if not cdb.put_queue_minute(c, b["id"], it):
+                rejected.append({"key": key, "reason": "minute/zone_id noto'g'ri"})
+                continue
+            _seen(c, b["device_id"], "queue", key)
+            accepted.append(key)
+    return {"ok": True, "accepted": accepted, "rejected": rejected}
+
+
+@app.post(f"/api/v{API_VERSION}/edge/queue_alerts")
+async def edge_queue_alerts(request: Request):
+    """2.0.0: navbat qoidasi signali (1-4). Yangi va eskirmagani — bildirishnoma; 1-2 dan keyin 5-qoida (tarmoq)."""
+    b = await _branch(request)
+    items = _items(await _json(request))
+    return await run_in_threadpool(_edge_queue_alerts, b, items)
+
+
+def _edge_queue_alerts(b: dict, items: list[dict]) -> dict:
+    accepted, rejected, fresh = [], [], []
+    now = time.time()
+    with cdb.engine().begin() as c:
+        for it in items:
+            key = str(it.get("key") or "")
+            rule = str(it.get("rule") or "")
+            lid = int(_num(it.get("local_id")))
+            if rule not in ("R1", "R2", "R3", "R4") or lid <= 0:
+                rejected.append({"key": key, "reason": "qoida yoki local_id noto'g'ri"})
+                continue
+            if len(json.dumps(it, ensure_ascii=False)) > ITEM_LIMIT:
+                rejected.append({"key": key, "reason": "yozuv juda katta"})
+                continue
+            t_edge = _num(it.get("t")) or now
+            t = t_edge + float(b.get("clock_skew") or 0)          # bulut soatiga
+            data = it.get("data") if isinstance(it.get("data"), dict) else {}
+            row = {"key": f"{b['device_id']}:{lid}"[:120], "company_id": b["company_id"], "branch_id": b["id"],
+                   "t": min(t, now + 60), "rule": rule, "level": str(it.get("level") or "")[:16],
+                   "zone_name": str(it.get("zone_name") or "")[:200], "source_name": str(it.get("source_name") or "")[:200],
+                   "title": notify.plain_text(it.get("title") or notify.QUEUE_RULES.get(rule, ""), 200),
+                   "text": notify.plain_text(it.get("text") or ""), "data": data, "received_at": now}
+            n = cdb.upsert(cdb.queue_alerts, row, ["key"], conn=c)
+            if n and now - row["t"] <= notify.NOTIFY_MAX_AGE:
+                fresh.append(row)
+            _seen(c, b["device_id"], "qalert", key)
+            accepted.append(key)
+    for row in fresh:
+        try:
+            notify.on_queue_alert(b, row)
+        except Exception:  # noqa: BLE001 — xabar xatosi qabul qilishni buzmasin
+            pass
     return {"ok": True, "accepted": accepted, "rejected": rejected}
 
 
@@ -879,6 +975,84 @@ def visits(request: Request, days: int = 14, branch_id: int | None = None):
                          "total_in": sum((per_day.get((b, i)) or {}).get("in", 0) for i in range(days))})
     return {"ok": True, "days": out_days, "branches": branches, "tz_offset": notify.cfg.tz_offset,
             "day0": today}
+
+
+@app.get(f"/api/v{API_VERSION}/queues")
+def queues(request: Request, days: int = 14, branch_id: int | None = None):
+    """2.0.0 Navbat: filiallar kassalari hozir (hello), bugungi ko'rsatkichlar, soatlar, kunlar, signallar."""
+    u = _user(request)
+    ids = _scope(u, branch_id)
+    days = max(1, min(int(days), 90))
+    today = _local_day0()
+    t0 = today - (days - 1) * 86400
+    brows = {r["id"]: r for r in cdb.rows("SELECT id, name, queues FROM branches WHERE company_id=:c",
+                                          {"c": u["company_id"]}) if r["id"] in ids}
+    # Yig'indi SQL'da (filial × kun, bugun — filial × soat): 14 kunlik daqiqalar Python'ga o'qilmaydi
+    per_day: dict[tuple[int, int], dict] = {}
+    today_b: dict[int, dict] = {}
+    hours_len: dict[int, list] = {}
+    for r in cdb.queue_agg(ids, t0, _tz_sec(), 86400):
+        di = int(round((r["t"] - t0) / 86400))
+        if 0 <= di < days:
+            per_day[(r["branch_id"], di)] = r
+            if di == days - 1:
+                today_b[r["branch_id"]] = r
+    for r in cdb.queue_agg(ids, today, _tz_sec(), 3600):
+        h = int((r["t"] - today) // 3600)
+        if 0 <= h < 24:
+            hl = hours_len.setdefault(r["branch_id"], [[0.0, 0.0, 0] for _ in range(24)])
+            hl[h] = [r["len_sum"], r["t_obs"], r["served"]]
+    branches = []
+    for bid, b in sorted(brows.items()):
+        live = cdb.queues_fresh(b.get("queues"))
+        stored = cdb.json_load(b.get("queues"))
+        has_any = live is not None or stored or any(k[0] == bid for k in per_day)
+        if not has_any:
+            continue
+        a = per_day.get((bid, days - 1)) or {"served": 0, "wait_sum": 0.0, "wait_n": 0, "wait_max": 0.0, "len_max": 0,
+                                              "long_sec": 0.0}
+        tb = today_b.get(bid) or {"t_obs": 0.0, "len_sum": 0.0}
+        hl = hours_len.get(bid) or [[0.0, 0.0, 0] for _ in range(24)]
+        # "aloqa yo'q" — edge kassalar holatini yuborgan edi, endi kelmayapti (navbat zonasi o'chirilgan filial emas)
+        branches.append({"id": bid, "name": b["name"], "live": live, "stale": live is None and bool(stored),
+                         "today": {"served": a["served"], "avg_wait": round(a["wait_sum"] / a["wait_n"], 1) if a["wait_n"] else None,
+                                   "max_wait": round(a["wait_max"], 1), "max_len": a["len_max"],
+                                   "long_min": round(a["long_sec"] / 60, 1),
+                                   "avg_len": round(tb["len_sum"] / tb["t_obs"], 2) if tb["t_obs"] else None},
+                         "hours_len": [round(x[0] / x[1], 2) if x[1] else 0 for x in hl],
+                         "hours_served": [x[2] for x in hl]})
+    out_days = []
+    for di in range(days):
+        row = {"day": t0 + di * 86400, "served": 0, "wait_sum": 0.0, "wait_n": 0, "wait_max": 0.0, "len_max": 0,
+               "long_min": 0.0, "branches": {}}
+        for b in branches:
+            a = per_day.get((b["id"], di))
+            if a:
+                row["branches"][str(b["id"])] = {"served": a["served"], "max_len": a["len_max"],
+                                                 "avg_wait": round(a["wait_sum"] / a["wait_n"], 1) if a["wait_n"] else None}
+                row["served"] += a["served"]
+                row["wait_sum"] += a["wait_sum"]
+                row["wait_n"] += a["wait_n"]
+                row["wait_max"] = max(row["wait_max"], a["wait_max"])
+                row["len_max"] = max(row["len_max"], a["len_max"])
+                row["long_min"] += a["long_sec"] / 60
+        row["avg_wait"] = round(row.pop("wait_sum") / row["wait_n"], 1) if row["wait_n"] else None
+        row.pop("wait_n")
+        row["long_min"] = round(row["long_min"], 1)
+        out_days.append(row)
+    # Filial signali — faqat ruxsat etilgan filiallarniki (SQL'da: LIMIT dan oldin); tarmoq signali (5) — faqat egaga
+    qa = cdb.queue_alerts.c
+    cond = qa.branch_id.in_([int(x) for x in ids]) if ids else qa.branch_id.in_([-1])
+    if u["role"] == "owner" and branch_id is None:
+        cond = cond | qa.branch_id.is_(None)
+    sel = (select(qa.id, qa.branch_id, cdb.branches.c.name.label("branch_name"), qa.t, qa.rule, qa.level, qa.zone_name,
+                  qa.title, qa.text)
+           .select_from(cdb.queue_alerts.outerjoin(cdb.branches, cdb.branches.c.id == qa.branch_id))
+           .where(qa.company_id == u["company_id"], qa.t >= t0, cond).order_by(qa.t.desc()).limit(50))
+    with cdb.engine().connect() as conn:
+        al = [dict(r._mapping) for r in conn.execute(sel)]
+    return {"ok": True, "branches": branches, "days": out_days, "alerts": al, "rules": notify.QUEUE_RULES,
+            "tz_offset": notify.cfg.tz_offset, "day0": today}
 
 
 @app.post(f"/api/v{API_VERSION}/branches")

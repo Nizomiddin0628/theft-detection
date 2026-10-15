@@ -137,6 +137,34 @@ def main() -> int:
     devs = cloud_q("SELECT * FROM branches")
     ok("Hello: qurilma (filial) ro'yxatda, versiya bilan", len(devs) == 1 and devs[0]["device_id"] == dev and devs[0]["version"])
 
+    # ------------------------------------------------------------ 2.0.0: kassa navbati (bulut "queues" ni e'lon qiladi)
+    from app.ai import queues
+
+    ok("Hello: bulut imkoniyatlari saqlandi (queues)", sync.cloud_supports("queues"), db.get_setting("cloud_features", ""))
+    sid_q = db.execute("INSERT INTO sources(name, kind, uri, enabled, created_at) VALUES('Kassa', 'rtsp', 'rtsp://q', 0, ?)",
+                       (time.time(),))
+    zid_q = db.execute("INSERT INTO zones(source_id, name, kind, points, sens, enabled, created_at) VALUES(?,?,?,?,?,?,?)",
+                       (sid_q, "1-kassa", "navbat", "[[0.1,0.5],[0.9,0.5],[0.9,1],[0.1,1]]", "", 1, time.time()))
+    aid = queues.raise_alert({"t": time.time(), "rule": "R1", "level": "warning", "source_id": sid_q, "source_name": "Kassa",
+                              "zone_id": zid_q, "zone_name": "1-kassa", "title": "Qo'shimcha kassa oching",
+                              "text": "1-kassa: navbatda <b>5 kishi</b>", "data": {"length": 5}})
+    m_q = int(time.time() // 60) * 60 - 120
+    with queues._acc_lock:
+        acc = queues._Acc(m_q, zid_q, "1-kassa", sid_q, "Kassa")
+        acc.t_obs, acc.len_sum, acc.len_max, acc.served, acc.wait_sum, acc.wait_n = 60, 120, 3, 2, 150, 2
+        queues._acc[(m_q, zid_q)] = acc
+    queues.flush_minutes(m_q)
+    got = wait(lambda: cloud_q("SELECT COUNT(*) AS n FROM queue_alerts WHERE key=?", (f"{dev}:{aid}",))[0]["n"] == 1
+               and cloud_q("SELECT COUNT(*) AS n FROM queue_minute WHERE minute=? AND zone_id=?", (m_q, zid_q))[0]["n"] == 1, 20)
+    qa = cloud_q("SELECT * FROM queue_alerts WHERE key=?", (f"{dev}:{aid}",))
+    ok("Navbat signali va daqiqasi bulutga yetdi (matn oddiy matnga aylangan)", bool(got) and qa
+       and qa[0]["rule"] == "R1" and "<b>" not in qa[0]["text"], f"{outbox_n()} qator qoldi, {w.last_error}")
+    got = wait(lambda: (cloud.cdb.json_load(cloud_q("SELECT queues FROM branches")[0]["queues"]) or {}).get("items"), 15)
+    ok("Hello: kassalar holati bulutda (kamera o'chiq — 'ma'lumot yo'q')", bool(got) and got[0]["name"] == "1-kassa"
+       and got[0]["live"] is False, str(got))
+    db.execute("DELETE FROM zones WHERE id=?", (zid_q,))
+    db.execute("DELETE FROM sources WHERE id=?", (sid_q,))
+
     # ------------------------------------------------------------ takror
     sync.enqueue("event", f"ev:{e1}", sync.event_payload(db.get_event(e1)))
     wait(lambda: outbox_n() == 0, 10)

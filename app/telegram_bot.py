@@ -57,6 +57,7 @@ HELP = (
     "/holat — kameralar va bugungi statistika\n"
     "/oxirgi — oxirgi 5 ta hodisa\n"
     "/tekshirilmagan — javob kutayotgan hodisalar\n"
+    "/navbat — kassalardagi navbat hozir (navbat signallarini o'chirish/yoqish ham shu yerda)\n"
     "/stop — xabarlarni to'xtatish\n"
     "/yordam — shu yordam\n\n"
     "⚠️ Bot hech kimni ayblamaydi: u faqat \"tekshirib ko'ring\" deydi. Qaror har doim odamniki."
@@ -289,6 +290,7 @@ class TelegramBot:
         {"command": "holat", "description": "Kameralar va bugungi statistika"},
         {"command": "oxirgi", "description": "Oxirgi 5 ta hodisa"},
         {"command": "tekshirilmagan", "description": "Javob kutayotgan hodisalar"},
+        {"command": "navbat", "description": "Kassalardagi navbat"},
         {"command": "stop", "description": "Xabarlarni to'xtatish"},
         {"command": "yordam", "description": "Yordam"},
     ]
@@ -461,6 +463,10 @@ class TelegramBot:
             self._reply(chat_id, self._last_text(
                 "SELECT * FROM events WHERE status='yangi' ORDER BY id DESC LIMIT 10",
                 "🟡 <b>Javob kutayotgan hodisalar</b>"))
+        elif cmd == "/navbat":
+            from .ai import queues
+
+            self._reply(chat_id, queues.status_text(), self._queue_markup(chat_id))
         else:
             self._reply(chat_id, "Buyruqni tushunmadim. /yordam ni bosing.")
 
@@ -529,6 +535,17 @@ class TelegramBot:
 
         if not chat_id or not self._is_sub(chat_id):
             answer("Ruxsat yo'q")
+            return
+        if data in ("qa:on", "qa:off"):
+            # 2.0.0: navbat signallari shu chat uchun (boshqa obunachilarga ta'sir qilmaydi)
+            on = data == "qa:on"
+            db.execute("UPDATE subscribers SET queue_alerts=? WHERE chat_id=?", (int(on), chat_id))
+            answer("🔔 Navbat signallari yoqildi" if on else "🔕 Navbat signallari o'chirildi (hodisalar kelaveradi)")
+            mid = (cb.get("message") or {}).get("message_id")
+            if mid:
+                self.api("editMessageReplyMarkup", {"chat_id": chat_id, "message_id": mid,
+                                                    "reply_markup": self._queue_markup(chat_id)}, chat_id=chat_id)
+            log.info("Navbat signallari %s: %s", "yoqildi" if on else "o'chirildi", who)
             return
         try:
             action, ev_id = data.split(":")
@@ -656,6 +673,19 @@ class TelegramBot:
     def resend_event(self, event_id: int) -> None:
         if self.token:
             self._enqueue(PRIO_ALERT, "full", event_id)
+
+    def _queue_markup(self, chat_id: int) -> dict:
+        on = db.scalar("SELECT COALESCE(queue_alerts, 1) FROM subscribers WHERE chat_id=?", (chat_id,))
+        return {"inline_keyboard": [[{"text": "🔕 Navbat signallarini o'chirish" if on else "🔔 Navbat signallarini yoqish",
+                                      "callback_data": "qa:off" if on else "qa:on"}]]}
+
+    def send_queue_alert(self, text: str) -> int:
+        """2.0.0: navbat qoidasi signali — navbat signallarini o'chirmagan obunachilarga."""
+        subs = (db.rows("SELECT chat_id FROM subscribers WHERE active=1 AND COALESCE(queue_alerts, 1)=1")
+                if self.token else [])
+        for s in subs:
+            self._enqueue(PRIO_ALERT, "text", s["chat_id"], text)
+        return len(subs)
 
     def send_text_all(self, text: str) -> int:
         subs = db.rows("SELECT chat_id FROM subscribers WHERE active=1") if self.token else []

@@ -223,7 +223,8 @@ class Analyzer:
             p = base
             foot = np.array([(person.box[0] + person.box[2]) / 2, person.box[3]], dtype=np.float32)
             if zs:
-                # Xodim: xodimlar zonasida STAFF_SEC turgan odam — kadrdan chiqquncha xodim
+                # Xodim: xodimlar zonasida STAFF_SEC turgan odam — kadrdan chiqquncha xodim. Kassir joyi (2.0.0) bu
+                # belgini BERMAYDI: kassir yo'qligida peshtaxta ortiga o'tgan begona odamning signallari o'chmasin
                 if zs.at("xodim", foot, frame_w, frame_h):
                     if mem.staff_enter_t < -1e8:
                         mem.staff_enter_t = t

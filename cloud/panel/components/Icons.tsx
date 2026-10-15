@@ -112,3 +112,11 @@ export const IconShield = (p: P) => (
     <path d="M9 12l2 2 4-4" />
   </svg>
 );
+
+export const IconCart = (p: P) => (
+  <svg {...base} {...p}>
+    <circle cx="9" cy="20" r="1.4" />
+    <circle cx="18" cy="20" r="1.4" />
+    <path d="M2 3h3l2.7 12.4a2 2 0 0 0 2 1.6h8.6a2 2 0 0 0 2-1.6L22 7H6.2" />
+  </svg>
+);

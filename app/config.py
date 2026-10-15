@@ -124,6 +124,15 @@ DEFAULT_SETTINGS = {
     "camera_alerts": "1",
     "camera_alert_sec": "60",
     "store_name": "Mening do'konim",
+    # 2.0.0: kassa navbati qoidalari (app/ai/queues.py)
+    "queue_max_len": "4",          # 1-qoida: navbatda shuncha kishi ...
+    "queue_long_sec": "30",        # ... shuncha soniya davomida
+    "queue_max_wait_min": "3",     # ... yoki kimdir shuncha daqiqa kutmoqda
+    "queue_cashier_sec": "45",     # 2-qoida: navbat bor, kassir joyi shuncha soniya bo'sh
+    "queue_cooldown_min": "10",    # bitta kassa uchun bir xil signal shuncha daqiqada bir marta
+    "queue_tg": "1",               # 1-2-qoida Telegram'ga
+    "queue_tg_low": "0",           # 3-qoida ("kassir kerak emas") Telegram'ga — sukut bo'yicha faqat panelda
+    "queue_tg_schedule": "1",      # 4-qoida (haftalik kassir jadvali) Telegram'ga
 }
 
 # Eski versiyadan qolgan sozlamalarni yangilash: {kalit: (eski standart, yangi standart)}.
@@ -134,4 +143,4 @@ SETTINGS_MIGRATIONS = {
 SETTINGS_VERSION = max(SETTINGS_MIGRATIONS)
 
 APP_NAME = "Hushyor AI"
-APP_VERSION = "1.9.1"
+APP_VERSION = "2.0.0"

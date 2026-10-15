@@ -17,3 +17,21 @@ Litsenziya: Creative Commons Attribution 4.0 International (CC BY 4.0)
 
 Odam sanash (3-bosqich) sinovi uchun: 7 kishi kadrning pastki qismidagi chiziqni (y = 0.72) pastdan yuqoriga
 kesib o'tadi. Ishlatish: python -m tests.test_count_video
+
+navbat_namuna.mp4
+-----------------
+Manba: Intel IoT DevKit "sample-videos" — one-by-one-person-detection.mp4 (ovozsiz, H.264 qayta siqilgan, 768x432, 10 kadr/s)
+https://github.com/intel-iot-devkit/sample-videos
+Litsenziya: Creative Commons Attribution 4.0 International (CC BY 4.0)
+
+Kassa navbati (4-bosqich) sinovi uchun "xizmat joyi": 6 kishi birin-ketin stol oldiga keladi, 10–26 s turadi va ketadi
+(qo'lda belgilangan). Ishlatish: python -m tests.test_queue_video
+
+navbat_guruh.mp4
+----------------
+Manba: Intel IoT DevKit "sample-videos" — face-demographics-walking-and-pause.mp4 (ovozsiz, H.264 qayta siqilgan,
+768x432, 12 kadr/s)
+https://github.com/intel-iot-devkit/sample-videos
+Litsenziya: Creative Commons Attribution 4.0 International (CC BY 4.0)
+
+Navbat uzunligi sinovi: kameraga 1, 2 va 3 kishilik guruhlar kelib, yonma-yon turadi (qo'lda sanalgan).

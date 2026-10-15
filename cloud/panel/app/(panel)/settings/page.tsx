@@ -220,6 +220,8 @@ const PREF_ROWS: { key: keyof Omit<Prefs, "min_score">; title: string; hint: str
   { key: "escalation", title: "Javobsiz hodisa", hint: "Hech kim belgilangan vaqtda tekshirmasa" },
   { key: "camera", title: "Kamera ishlamay qoldi", hint: "Kamera uzilsa va tiklansa" },
   { key: "offline", title: "Do'kon bilan aloqa uzildi", hint: "Do'kondagi kompyuter yoki internet o'chsa" },
+  { key: "queue", title: "Kassa navbati", hint: "Navbat uzun / kassir yo'q, haftalik kassir jadvali; egasiga — bir nechta filialda bir vaqtda navbat" },
+  { key: "queue_low", title: "Qo'shimcha kassir kerak emas", hint: "Bir nechta kassa ochiq, navbat yo'q — kassirni boshqa ishga o'tkazish mumkin" },
 ];
 
 function PrefsPanel({ info, reload, guard }: { info: NotifyInfo; reload: () => void; guard: boolean }) {

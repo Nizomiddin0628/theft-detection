@@ -10,7 +10,8 @@ Nima qiladi:
   * oxirida tekshiradi va hisobot yozadi: xotira oqishi yo'q, navbat bo'shadi, har hodisa bulutga va Telegram'ga
     aynan bir marta yetdi (yo'qolgan ham, takrorlangan ham yo'q), disk chegaralangan, kutilmagan xato yo'q;
   * 1.9.0: kamerada sanash chizig'i (--count-line, sukut videosida odamlar uni kesib o'tadi) — har o'tish daqiqalik
-    yig'indiga va bulutga aynan yetgani (uzilish va qayta ishga tushishlarda ham) tekshiriladi.
+    yig'indiga va bulutga aynan yetgani (uzilish va qayta ishga tushishlarda ham) tekshiriladi;
+  * 2.0.0: kassa navbati zonasi (--queue-zone) — navbat daqiqalari bulutda edge bilan aynan bir xil.
 
 Ishga tushirish (loyiha ildizidan; virtual muhit faollashtirilgan):
     python tests/soak.py --hours 72                       # to'liq sinov (ma'lumot: %TEMP%/hushyor_soak_<vaqt>)
@@ -668,6 +669,13 @@ class Soak:
             rz = self.ec.post(f"/api/sources/{r.json()['id']}/zones",
                               json={"kind": "chiziq", "name": "Soak eshik", "points": [[x1, y1], [x2, y2]]})
             rz.raise_for_status()
+        if a.queue_zone:                     # 2.0.0: kassa navbati zonasi — daqiqalik yig'indi bulutga aynan yetishi
+            x1, y1, x2, y2 = (float(v) for v in a.queue_zone.split(","))
+            rz = self.ec.post(f"/api/sources/{r.json()['id']}/zones",
+                              json={"kind": "navbat", "name": "Soak kassa",
+                                    "points": [[x1, y1], [x2, y1], [x2, y2], [x1, y2]]})
+            rz.raise_for_status()
+            self.queue_t0 = time.time()
         self.say("Edge tayyor: kamera qo'shildi, Telegram obunachisi ulandi, bulutga proksi orqali ulangan")
         self.edge_log = LogTail(self.edge_data / "logs" / "app.log", "edge")
         self.cloud_log = LogTail(self.cloud_data / "logs" / "cloud.log", "bulut")
@@ -987,6 +995,27 @@ class Soak:
         chk("Sanash: bulutdagi kirdi/chiqdi edge bilan aynan bir xil (uzilishlarda yo'qolmadi, takrorlanmadi)",
             bool(loc) and not bad_cl, f"edge {tot(loc)}, bulut {tot(cl)}; mos emas: {len(bad_cl)} daqiqa {bad_cl[:5]}")
 
+    def check_queues(self, chk) -> None:
+        """2.0.0: kassa navbati daqiqalik yig'indisi (queue_minute) edge → bulut: aynan bir xil (kechikkan qism qo'shilib
+        qayta yuborilganda ham, uzilish va qayta ishga tushishlarda ham). Zona qo'shilgandan 3 daqiqa keyingi daqiqalar
+        (bulut imkoniyati hello bilan kelguncha yozilganlari bulutga ketmaydi — shunday bo'lishi kerak)."""
+        cut = int((time.time() - 180) // 60) * 60
+        q0 = int((getattr(self, "queue_t0", time.time()) + 180) // 60) * 60
+        cols = ("t_obs", "len_sum", "served", "wait_n", "len_max")
+        with self.edge_db() as c:
+            loc = {(int(r["minute"]), int(r["zone_id"])): tuple(round(float(r[k] or 0), 1) for k in cols) for r in c.execute(
+                "SELECT * FROM queue_minute WHERE minute >= ? AND minute < ?", (q0, cut))}
+        cl = {}
+        for r in self.cloud_rows("SELECT q.* FROM queue_minute q JOIN branches b ON b.id = q.branch_id "
+                                 "WHERE b.device_id = :d AND q.minute >= :a AND q.minute < :c",
+                                 {"d": self.device, "a": q0, "c": cut}):
+            cl[(int(r["minute"]), int(r["zone_id"]))] = tuple(round(float(r[k] or 0), 1) for k in cols)
+        bad = sorted(k for k in loc if cl.get(k) != loc[k])
+        obs = sum(v[0] for v in loc.values())
+        chk("Navbat: daqiqalik yig'indi bulutda edge bilan aynan bir xil (uzilish/qayta ishga tushishda ham)",
+            bool(loc) and not bad, f"{len(loc)} daqiqa, kuzatuv {obs / 3600:.1f} soat, xizmat "
+                                   f"{sum(v[2] for v in loc.values()):.0f}; mos emas: {len(bad)} {bad[:5]}")
+
     def finish(self) -> int:
         checks: list[dict] = []
 
@@ -1053,6 +1082,8 @@ class Soak:
             f"edge {len(evs)}, bulut {len(cev)}, yo'q: {miss[:10]}")
         if self.a.count_line:
             self.check_counts(chk)
+        if self.a.queue_zone:
+            self.check_queues(chk)
         clip_miss = [e["id"] for e in evs if e["clip_path"] and e["id"] in cev and not cev[e["id"]]["clip_file"]]
         no_clip = [e["id"] for e in evs if not e["clip_path"]]
         chk("Har klip bulutga yuklandi", not clip_miss, f"yuklanmagan: {clip_miss[:10]}")
@@ -1436,6 +1467,8 @@ def main() -> int:
                     help="soxta kamera videosi (sukut: 1.9.0 sanash namunasi — odamlar chiziqni kesib o'tadi)")
     ap.add_argument("--count-line", default="0,0.72,1,0.72",
                     help="sanash chizig'i x1,y1,x2,y2 (0..1); bo'sh qator — sanashsiz")
+    ap.add_argument("--queue-zone", default="0.05,0.45,0.95,0.99",
+                    help="2.0.0 kassa navbati zonasi x1,y1,x2,y2 (to'rtburchak, 0..1); bo'sh qator — navbatsiz")
     ap.add_argument("--cloud-db-url", default="", help="masalan PostgreSQL (sukut: sinov papkasidagi SQLite)")
     ap.add_argument("--dir", default="", help="sinov papkasi (sukut: vaqtinchalik papka)")
     ap.add_argument("--report-live", metavar="DB", help="jonli tizim bazasi (data/hushyor.db) — faqat hisobot")

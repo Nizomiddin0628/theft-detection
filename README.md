@@ -8,6 +8,65 @@ klipini avtomatik kesib, **Telegram botga** sabablari bilan yuboradi. Qo'riqchi 
 
 ---
 
+## 2.0.0 — 4-bosqich: kassa navbati va kassir qoidalari
+
+* **Ikki yangi zona** (*Kameralar → Zonalar*):
+  * **Kassa navbati** — kassa oldida xaridorlar kutadigan joy, to'lov joyi bilan birga (har kassaga alohida, nomi
+    "1-kassa").
+  * **Kassir joyi** — peshtaxta orti: u yerdagi odam navbatga qo'shilmaydi, bo'sh qolsa — "kassir yo'q". Bitta
+    kamerada bir nechta kassa bo'lsa, har navbat eng yaqin kassir joyi bilan juftlanadi. O'g'irlik signallarini
+    o'chirmaydi (kassir yo'qligida peshtaxta ortiga o'tgan begona odam ham kuzatilsin); kassirga signal kelmasin
+    desangiz — o'sha joyga "Xodimlar joyi" ham chizing.
+* **O'lchash** (`app/ai/queues.py`; `worker.py` ga yangi ulanish kerak emas — 1.9.0 sanash ulanishi orqali ishlaydi):
+  * Navbat uzunligi — zonada oyog'i turgan, kamida 1 s turgan odamlar; o'tib ketayotgan sanalmaydi. Oldidagi odam
+    to'sib, 1,5 s ko'rinmay qolgan ham sanaladi. Ko'rsatiladigan son — oxirgi 2,5 s medianasi (raqam sakramaydi).
+  * Kutish vaqti — har odam navbatga kirgandan to'lab chiqqungacha (5 s dan qisqasi — o'tib ketgan, yozilmaydi).
+  * Navbatda odamlar bir-birini to'sadi, kuzatuvchi ID ni yo'qotadi. Yo'qolgan odam 8 s eslab turiladi; zona
+    ichida birdan paydo bo'lgan yangi ID — eng yaqin yo'qolgan odamning davomi (kutish vaqti meros). Tashqaridan
+    kirib kelgan odam har doim yangi xaridor. Zonada 20 daqiqadan uzoq "turgan odam" (manekin, plakat, doim turgan
+    qo'riqchi) hisobga olinmaydi.
+  * Kassir 8 s dan ko'p ko'rinmasa — "kassir yo'q". Har kassa holati: uzun navbat / band / bo'sh / yopiq /
+    navbat bor, kassir yo'q.
+  * Video tahlili va aniqlik sinovi bazaga yozmaydi, signal bermaydi.
+* **5 qoida** (sozlamalar Navbat sahifasida):
+  1. **Qo'shimcha kassa oching** — navbatda ≥ 4 kishi 30 s davomida yoki kimdir ≥ 3 daqiqa kutmoqda. Xabarda
+     boshqa kassalar holati ham bor. Bir kassa uchun 10 daqiqada bir marta ("Navbat hali ham uzun").
+  2. **Kassani tekshiring** — navbatda ≥ 2 kishi, kassir joyi 45 s bo'sh.
+  3. **Qo'shimcha kassir kerak emas** — 30 daqiqa: ≥ 2 kassa ochiq, navbat deyarli yo'q (band vaqt yig'indisi ≤
+     (ochiq − 1) × 50%, navbat ≤ 2). 2 soatda bir marta; sukut bo'yicha faqat panelda.
+  4. **Kassir jadvali** — har dushanba 09:00 dan keyin: oxirgi 4 haftada bir xil hafta kuni va soatda takrorlangan
+     navbat (soat ichida ≥ 5 daqiqa, kunlarning ≥ yarmida; kamida 2 haftalik tarix). "Har kuni 13:00–14:00",
+     "Juma 18:00–20:00" ko'rinishida.
+  5. **Tarmoq signali** (bulut) — 15 daqiqa ichida ≥ 2 filialda 1/2-qoida: egasiga bitta xabar (umumiy sabab:
+     to'lov terminali, internet, kassa dasturi).
+* **Telegram (do'kon boti):** 1–2-qoida signallari (4-qoida ham). **/navbat** — kassalar hozir va bugungi
+  ko'rsatkich; shu xabardagi tugma bilan har kim navbat signallarini o'zi uchun o'chiradi (o'g'irlik signallari
+  kelaveradi). Navbat sahifasida "Telegram sinovi".
+* **Navbat sahifasi** (edge panel): kassalar hozir (3 s da yangilanadi), bugun (o'tdi, o'rtacha va 90% kutish, eng
+  uzoq, eng uzun navbat, uzun navbat daqiqalari), soatlar bo'yicha grafiklar, signallar, qoidalar sozlamasi, kassir
+  jadvali tavsiyasi, kunlar, CSV. Boshqaruv panelida — navbat kartasi.
+* **Aniqlik darvozasi** (reja: *navbat soni ±1 aniqlikda ≥ 90% namunada, kutish vaqti xatosi ≤ 20%*):
+  * **Namuna olish** — tizim o'sha lahzadagi kadrni (navbat zonasi atrofi) va o'z sonini saqlaydi; siz kadrdagi
+    navbatni sanab kiritasiz (tizim soni javobdan keyin ko'rinadi). Kamida 50 ta, 15 tasida navbatda ≥ 2 kishi.
+  * **Sekundomer** — odam navbatga turganda va to'lab chiqqanda bosiladi; avtomatik yozuv bilan vaqt kesishuvi
+    bo'yicha juftlanadi. Juftlanmagan o'lchov 100% xato. Kamida 10 kishi, o'rtacha xato ≤ 20%.
+  * Buyruq qatoridan: `python tests\queue_gate.py` (bazani faqat o'qiydi). Qo'shimcha: Little qonuni tekshiruvi
+    (L = λ·W) — izlar uzilayotganini ko'rsatadi.
+* **Bulut:** Navbat sahifasi (filiallar kassalari hozir, bugun, soatlar, signallar, kunlar), sozlamalarda "Kassa
+  navbati" va "Qo'shimcha kassir kerak emas", bulut botida `/navbat`. Edge navbat yozuvlarini faqat bulut
+  `features: ["queues"]` deganidan keyin yuboradi — eski bulut bilan hodisalar navbati to'xtamaydi
+  (docs/SYNC_API.md).
+* **O'lchovlarim (rostini aytsam):**
+  * Sintetik sahna (30 kishi, 4 kadr/s; kompyuterim 2 yadroli Xeon, Linux):
+    * xatosiz: kutish xatosi < 3%;
+    * o'rtacha shovqin (10% kadr yo'q, to'silishlar, ID almashishi): 1,3–6,1%, soni ±1 ichida 99–100%;
+    * og'ir shovqin (20% kadr yo'q): 8,7–15,8%, ±1 ichida 98,6–98,9%.
+  * Ochiq haqiqiy videolar, to'liq quvur (YOLO11n):
+    * 6 kishilik "xizmat joyi" — hammasi topildi, kutish xatosi o'rtacha 4,2%;
+    * 1–3 kishilik guruhlar — soni ±1 ichida 97,9%, aniq 90,7%.
+  * Bu do'koningizdagi natija emas: kamera burchagi va navbat zichligi boshqa. Darvoza faqat Navbat sahifasidagi
+    sinov bilan o'tadi.
+
 ## 1.9.1 — tuzatishlar (do'kon kompyuterida topilgan)
 
 * **`start_windows.bat` ishga tushmasdi:** `AttributeError: module 'app.web' has no attribute 'SERVER'`.
@@ -454,6 +513,7 @@ python run.py
 | Telegram bot | Ulanish kodi, obunachilar, sinov xabari, yuborish sozlamalari |
 | Hisobotlar | Kunlar/soatlar/kameralar bo'yicha, signal aniqligi, javob vaqti |
 | Tashriflar | Eshikdan kirdi/chiqdi, hozir ichkarida, soat/kun/hafta, eng gavjum soat, qo'lda sanash sinovi, CSV (1.9.0) |
+| Navbat | Har kassada navbat va kutish vaqti, kassir bor/yo'q, qoidalar va signallar, kassir jadvali tavsiyasi, aniqlik sinovi (namuna + sekundomer), CSV (2.0.0) |
 | Aniqlik sinovi | O'z videolaringizda hodisalarni belgilash va aniqlik/topishni o'lchash |
 | Sozlamalar | Sezgirlik rejimi, chegara, klip uzunligi, signal turlari, AI tezligi |
 | Tizim holati | CPU/RAM, versiyalar, kameralar tezligi, jurnal |
@@ -519,6 +579,10 @@ python -m tests.test_counting             # 1.9.0 odam sanash: mantiq, xodim, is
 python -m tests.test_counting_cloud       # 1.9.0 bulutda tashriflar (CLOUD_TEST_PG_URL bilan PostgreSQL ham)
 python -m tests.test_count_video          # 1.9.0 haqiqiy videoda sanash (samples/sanash_namuna.mp4, 7 kishi)
 python tests/count_gate.py                # 1.9.0 sanash darvozasi (qo'lda sanash sinovlari va kunlik og'ish)
+python -m tests.test_queues               # 2.0.0 kassa navbati: o'lchash, ID uzilishi, qoidalar 1-4, saqlash, Telegram, API, darvoza
+python -m tests.test_queues_cloud         # 2.0.0 bulutda navbat: hello, signallar, 5-qoida, doira (CLOUD_TEST_PG_URL bilan PostgreSQL ham)
+python -m tests.test_queue_video          # 2.0.0 haqiqiy videoda navbat (samples/navbat_namuna.mp4, navbat_guruh.mp4)
+python tests/queue_gate.py                # 2.0.0 navbat darvozasi (namunalar va sekundomer)
 ```
 
 ---

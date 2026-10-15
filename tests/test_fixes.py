@@ -392,8 +392,8 @@ def telegram_suite() -> None:
     time.sleep(0.2)
     t_cb = time.time()
     tg.callback(5001, f"see:{eid}")
-    answered = wait(lambda: any(c["method"] == "answerCallbackQuery" and c["t"] > t_cb for c in tg.CALLS), 10)
-    cb_lat = (answered and [c["t"] for c in tg.CALLS if c["method"] == "answerCallbackQuery" and c["t"] > t_cb][0] - t_cb)
+    answered = wait(lambda: any(c["method"] == "answerCallbackQuery" and c["t"] >= t_cb for c in tg.CALLS), 10)
+    cb_lat = (answered and [c["t"] for c in tg.CALLS if c["method"] == "answerCallbackQuery" and c["t"] >= t_cb][0] - t_cb)
     upload_done = wait(lambda: db.scalar("SELECT kind FROM tg_messages WHERE event_id=?", (eid,)) == "video", 15)
     os.environ.pop("MOCK_TG_BW", None)
     ok("Video yuklanayotganda tugma bosilishiga javob kutmaydi (alohida oqim)", answered and upload_done and cb_lat < 0.8,
@@ -423,12 +423,16 @@ def telegram_suite() -> None:
     wait(lambda: db.row("SELECT * FROM tg_messages WHERE event_id=?", (e3,)), 10)
     first_cap = [c for c in tg.calls("sendPhoto") if f"#{e3}" in str(c["data"].get("caption"))]
     db.update_event(e3, clip_path=None, clip_error=1)
-    t0 = time.time()
+    # Vaqt bo'yicha emas, ro'yxatdagi o'rin bo'yicha: Windows'da time.time() qadami ~16 ms — tez javob o'sha
+    # "lahza"ga tushib qolardi (2.0.0)
+    n_before = len(tg.calls("editMessageCaption"))
     bot.notify_clip(e3)
-    ed = wait(lambda: [c for c in tg.calls("editMessageCaption") if c["t"] > t0 and f"#{e3}" in str(c["data"].get("caption"))], 10)
+    ed = wait(lambda: [c for c in tg.calls("editMessageCaption")[n_before:] if f"#{e3}" in str(c["data"].get("caption"))],
+              10)
     ok("Klip yaratilmasa xabarda '⚠️ klip yaratilmadi' (tayyorlanmoqda emas)", first_cap and "tayyorlanmoqda" in
        first_cap[0]["data"]["caption"] and ed and "yaratilmadi" in ed[-1]["data"]["caption"]
-       and "tayyorlanmoqda" not in ed[-1]["data"]["caption"])
+       and "tayyorlanmoqda" not in ed[-1]["data"]["caption"],
+       f"birinchi: {bool(first_cap)}, tahrir: {[str(c['data'].get('caption'))[:60] for c in (ed or [])]}")
 
     # Ulanish kodini tavakkal qilish
     code = db.get_setting("connect_code")
