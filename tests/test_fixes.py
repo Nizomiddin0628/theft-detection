@@ -62,7 +62,7 @@ REMOTE = {"X-Forwarded-For": "192.168.1.77"}     # 127.0.0.1 orqali kelgan "tarm
 def logged_in(headers: dict | None = None) -> httpx.Client:
     from app import web
 
-    web._login_state.clear()
+    web._login_fails.clear()
     c = httpx.Client(base_url=BASE, follow_redirects=False, headers=headers or {}, timeout=30)
     r = c.post("/login", data={"username": "admin", "password": config.ADMIN_PASSWORD, "next": "/"})
     assert r.status_code == 303 and r.headers["location"] == "/", r.text
@@ -78,25 +78,31 @@ def web_suite() -> None:
     ok("Login sahifasi shu kompyuterdan — standart parol eslatmasi bor", "admin123" in r.text)
     r = httpx.get(f"{BASE}/login", headers=REMOTE)
     ok("Tarmoqdagi boshqa kompyuterdan — eslatma YO'Q", r.status_code == 200 and "admin123" not in r.text)
-    web._login_state.clear()
-    c = httpx.Client(base_url=BASE, follow_redirects=False, headers=REMOTE, timeout=30)
+    # Blok IP bo'yicha (X-Forwarded-For ga ishonilmaydi — uni har kim yozishi mumkin): sinov shu kompyuterdan
+    web._login_fails.clear()
+    c = httpx.Client(base_url=BASE, follow_redirects=False, timeout=30)
     for _ in range(web.LOGIN_MAX_FAILS):
         c.post("/login", data={"username": "admin", "password": "xato", "next": "/"})
     r = c.post("/login", data={"username": "admin", "password": config.ADMIN_PASSWORD, "next": "/"})
-    ok("5 xato paroldan keyin IP bloklanadi (to'g'ri parol ham)", r.headers.get("location") == "/login?error=blocked")
-    page = c.get("/login?error=blocked").text
+    ok("5 xato paroldan keyin IP bloklanadi (to'g'ri parol ham)", r.headers.get("location") == "/login?error=2",
+       r.headers.get("location", ""))
+    page = c.get("/login?error=2").text
     ok("Blok haqida tushunarli xabar (necha soniya)", "soniyadan keyin" in page)
-    r = httpx.post(f"{BASE}/login", data={"username": "admin", "password": config.ADMIN_PASSWORD, "next": "/"},
-                   headers={"X-Forwarded-For": "192.168.1.78"})
-    ok("Boshqa IP bloklanmagan", r.status_code == 303 and r.headers["location"] == "/")
-    st = web._login_state["192.168.1.77"]
+    saved = dict(web._login_fails)
+    web._login_fails.clear()
+    dpage = httpx.get(f"{BASE}/login?error=default").text
+    web._login_fails.update(saved)
+    ok("Standart parol bilan tarmoqdan kirish rad etilganda — aniq sabab (\"parol noto'g'ri\" emas)",
+       'data-testid="login-default"' in dpage and "Login yoki parol noto'g'ri" not in dpage)
+    ok("Boshqa IP bloklanmagan", web.login_blocked("192.168.1.78") == 0 and web.login_blocked("127.0.0.1") > 0)
+    st = web._login_fails["127.0.0.1"]
     first = st["until"] - time.time()
     st["until"] = time.time() - 1
     for _ in range(web.LOGIN_MAX_FAILS):
         c.post("/login", data={"username": "admin", "password": "xato", "next": "/"})
-    second = web._login_state["192.168.1.77"]["until"] - time.time()
+    second = web._login_fails["127.0.0.1"]["until"] - time.time()
     ok("Takroriy blok uzoqroq (1 daqiqa → 2 daqiqa)", 50 < first <= 61 and 110 < second <= 121, f"{first:.0f}/{second:.0f}")
-    web._login_state.clear()
+    web._login_fails.clear()
     bad = []
     for nxt in ("//evil.example", "/\\evil.example", "https://evil.example", "javascript:alert(1)", "/\t/evil.example"):
         r = httpx.post(f"{BASE}/login", data={"username": "admin", "password": config.ADMIN_PASSWORD, "next": nxt})
@@ -155,19 +161,22 @@ def web_suite() -> None:
     # Nazoratchining toza to'xtatish buyrug'i
     class FakeServer:
         should_exit = False
-    web.SERVER["server"] = fake = FakeServer()
-    os.environ["HUSHYOR_SHUTDOWN_TOKEN"] = "sinov-token-123"
+    fake = FakeServer()
+    old_ref, old_tok = list(web.SERVER_REF), web.CTL_TOKEN
+    web.SERVER_REF[:] = [fake]
+    web.CTL_TOKEN = "sinov-token-123"           # run.py --supervise HUSHYOR_CTL_TOKEN orqali beradi
     r1 = httpx.post(f"{BASE}/healthz/shutdown")
-    r2 = httpx.post(f"{BASE}/healthz/shutdown", headers={"X-Shutdown-Token": "xato"})
-    r3 = httpx.post(f"{BASE}/healthz/shutdown", headers={"X-Shutdown-Token": "sinov-token-123", **REMOTE})
-    ok("To'xtatish buyrug'i: tokensiz / xato token / tarmoqdan — 403", (r1.status_code, r2.status_code, r3.status_code)
-       == (403, 403, 403) and not fake.should_exit and not web.SHUTDOWN.is_set())
-    r4 = httpx.post(f"{BASE}/healthz/shutdown", headers={"X-Shutdown-Token": "sinov-token-123"})
+    r2 = httpx.post(f"{BASE}/healthz/shutdown", headers={"X-Hushyor-Token": "xato"})
+    r3 = httpx.post(f"{BASE}/healthz/shutdown", headers={"X-Hushyor-Token": "sinov-token-123", **REMOTE})
+    ok("To'xtatish buyrug'i: tokensiz / xato token — 403, tarmoqdan — 404", (r1.status_code, r2.status_code,
+       r3.status_code) == (403, 403, 404) and not fake.should_exit and not web.SHUTDOWN.is_set(),
+       str((r1.status_code, r2.status_code, r3.status_code)))
+    r4 = httpx.post(f"{BASE}/healthz/shutdown", headers={"X-Hushyor-Token": "sinov-token-123"})
     ok("To'g'ri token, shu kompyuterdan — server toza to'xtaydi", r4.status_code == 200 and fake.should_exit
        and web.SHUTDOWN.is_set())
     web.SHUTDOWN.clear()
-    web.SERVER["server"] = None
-    os.environ.pop("HUSHYOR_SHUTDOWN_TOKEN", None)
+    web.SERVER_REF[:] = old_ref
+    web.CTL_TOKEN = old_tok
     models_upload(s)
 
 
@@ -506,15 +515,17 @@ def runner_suite() -> None:
 
     class FS:
         should_exit = False
-    web.SERVER["server"] = fs = FS()
-    os.environ["HUSHYOR_SHUTDOWN_TOKEN"] = "tok-xyz"
+    fs = FS()
+    old_ref, old_tok = list(web.SERVER_REF), web.CTL_TOKEN
+    web.SERVER_REF[:] = [fs]
+    web.CTL_TOKEN = "tok-xyz"
     p = P()
     run.stop_child(p, PORT, "tok-xyz")
     ok("Nazoratchi bolani HTTP buyruq bilan toza to'xtatadi (TerminateProcess emas)", fs.should_exit
        and not getattr(p, "terminated", False))
-    web.SERVER["server"] = None
+    web.SERVER_REF[:] = old_ref
+    web.CTL_TOKEN = old_tok
     web.SHUTDOWN.clear()
-    os.environ.pop("HUSHYOR_SHUTDOWN_TOKEN", None)
 
     td = Path(tempfile.mkdtemp())
     (td / ".env").write_bytes("﻿TELEGRAM_BOT_TOKEN=123:ABC\r\nexport X_BOM_TEST=\"qiymat\"\r\n".encode("utf-8"))

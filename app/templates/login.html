@@ -10,7 +10,9 @@
 <div class="login-wrap">
   <form class="login" method="post" action="/login">
     <div class="brand">{{ logo(40) }}<div><b style="font-size:18px">{{ app_name }}</b><span>Do'kon kameralari uchun sun'iy intellekt</span></div></div>
-    {% if wait %}<div class="note danger" style="margin-bottom:14px">Ko'p noto'g'ri urinish. {{ wait }} soniyadan keyin qayta urining.</div>
+    {% if blocked %}<div class="note danger" style="margin-bottom:14px" data-testid="login-blocked">Ko'p noto'g'ri urinish. {{ blocked }} soniyadan keyin qayta urining.</div>
+    {% elif error == 'default' %}<div class="note danger" style="margin-bottom:14px" data-testid="login-default">Standart parol (admin123) bilan faqat shu kompyuterning o'zidan kirish mumkin. Telefon yoki boshqa kompyuterdan kirish uchun <code>.env</code> faylida <code>ADMIN_PASSWORD</code> ni o'zgartiring va dasturni qayta ishga tushiring.</div>
+    {% elif error == '2' %}<div class="note danger" style="margin-bottom:14px">Ko'p noto'g'ri urinish — biroz kutib, qayta urining.</div>
     {% elif error %}<div class="note danger" style="margin-bottom:14px">Login yoki parol noto'g'ri.</div>{% endif %}
     <input type="hidden" name="next" value="{{ next }}">
     <div class="field"><label class="f">Login</label><input type="text" name="username" value="admin" autocomplete="username" required></div>

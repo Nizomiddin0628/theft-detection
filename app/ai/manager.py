@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import queue
+import re
 import threading
 import time
 from pathlib import Path
@@ -14,6 +15,14 @@ from .clipper import make_clip, make_snapshot
 from .worker import FileJob, PendingClip, SourceWorker, open_capture
 
 log = get_logger("manager")
+
+
+_CRED_RE = re.compile(r"^([A-Za-z][A-Za-z0-9+.\-]*://)[^@/]*@")
+
+
+def mask_uri(uri: str) -> str:
+    """rtsp://admin:parol@10.0.0.9:554/... → rtsp://***@10.0.0.9:554/... (panel va API uchun)."""
+    return _CRED_RE.sub(r"\1***@", uri or "")
 
 
 class Manager:
@@ -89,7 +98,7 @@ class Manager:
                 "state": (w.state if w else "to'xtatilgan"), "error": (w.error if w else ""),
                 "fps_cam": 0, "fps_ai": 0, "persons": 0, "max_risk": 0, "alerts": 0, "uptime": 0,
                 "running": False}
-            info["uri"] = s["uri"]
+            info["uri"] = mask_uri(s["uri"])   # RTSP login/paroli panelga chiqmaydi (bazada to'liq saqlanadi)
             info["enabled"] = s["enabled"]
             info["zones"] = nz.get(s["id"], 0)
             out.append(info)

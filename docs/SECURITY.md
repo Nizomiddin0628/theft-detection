@@ -64,7 +64,7 @@ CLOUD_TEST_PG_URL=postgresql+psycopg://u:p@127.0.0.1/hushyor_test python -m test
 4. **Maxfiy kalitlar va ma'lumot shifrlanmagan:**
    - `.env` (Telegram tokeni, `EDGE_TOKEN`) va SQLite bazalari diskda ochiq saqlanadi. Windows foydalanuvchi huquqlari va BitLocker tavsiya etiladi.
    - Bulut zaxiralari ham shifrlanmagan (`chmod 600`). Ularni boshqa joyga ko'chirganda shifrlangan diskda saqlang.
-5. **Edge `/api/sources` RTSP manzilini paroli bilan qaytaradi.** Buni faqat kirgan admin ko'radi.
+5. ~~Edge `/api/sources` RTSP manzilini paroli bilan qaytaradi.~~ 1.9.1 da tuzatildi: panel va API'da `rtsp://***@...` ko'rinadi, to'liq manzil faqat bazada.
 6. **Ikki bosqichli kirish (2FA) yo'q.** Bulut paneli uchun TOTP — keyingi bosqich (ko'p filial, ko'p xodim bo'lganda).
 7. **Login cheklovi xotirada saqlanadi.** Server qayta ishga tushsa, hisoblagich nollanadi. Bitta server jarayoni uchun bu yetarli; bir nechta jarayon bo'lsa, Redis kerak bo'ladi.
 

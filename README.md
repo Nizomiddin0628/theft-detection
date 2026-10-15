@@ -8,6 +8,26 @@ klipini avtomatik kesib, **Telegram botga** sabablari bilan yuboradi. Qo'riqchi 
 
 ---
 
+## 1.9.1 — tuzatishlar (do'kon kompyuterida topilgan)
+
+* **`start_windows.bat` ishga tushmasdi:** `AttributeError: module 'app.web' has no attribute 'SERVER'`.
+  * Sabab: 1.4.1 ning asl `run.py` si yo'qolgan edi, qayta tiklangan nusxa 1.5.0+ dagi asl `web.py` bilan mos
+    kelmagan (`SERVER_REF`, `HUSHYOR_CTL_TOKEN`).
+  * Avvalgi sinovlar `run.py` ni chetlab o'tgan, shuning uchun bu ko'rinmagan.
+  * Endi `python -m tests.test_run` dasturni xuddi `start_windows.bat` kabi haqiqiy jarayon sifatida tekshiradi:
+    * ishga tushish;
+    * band portda ikkinchi nusxa;
+    * toza to'xtatish;
+    * nazoratchi (`--supervise`) va uning o'ldirilishi.
+* **Kirish sahifasi:**
+  * Standart parol bilan tarmoqdan kirish rad etilsa, endi aniq sabab yoziladi (avval "parol noto'g'ri" chiqardi).
+  * Bloklanganda necha soniya qolgani ko'rinadi.
+* **Qizil ogohlantirish** ("standart parol bilan tarmoqqa ochiq") panelda yana chiqadi. Avval qayta tiklangan
+  `base.html` boshqa nomdagi o'zgaruvchini kutardi.
+* **RTSP login/paroli** kameralar ro'yxatida, boshqaruv panelida va API'da yashirin: `rtsp://***@...`.
+* `tests/test_fixes.py` asl kod bilan moslashtirildi: 50/50. Qayta tiklangan barcha fayllar ham tekshirildi:
+  modullar orasidagi har bir murojaat bor nomga ishora qiladi.
+
 ## 1.9.0 versiyadagi o'zgarishlar (3-bosqich: odamlarni sanash)
 
 * **Sanash chizig'i** — yangi zona turi (*Kameralar → Zonalar → "Sanash chizig'i"*):
@@ -483,6 +503,7 @@ python -m tests.test_eval                 # aniqlik sinovi: solishtirish va API
 python -m tests.test_bot_menu             # eski bot menyusini tozalash
 python -m tests.test_models               # ko'rish modellari: to'plamlar, ONNX Runtime / OpenVINO, API
 python -m tests.test_fixes                # 1.4.1 tuzatishlari: login himoyasi, CSRF, model yuklash, Telegram navbati
+python -m tests.test_run                  # 1.9.1 run.py haqiqiy jarayon: ishga tushish, to'xtatish, nazoratchi
 python -m tests.test_sync                 # 1.5.0 edge agent: bulut navbati, uzilish, takrorlanmaslik, tartib
 python -m tests.test_cloud                # 1.6.0 bulut: rollar, filial tokeni, edge ulanishi, review → edge (SQLite; CLOUD_TEST_PG_URL bilan PostgreSQL ham)
 python -m tests.test_notify               # 1.7.0 bildirishnomalar: Telegram/email/push, rollar, eskalatsiya, aloqa uzilishi, SSE

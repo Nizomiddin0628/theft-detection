@@ -96,7 +96,7 @@ def stop_child(proc, port: int, token: str, wait_s: float = 20.0) -> None:
         return
     try:
         req = urllib.request.Request(f"http://127.0.0.1:{port}/healthz/shutdown", data=b"", method="POST",
-                                     headers={"X-Shutdown-Token": token})
+                                     headers={"X-Hushyor-Token": token})
         _LOCAL.open(req, timeout=5).close()
         proc.wait(wait_s)
         _slog("dastur toza to'xtatildi")
@@ -122,7 +122,8 @@ def supervise(a) -> None:
         return
     cmd = [sys.executable, str(ROOT / "run.py"), "--child", "--no-browser", "--host", a.host, "--port", str(a.port)]
     token = secrets.token_hex(16)
-    env = dict(os.environ, HUSHYOR_PARENT_PID=str(os.getpid()), HUSHYOR_SHUTDOWN_TOKEN=token)
+    # Bola jarayon (app/web.py) shu kalitni HUSHYOR_CTL_TOKEN dan o'qiydi; /healthz/shutdown — X-Hushyor-Token bilan
+    env = dict(os.environ, HUSHYOR_PARENT_PID=str(os.getpid()), HUSHYOR_CTL_TOKEN=token)
     flags = getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0
     backoff = 3.0
     opened = False
@@ -185,13 +186,19 @@ def _watch_parent() -> None:
                     from app import web
 
                     web.SHUTDOWN.set()
-                    if web.SERVER.get("server") is not None:
-                        web.SERVER["server"].should_exit = True
+                    for srv in _servers(web):
+                        srv.should_exit = True
                 except Exception:  # noqa: BLE001
                     pass
                 time.sleep(20)
                 os._exit(0)
     threading.Thread(target=loop, daemon=True, name="parent-watch").start()
+
+
+def _servers(web) -> list:
+    """uvicorn Server(lar)i: app/web.py dagi SERVER_REF ro'yxati (1.4.1+)."""
+    ref = getattr(web, "SERVER_REF", None)
+    return list(ref) if isinstance(ref, list) else []
 
 
 def main() -> None:
@@ -246,7 +253,8 @@ def main() -> None:
 
     server = Server(uvicorn.Config(web.app, host=a.host, port=a.port, log_level="warning", access_log=False,
                                    timeout_graceful_shutdown=5))
-    web.SERVER["server"] = server
+    if isinstance(getattr(web, "SERVER_REF", None), list):
+        web.SERVER_REF.append(server)         # /healthz/shutdown va nazoratchi shu orqali toza to'xtatadi
     try:
         server.run()
     except KeyboardInterrupt:
