@@ -1,0 +1,12 @@
+{
+  "name": "Hushyor AI",
+  "short_name": "Hushyor",
+  "description": "Do'kon kameralaridagi shubhali harakatlarni tekshirish",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#eef1f4",
+  "theme_color": "#0f1b2a",
+  "lang": "uz",
+  "icons": [{ "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }]
+}

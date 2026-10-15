@@ -1,0 +1,23 @@
+{
+  "name": "hushyor-cloud-panel",
+  "version": "1.8.0",
+  "private": true,
+  "description": "Hushyor AI bulut paneli (Next.js statik eksport; bulut serveri cloud/panel_dist dan beradi)",
+  "scripts": {
+    "dev": "next dev -p 3000",
+    "build": "next build && node scripts/copy-dist.mjs",
+    "lint": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@fontsource-variable/ibm-plex-sans": "5.3.0",
+    "next": "16.3.8",
+    "react": "19.2.8",
+    "react-dom": "19.2.8"
+  },
+  "devDependencies": {
+    "@types/node": "22.20.5",
+    "@types/react": "19.2.18",
+    "@types/react-dom": "19.2.7",
+    "typescript": "5.9.3"
+  }
+}

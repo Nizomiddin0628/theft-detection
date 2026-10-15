@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import csv
+import hmac
 import io
 import json
 import platform
@@ -20,18 +21,20 @@ from fastapi.responses import (FileResponse, HTMLResponse, JSONResponse, Redirec
                                StreamingResponse)
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from starlette.concurrency import run_in_threadpool
 from starlette.middleware.sessions import SessionMiddleware
 
-from . import db
+from . import db, metrics, sync
 from .ai.manager import archive_feedback, delete_event_files, get_manager
 from .config import (ADMIN_PASSWORD, ADMIN_USER, APP_NAME, APP_VERSION, BASE_DIR, CLIPS_DIR, DATA_DIR,
-                     EVAL_DIR, MODELS_DIR, SECRET_KEY, SENSITIVITY_PRESETS, UPLOADS_DIR)
+                     EVAL_DIR, HOST, MODELS_DIR, PUBLIC_URL, SECRET_KEY, SENSITIVITY_PRESETS, UPLOADS_DIR, env)
 from .logutil import MEMORY_LOG, get_logger, setup_logging
 from . import evaluation
 from .ai import zones as zones_mod
 from .telegram_bot import KIND_UZ, get_bot, latency_stats, susp_info
 
 log = get_logger("web")
+SHUTDOWN = threading.Event()      # server to'xtamoqda — jonli oqimlar (SSE, MJPEG) yopiladi
 APP_DIR = Path(__file__).resolve().parent
 templates = Jinja2Templates(directory=str(APP_DIR / "templates"))
 
@@ -76,7 +79,7 @@ def _startup() -> None:
     setup_logging()
     db.init_db()
     # Dastur to'xtaganda chala qolgan baholash va video tayyorlash
-    db.execute("UPDATE eval_runs SET status='toxtatildi' WHERE status='ishlanmoqda'")
+    db.execute("UPDATE eval_runs SET status='toxtatildi' WHERE status IN ('ishlanmoqda', 'navbatda')")
     for v in db.rows("SELECT id, path FROM eval_videos WHERE play_status='tayyorlanmoqda'"):
         threading.Thread(target=evaluation.make_playable, args=(v["id"], Path(v["path"])), daemon=True).start()
     if not db.row("SELECT id FROM sources WHERE kind='webcam'"):
@@ -87,8 +90,18 @@ def _startup() -> None:
     bot.manager = mgr
     mgr.notifier = bot
     bot.start()
+    # Edge agent: bulut navbati (CLOUD_URL berilgan bo'lsa) va daqiqalik ko'rsatkichlar
+    sync.install_hooks()
+    sync.start_worker(mgr)
+    global _metrics
+    if _metrics is None or not _metrics.is_alive():
+        _metrics = metrics.MetricsSampler(mgr)
+        _metrics.start()
     threading.Thread(target=_warmup, daemon=True).start()
     mgr.autostart()
+    if default_password_warning():
+        log.warning("Panel standart parol (admin123) bilan tarmoqqa ochiq (HOST=%s). .env da ADMIN_PASSWORD ni "
+                    "o'zgartiring yoki HOST=127.0.0.1 qiling", HOST)
     log.info("%s %s ishga tushdi", APP_NAME, APP_VERSION)
 
 
@@ -114,12 +127,61 @@ def _warmup() -> None:
         log.error("Modellarni yuklashda xato: %s", e)
 
 
+_metrics = None
+
+
 def _shutdown() -> None:
     get_manager().stop_all()
     get_bot().stop()
+    try:
+        sync.get_worker().stop()
+        if _metrics is not None:
+            _metrics.stop()
+    except Exception:  # noqa: BLE001
+        pass
 
 
 # ----------------------------------------------------------------------------- yordamchilar
+def _host_of(url_or_host: str) -> str:
+    return url_or_host.split("://", 1)[-1].split("/", 1)[0].strip().lower()
+
+
+def _cross_site(request: Request) -> bool:
+    """Holatni o'zgartiruvchi so'rov boshqa saytdan kelganmi (CSRF).
+
+    Avval Sec-Fetch-Site (brauzer o'zi hisoblaydi, teskari proksi Host'ni o'zgartirsa ham to'g'ri), u bo'lmasa
+    Origin ≈ Host / X-Forwarded-Host / PUBLIC_URL. Ikkalasi ham yo'q so'rov (buyruq qatori, sinov) o'tkaziladi.
+    """
+    sfs = request.headers.get("sec-fetch-site", "").lower()
+    if sfs in ("same-origin", "none"):
+        return False
+    if sfs == "cross-site":
+        return True
+    # "same-site" (1.8.0): shu kompyuterning boshqa porti yoki qo'shni subdomen — avtomatik ishonchli emas,
+    # Origin tekshiriladi (masalan, shu kompyuterdagi boshqa dastur sahifasi panelga buyruq yubora olmasin)
+    origin = request.headers.get("origin")
+    if origin == "null" or (sfs == "same-site" and not origin):
+        return True
+    if origin:
+        allowed = {_host_of(request.headers.get("host") or ""), _host_of(request.headers.get("x-forwarded-host") or "")}
+        if PUBLIC_URL:   # teskari proksi orqasida Host boshqacha bo'lishi mumkin
+            allowed.add(_host_of(PUBLIC_URL))
+        if _host_of(origin) not in allowed:
+            return True
+    return False
+
+
+SECURITY_HEADERS = {"X-Frame-Options": "DENY", "X-Content-Type-Options": "nosniff",
+                    "Referrer-Policy": "same-origin",
+                    "Permissions-Policy": "camera=(), microphone=(), geolocation=(), payment=(), usb=()"}
+# 1.8.0: sahifalar uchun CSP. Shablonlarda ichki skript va onclick'lar bor — 'unsafe-inline' hozircha qoladi
+# (qoldiq xavf: docs/SECURITY.md), lekin tashqi manbadan skript, <object>, <base> almashtirish, boshqa saytga forma
+# yuborish va panelni boshqa sayt ichiga joylash taqiqlanadi
+EDGE_CSP = ("default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; "
+            "img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'self'; font-src 'self' data:; "
+            "object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'")
+
+
 @app.middleware("http")
 async def auth_mw(request: Request, call_next):
     path = request.url.path
@@ -127,7 +189,22 @@ async def auth_mw(request: Request, call_next):
         if path.startswith(("/api", "/stream", "/media")):
             return JSONResponse({"detail": "Kirish talab qilinadi"}, status_code=401)
         return RedirectResponse(f"/login?next={path}", status_code=303)
-    return await call_next(request)
+    if request.method in ("POST", "PUT", "PATCH", "DELETE") and _cross_site(request):
+        return JSONResponse({"detail": "Boshqa saytdan so'rov rad etildi (CSRF)"}, status_code=403)
+    if path == "/api/models/upload":
+        # Juda katta fayl diskga ham yozilmasin (Starlette multipart'ni avval vaqtinchalik faylga oladi)
+        try:
+            if int(request.headers.get("content-length") or 0) > MODEL_UPLOAD_LIMIT + (1 << 20):
+                return JSONResponse({"detail": f"Fayl juda katta (chegara {MODEL_UPLOAD_LIMIT // (1 << 20)} MB)"},
+                                    status_code=413)
+        except ValueError:
+            pass
+    resp = await call_next(request)
+    for k, v in SECURITY_HEADERS.items():
+        resp.headers.setdefault(k, v)
+    if resp.headers.get("content-type", "").startswith("text/html"):
+        resp.headers.setdefault("Content-Security-Policy", EDGE_CSP)
+    return resp
 
 
 # Sessiya middleware'i auth middleware'idan keyin qo'shiladi — shunda u tashqi qavat bo'ladi
@@ -141,7 +218,7 @@ def page(request: Request, name: str, active: str, title: str, **ctx) -> HTMLRes
     pending = db.scalar("SELECT COUNT(*) FROM events WHERE status='yangi'") or 0
     base = {"nav": NAV, "active": active, "title": title, "settings": s, "app_name": APP_NAME,
             "version": APP_VERSION, "user": request.session.get("user"), "subs": subs, "pending": pending,
-            "presets": SENSITIVITY_PRESETS, "kind_uz": KIND_UZ}
+            "presets": SENSITIVITY_PRESETS, "kind_uz": KIND_UZ, "default_pw_warn": default_password_warning()}
     base.update(ctx)
     return templates.TemplateResponse(request, name, base)
 
@@ -182,31 +259,145 @@ async def body_data(request: Request) -> dict:
 
 
 # ----------------------------------------------------------------------------- kirish
+LOGIN_MAX_FAILS = 5          # shuncha xato paroldan keyin shu IP vaqtincha bloklanadi
+LOGIN_BLOCK_SEC = 60.0       # blok vaqti (har keyingi blokda ikki baravar, 15 daqiqagacha)
+_login_fails: dict[str, dict] = {}        # ip -> {"n": xatolar, "until": blok tugash vaqti, "blocks": nechinchi blok}
+_login_lock = threading.Lock()
+LOCAL_HOSTS = ("127.0.0.1", "::1", "localhost", "testclient")
+
+
+def _client_ip(request: Request) -> str:
+    return (request.client.host if request.client else "") or "?"
+
+
+def _is_local(request: Request) -> bool:
+    """So'rov shu kompyuterdan kelganmi. Teskari proksi orqali kelgan so'rov (X-Forwarded-* bor) — tashqi deb
+    hisoblanadi, hatto proksi 127.0.0.1 dan ulansa ham (proksiga X-Forwarded-For berish README'da)."""
+    if any(h.startswith("x-forwarded-") or h == "forwarded" for h in request.headers.keys()):
+        return False
+    return _client_ip(request) in LOCAL_HOSTS
+
+
+def _is_self(request: Request) -> bool:
+    """Shu kompyuterning o'zidan kelgan so'rov: loopback yoki manba IP = serverning o'z manzili
+    (HOST=192.168.x.x bo'lsa nazoratchi shu manzilga ulanadi; tashqi IP hech qachon serverning o'ziga teng emas)."""
+    ip = _client_ip(request)
+    if ip in LOCAL_HOSTS:
+        return True
+    host = _host_of(request.headers.get("host") or "").rsplit(":", 1)[0].strip("[]")
+    return bool(host) and ip == host
+
+
+def login_blocked(ip: str) -> float:
+    """Shu IP bloklangan bo'lsa — qolgan soniyalar, aks holda 0."""
+    with _login_lock:
+        rec = _login_fails.get(ip)
+        if not rec:
+            return 0.0
+        left = rec.get("until", 0.0) - time.time()
+        return max(0.0, left)
+
+
+def _login_failed(ip: str) -> None:
+    now = time.time()
+    with _login_lock:
+        rec = _login_fails.setdefault(ip, {"n": 0, "until": 0.0, "blocks": 0, "t": now})
+        rec["n"] += 1
+        rec["t"] = now
+        if rec["n"] >= LOGIN_MAX_FAILS:
+            rec["n"] = 0
+            rec["blocks"] += 1
+            rec["until"] = now + min(LOGIN_BLOCK_SEC * (2 ** (rec["blocks"] - 1)), 900.0)
+            log.warning("Panelga %d marta xato parol (%s) — %.0f s bloklandi", LOGIN_MAX_FAILS, ip,
+                        rec["until"] - now)
+        if len(_login_fails) > 2000:   # xotira cheksiz o'smasin: 1 soatdan beri tinch yozuvlar o'chiriladi
+            for k in [k for k, r in _login_fails.items() if r["until"] < now and now - r.get("t", 0) > 3600]:
+                _login_fails.pop(k, None)
+
+
+def _login_ok(ip: str) -> None:
+    with _login_lock:
+        _login_fails.pop(ip, None)
+
+
+def safe_next(nxt: str) -> str:
+    """Kirishdan keyingi manzil faqat shu panel ichida (ochiq yo'naltirish yo'q): brauzerlar "/\\evil.com" ni
+    "//evil.com" deb tushunadi, shuning uchun teskari chiziq va boshqaruv belgilari ham rad etiladi (1.8.0)."""
+    if (not nxt.startswith("/") or nxt.startswith("//") or "\\" in nxt
+            or any(ord(ch) < 32 or ord(ch) == 127 for ch in nxt)):
+        return "/"
+    return nxt
+
+
+def default_password_warning() -> bool:
+    """Standart parol o'zgartirilmagan va panel faqat shu kompyuter uchun emas — paneldagi ogohlantirish."""
+    return ADMIN_PASSWORD == "admin123" and HOST not in ("127.0.0.1", "localhost", "::1")
+
+
 @app.get("/login", response_class=HTMLResponse)
 def login_page(request: Request, next: str = "/", error: str = ""):
-    return templates.TemplateResponse(request, "login.html", {"app_name": APP_NAME, "next": next, "error": error,
-                                                              "default_pw": ADMIN_PASSWORD == "admin123"})
+    # Standart parol eslatmasi faqat shu kompyuterdan ochilganda ko'rinadi — tarmoqdagi begonaga parol aytilmaydi
+    return templates.TemplateResponse(request, "login.html", {
+        "app_name": APP_NAME, "next": next, "error": error,
+        "default_pw": ADMIN_PASSWORD == "admin123" and _is_local(request),
+        "blocked": round(login_blocked(_client_ip(request)))})
 
 
 @app.post("/login")
 def login(request: Request, username: str = Form(...), password: str = Form(...), next: str = Form("/")):
-    if username == ADMIN_USER and password == ADMIN_PASSWORD:
+    ip = _client_ip(request)
+    if login_blocked(ip) > 0:
+        return RedirectResponse("/login?error=2", status_code=303)
+    # compare_digest: parolni harf-harf solishtirish vaqti bo'yicha topib bo'lmaydi
+    good = (hmac.compare_digest(username.encode(), ADMIN_USER.encode())
+            & hmac.compare_digest(password.encode(), ADMIN_PASSWORD.encode()))
+    if good and ADMIN_PASSWORD == "admin123" and not _is_local(request):
+        # 1.8.0: standart parol (hamma biladi) bilan tarmoqdan kirish yo'q — faqat shu kompyuterning o'zidan.
+        # Parol .env da o'zgartirilgach telefon/boshqa kompyuterdan ham kiriladi
+        log.warning("Standart parol bilan tarmoqdan kirish rad etildi (%s)", ip)
+        return RedirectResponse("/login?error=default", status_code=303)
+    if good:
+        _login_ok(ip)
+        request.session.clear()            # oldingi sessiyadagi hech narsa yangi kirishga o'tmasin
         request.session["user"] = username
-        if not next.startswith("/") or next.startswith("//"):
-            next = "/"
-        return RedirectResponse(next or "/", status_code=303)
+        return RedirectResponse(safe_next(next), status_code=303)
+    _login_failed(ip)
     return RedirectResponse("/login?error=1", status_code=303)
 
 
 @app.get("/logout")
+@app.post("/logout")
 def logout(request: Request):
     request.session.clear()
     return RedirectResponse("/login", status_code=303)
 
 
 @app.get("/healthz")
-def healthz():
+async def healthz():
+    # async: sinxron ishchi oqimlar band bo'lsa ham (video yuklash, kamera sinovi) nazoratchiga darhol javob
     return {"ok": True, "version": APP_VERSION}
+
+
+CTL_TOKEN = env("HUSHYOR_CTL_TOKEN")      # nazoratchi (run.py --supervise) bergan maxfiy kalit
+SERVER_REF: list = []                     # uvicorn Server (run.py qo'yadi) — toza to'xtatish uchun
+
+
+@app.post("/healthz/shutdown")
+async def healthz_shutdown(request: Request):
+    """Nazoratchidan toza to'xtatish buyrug'i (faqat shu kompyuterdan, faqat to'g'ri kalit bilan).
+
+    Windows'da oynasiz bola jarayonga Ctrl+C yuborib bo'lmaydi; shu yo'l bilan kameralar va kliplar
+    to'g'ri yopiladi (TerminateProcess o'rniga)."""
+    if not CTL_TOKEN or not _is_self(request):
+        raise HTTPException(404)
+    if not hmac.compare_digest(request.headers.get("x-hushyor-token", "").encode("utf-8", "replace"),
+                               CTL_TOKEN.encode()):
+        raise HTTPException(403)
+    SHUTDOWN.set()
+    for srv in SERVER_REF:
+        srv.should_exit = True
+    log.info("Nazoratchidan to'xtatish buyrug'i olindi")
+    return {"ok": True}
 
 
 @app.get("/favicon.ico")
@@ -289,10 +480,11 @@ def help_page(request: Request):
 # ----------------------------------------------------------------------------- media va oqimlar
 @app.get("/media/clips/{name}")
 def media(name: str):
-    if not re.fullmatch(r"[\w\-.]+", name):
+    # Faqat fayl nomi: "." bilan boshlanmaydi (".." papka emas), kengaytmasi klip yoki rasm
+    if not re.fullmatch(r"[\w\-][\w\-.]*\.(mp4|jpg|jpeg|png)", name):
         raise HTTPException(400)
     p = CLIPS_DIR / name
-    if not p.exists():
+    if not p.is_file():
         raise HTTPException(404)
     mt = "video/mp4" if p.suffix == ".mp4" else "image/jpeg"
     return FileResponse(p, media_type=mt)
@@ -310,7 +502,7 @@ async def _mjpeg(get_frame, request: Request):
     boundary = b"--frame\r\n"
     last = None
     idle = 0
-    while True:
+    while not SHUTDOWN.is_set():
         if await request.is_disconnected():
             break
         frame = get_frame()
@@ -451,8 +643,10 @@ def zones_page(request: Request, source_id: int):
 def eval_page(request: Request):
     zs = db.rows("SELECT s.id, s.name, COUNT(z.id) AS n FROM sources s LEFT JOIN zones z ON z.source_id=s.id "
                  "AND z.enabled=1 GROUP BY s.id ORDER BY s.id")
+    from .ai import model_zoo
+
     return page(request, "eval.html", "eval", "Aniqlik sinovi", zone_sources=zs, label_kinds=evaluation.LABEL_KINDS,
-                tol=(evaluation.TOL_BEFORE, evaluation.TOL_AFTER))
+                tol=(evaluation.TOL_BEFORE, evaluation.TOL_AFTER), model_sets=model_zoo.status())
 
 
 def _eval_video_public(v: dict) -> dict:
@@ -545,13 +739,20 @@ def media_eval(vid: int):
 async def api_eval_run(request: Request):
     d = await body_data(request)
     ids = d.get("video_ids") or None
+    sets = d.get("model_sets") or None
+    if isinstance(sets, str):
+        sets = [x for x in sets.split(",") if x]
+    if sets is not None and (not isinstance(sets, list) or not all(isinstance(x, str) for x in sets)):
+        raise HTTPException(400, "model_sets — nomlar ro'yxati bo'lishi kerak")
+    if ids is not None and (not isinstance(ids, list) or not all(str(x).isdigit() for x in ids)):
+        raise HTTPException(400, "video_ids — raqamlar ro'yxati bo'lishi kerak")
     try:
-        run_id = evaluation.get_runner().start(ids)
+        run_ids = evaluation.get_runner().start(ids, sets)
     except RuntimeError as e:
         raise HTTPException(409, str(e))
     except ValueError as e:
         raise HTTPException(400, str(e))
-    return {"ok": True, "run_id": run_id}
+    return {"ok": True, "run_id": run_ids[0], "run_ids": run_ids}
 
 
 @app.post("/api/eval/stop")
@@ -569,7 +770,7 @@ def api_eval_status():
 @app.get("/api/eval/runs")
 def api_eval_runs():
     cols = ("id, created_at, finished_at, status, progress, version, settings, videos, hours, tp, fp, fn, dup, "
-            "precision, recall, f1, fp_per_hour, latency_med, error")
+            "precision, recall, f1, fp_per_hour, latency_med, error, speed")
     out = []
     for r in db.rows(f"SELECT {cols} FROM eval_runs ORDER BY id DESC LIMIT 50"):
         r["settings"] = json.loads(r["settings"] or "{}")
@@ -732,6 +933,74 @@ async def api_upload(file: UploadFile = File(...), mode: str = Form("fast"), zon
 download_state: dict[str, dict] = {}
 
 
+def _ip_public(ip) -> bool:
+    import ipaddress
+
+    if ip.version == 6:
+        if ip.ipv4_mapped is not None:
+            ip = ip.ipv4_mapped
+        elif ip in ipaddress.ip_network("64:ff9b::/96"):          # NAT64: ichidagi IPv4 manzil tekshiriladi
+            ip = ipaddress.ip_address(int(ip) & 0xFFFFFFFF)
+    return ip.is_global and not ip.is_multicast
+
+
+def resolve_public(url: str) -> tuple[bool, str, str]:
+    """Havola internetdagi ochiq manzilmi (SSRF himoyasi, 1.8.0): lokal tarmoq (kameralar, router), shu kompyuter
+    va bulut metadata manzillariga (169.254.x) server nomidan so'rov yuborilmaydi. Qaytaradi: (ok, sabab, IP) —
+    so'rov aynan shu tekshirilgan IP'ga yuboriladi (DNS ikkinchi marta boshqa manzil bera olmaydi)."""
+    import ipaddress
+    import socket
+    from urllib.parse import urlsplit
+
+    try:
+        u = urlsplit(url)
+        port = u.port
+        host = u.hostname
+    except ValueError:
+        return False, "havola noto'g'ri", ""
+    if u.scheme not in ("http", "https") or not host:
+        return False, "havola http:// yoki https:// bo'lishi kerak", ""
+    try:
+        infos = socket.getaddrinfo(host, port or (443 if u.scheme == "https" else 80), proto=socket.IPPROTO_TCP)
+    except (OSError, UnicodeError, ValueError):
+        return False, "manzil topilmadi", ""
+    ips = [ipaddress.ip_address(info[4][0].split("%")[0]) for info in infos]
+    if not ips or not all(_ip_public(ip) for ip in ips):
+        return False, "lokal tarmoq yoki shu kompyuter manziliga yuklab bo'lmaydi", ""
+    return True, "", str(ips[0])
+
+
+def public_url_ok(url: str) -> tuple[bool, str]:
+    ok_, why, _ip = resolve_public(url)
+    return ok_, why
+
+
+def open_public(url: str, timeout: float = 60.0, max_redirects: int = 5):
+    """GET (oqim): har qadamda manzil tekshiriladi va ulanish aynan tekshirilgan IP'ga (Host va TLS SNI — asl nom,
+    sertifikat ham asl nom bo'yicha). Yo'naltirishlar qo'lda. Qaytaradi: (client, response) — ikkalasi ham yopilsin."""
+    cur = url
+    for _ in range(max_redirects + 1):
+        good, why, ip = resolve_public(cur)
+        if not good:
+            raise ValueError(f"Havola rad etildi: {why}")
+        u = httpx.URL(cur)
+        client = httpx.Client(timeout=timeout, follow_redirects=False, trust_env=False)
+        try:
+            req = client.build_request("GET", u.copy_with(host=ip), headers={"Host": u.netloc.decode("ascii")},
+                                       extensions={"sni_hostname": u.host} if u.scheme == "https" else {})
+            r = client.send(req, stream=True)
+        except Exception:
+            client.close()
+            raise
+        if not r.is_redirect:
+            return client, r
+        loc = r.headers.get("location", "")
+        r.close()
+        client.close()
+        cur = str(u.join(loc))
+    raise ValueError("Juda ko'p yo'naltirish")
+
+
 @app.post("/api/upload-url")
 async def api_upload_url(request: Request):
     d = await body_data(request)
@@ -744,6 +1013,9 @@ async def api_upload_url(request: Request):
     if re.search(r"(youtube\.com|youtu\.be|instagram\.com|tiktok\.com|facebook\.com)", url):
         raise HTTPException(400, "YouTube/Instagram/TikTok havolalari to'g'ridan-to'g'ri yuklanmaydi. "
                                  "Videoni kompyuteringizga yuklab olib, fayl sifatida yuboring.")
+    good, why = await run_in_threadpool(public_url_ok, url)
+    if not good:
+        raise HTTPException(400, f"Havola qabul qilinmadi: {why}")
     key = str(int(time.time() * 1000))
     download_state[key] = {"status": "yuklanmoqda", "bytes": 0, "error": None, "job_id": None}
 
@@ -753,7 +1025,9 @@ async def api_upload_url(request: Request):
             name += ".mp4"
         dest = UPLOADS_DIR / name
         try:
-            with httpx.stream("GET", url, follow_redirects=True, timeout=60) as r:
+            # Har qadam (yo'naltirishlar ham) tekshiriladi va tekshirilgan IP'ga ulanadi (SSRF, DNS rebinding)
+            client, r = open_public(url)
+            try:
                 r.raise_for_status()
                 ctype = r.headers.get("content-type", "")
                 if "text/html" in ctype:
@@ -764,6 +1038,9 @@ async def api_upload_url(request: Request):
                         download_state[key]["bytes"] += len(chunk)
                         if download_state[key]["bytes"] > 2_000_000_000:
                             raise ValueError("Fayl juda katta")
+            finally:
+                r.close()
+                client.close()
             cap = cv2.VideoCapture(str(dest))
             ok = cap.isOpened() and cap.read()[0]
             cap.release()
@@ -858,6 +1135,7 @@ async def api_review(request: Request, event_id: int):
     if status not in ("tasdiqlangan", "rad_etilgan", "yangi"):
         raise HTTPException(400, "Noto'g'ri holat")
     note = d.get("note")
+    note = str(note)[:2000] if note is not None else None     # JSON'da son/obyekt kelsa ham 500 bo'lmasin
     ev = db.review_event(event_id, status, f"Web: {request.session.get('user')}", note)
     if not ev:
         raise HTTPException(404)
@@ -871,7 +1149,7 @@ async def api_review(request: Request, event_id: int):
 @app.post("/api/events/{event_id}/note")
 async def api_note(request: Request, event_id: int):
     d = await body_data(request)
-    db.update_event(event_id, note=(d.get("note") or "")[:2000])
+    db.update_event(event_id, note=str(d.get("note") or "")[:2000])
     return {"ok": True}
 
 
@@ -880,6 +1158,7 @@ def api_event_delete(event_id: int):
     ev = db.row("SELECT * FROM events WHERE id=?", (event_id,))
     if ev:
         archive_feedback(ev)
+        sync.forget_event(event_id)
         delete_event_files(ev)
         db.execute("DELETE FROM events WHERE id=?", (event_id,))
         db.execute("DELETE FROM tg_messages WHERE event_id=?", (event_id,))
@@ -903,11 +1182,19 @@ async def api_events_bulk(request: Request):
         evs = db.rows("SELECT * FROM events WHERE status='rad_etilgan'")
         for ev in evs:
             archive_feedback(ev)
+            sync.forget_event(ev["id"])
             delete_event_files(ev)
             db.execute("DELETE FROM events WHERE id=?", (ev["id"],))
             db.execute("DELETE FROM tg_messages WHERE event_id=?", (ev["id"],))
         return {"ok": True, "count": len(evs)}
     raise HTTPException(400)
+
+
+def csv_safe(v):
+    """Excel'da formula sifatida bajarilmasin: =, +, -, @ bilan boshlanadigan matn oldiga ' qo'yiladi."""
+    if isinstance(v, str) and v[:1] in ("=", "+", "-", "@", "\t", "\r"):
+        return "'" + v
+    return v
 
 
 @app.get("/api/export/events.csv")
@@ -919,11 +1206,12 @@ def api_export():
     for e in db.rows("SELECT * FROM events ORDER BY id DESC"):
         e = db.decode_event(e)
         si = susp_info(e)
-        wr.writerow([e["id"], time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(e["created_at"])),
-                     si["susp_label"] or "", si["susp_offset"] if si["susp_offset"] is not None else "", e["source_name"],
-                     KIND_UZ.get(e["kind"], e["kind"]), round(e["score"] or 0), e["level"], e["status"],
-                     e.get("reviewed_by") or "", e.get("note") or "", " | ".join(e["reasons"] or []),
-                     e.get("clip_path") or ""])
+        wr.writerow([csv_safe(v) for v in (
+            e["id"], time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(e["created_at"])),
+            si["susp_label"] or "", si["susp_offset"] if si["susp_offset"] is not None else "", e["source_name"],
+            KIND_UZ.get(e["kind"], e["kind"]), round(e["score"] or 0), e["level"], e["status"],
+            e.get("reviewed_by") or "", e.get("note") or "", " | ".join(e["reasons"] or []),
+            e.get("clip_path") or "")])
     data = "﻿" + buf.getvalue()
     return Response(data.encode("utf-8"), media_type="text/csv",
                     headers={"Content-Disposition": f"attachment; filename=hodisalar_{time.strftime('%Y%m%d')}.csv"})
@@ -1000,8 +1288,156 @@ def api_model():
         providers = [f"xato: {e}"]
     return {"versions": versions, "bundled": bundled, "feedback": {"ok": fb_ok, "no": fb_no},
             "train": {k: train_state[k] for k in ("running", "error", "started")},
-            "pose_model": "YOLO11n-pose (ONNX)", "det_model": "YOLO11n (ONNX)", "providers": providers,
+            "providers": providers,
             "use_ml": db.get_setting("use_ml"), "ml_weight": db.get_setting("ml_weight")}
+
+
+# ----------------------------------------------------------------------------- ko'rish modellari
+models_state: dict = {"busy": False, "task": "", "error": None, "done": None}
+_models_lock = threading.Lock()
+MODEL_UPLOAD_LIMIT = 300 * 1024 * 1024    # qo'lda yuklanadigan model fayli (zip/onnx) uchun chegara
+
+
+def _models_claim(task: str) -> None:
+    """Bir vaqtda bitta model vazifasi (tekshirish va band qilish — bitta qulf ichida, ikki tez bosish o'tmaydi)."""
+    with _models_lock:
+        if models_state["busy"]:
+            raise HTTPException(409, "Boshqa model vazifasi ketmoqda — biroz kuting")
+        models_state.update(busy=True, task=task, error=None, done=None)
+
+
+def _models_bg(task: str, fn) -> None:
+    _models_claim(task)
+
+    def run():
+        try:
+            models_state["done"] = fn()
+        except Exception as e:  # noqa: BLE001
+            log.exception("Model vazifasi xatosi (%s)", task)
+            models_state["error"] = str(e)
+        finally:
+            models_state["busy"] = False
+    threading.Thread(target=run, daemon=True, name="models").start()
+
+
+def _model_key_from_name(filename: str) -> str | None:
+    """Fayl nomidan model kalitini aniqlash: rtmpose-t_...zip, rtmpose_t.onnx, yolox_nano.onnx, yolox-tiny.onnx ..."""
+    n = Path(filename or "").name.lower().replace("_", "-")
+    for k in ("rtmpose-t", "rtmpose-s", "yolox-nano", "yolox-tiny"):
+        if k in n:
+            return k
+    return None
+
+
+@app.get("/api/models")
+def api_models():
+    from .ai import model_zoo, runtime
+    from .ai.engine import Engine
+
+    try:
+        active = Engine.get().info()
+    except Exception as e:  # noqa: BLE001
+        active = {"error": str(e)}
+    s = db.get_settings()
+    bench = dict(active.get("runtime_info") or {})
+    return {"active": active, "sets": model_zoo.status(), "model_set": s.get("model_set", "yolo11"),
+            "ai_runtime": s.get("ai_runtime", "auto"), "openvino": runtime.openvino_available(),
+            "bench": bench, "state": models_state}
+
+
+@app.post("/api/models/activate")
+async def api_models_activate(request: Request):
+    """Model to'plami va muhitni tanlash; modellar fonda qayta yuklanadi (kameralar to'xtamaydi)."""
+    from .ai import model_zoo, runtime
+    from .ai.engine import Engine
+
+    d = await body_data(request)
+    ms = d.get("model_set") or db.get_setting("model_set") or "yolo11"
+    rt = d.get("ai_runtime") or db.get_setting("ai_runtime") or "auto"
+    if not isinstance(ms, str) or ms not in model_zoo.MODEL_SETS:
+        raise HTTPException(400, "Noto'g'ri model to'plami")
+    if not isinstance(rt, str) or rt not in ("auto", *runtime.RUNTIMES):
+        raise HTTPException(400, "Noto'g'ri muhit")
+    if model_zoo.missing(ms):
+        raise HTTPException(400, "Model fayllari yo'q: " + ", ".join(model_zoo.missing(ms)) + " — avval yuklab oling")
+    if rt == "openvino" and not runtime.openvino_available():
+        raise HTTPException(400, "OpenVINO o'rnatilmagan: pip install openvino")
+
+    def work():
+        # Sozlama faqat yangi modellar muvaffaqiyatli yuklangach yoziladi (xato bo'lsa — eski holat qoladi)
+        eng = Engine.reload(model_set=ms, runtime_pref=rt)
+        if eng.model_set != ms:
+            raise RuntimeError(f"{ms} yuklanmadi — {eng.model_set} ishlatilmoqda (jurnalga qarang)")
+        db.set_settings({"model_set": ms, "ai_runtime": rt})
+        return eng.info()
+    _models_bg("yuklanmoqda", work)
+    return {"ok": True}
+
+
+@app.post("/api/models/benchmark")
+def api_models_benchmark():
+    """Shu kompyuterda ONNX Runtime va OpenVINO ni qayta o'lchash (auto rejim natijasi yangilanadi)."""
+    from .ai.engine import Engine
+
+    def work():
+        db.set_settings({"runtime_auto": ""})
+        return Engine.reload().info()
+    _models_bg("o'lchanmoqda", work)
+    return {"ok": True}
+
+
+@app.post("/api/models/download")
+async def api_models_download(request: Request):
+    from .ai import model_zoo
+
+    d = await body_data(request)
+    ms = d.get("model_set", "open")
+    if not isinstance(ms, str) or ms not in model_zoo.MODEL_SETS:
+        raise HTTPException(400, "Noto'g'ri model to'plami")
+    _models_bg("yuklab olinmoqda", lambda: model_zoo.ensure_set(ms))
+    return {"ok": True}
+
+
+@app.post("/api/models/upload")
+def api_models_upload(file: UploadFile = File(...)):
+    """Internetdan yuklab bo'lmasa: rasmiy saytdan olingan zip/onnx faylni qo'lda yuklash."""
+    from .ai import model_zoo
+
+    name = (file.filename or "").lower()
+    key = _model_key_from_name(name)
+    if key not in model_zoo.FILES:
+        raise HTTPException(400, "Fayl nomidan model aniqlanmadi (rtmpose-t, rtmpose-s, yolox_nano, yolox_tiny)")
+    _models_claim("qo'lda yuklanmoqda")
+    tmp = UPLOADS_DIR / f"_model_{int(time.time())}_{Path(name).name}"
+    dst = model_zoo.path(key)
+    bak = dst.with_suffix(".bak")
+    try:
+        total = 0
+        with open(tmp, "wb") as f:             # sinxron: og'ir ish server oqimini bloklamaydi
+            while True:
+                chunk = file.file.read(1 << 20)
+                if not chunk:
+                    break
+                total += len(chunk)
+                if total > MODEL_UPLOAD_LIMIT:      # hajm chegarasi: 8 GB xotirali kompyuter to'lib qolmasin
+                    raise HTTPException(413, f"Fayl juda katta (chegara {MODEL_UPLOAD_LIMIT // (1 << 20)} MB)")
+                f.write(chunk)
+        try:
+            if dst.exists():
+                dst.replace(bak)
+            # ensure: tekshiradi (ochiladi, kirish shakli to'g'ri) va faqat keyin models/ ga ko'chiradi
+            model_zoo.ensure(key, local_zip=tmp)
+            bak.unlink(missing_ok=True)
+        except HTTPException:
+            raise
+        except Exception as e:  # noqa: BLE001
+            if bak.exists():
+                bak.replace(dst)          # eski fayl qaytariladi
+            raise HTTPException(400, f"Model fayli qabul qilinmadi: {e}")
+    finally:
+        tmp.unlink(missing_ok=True)
+        models_state["busy"] = False
+    return {"ok": True, "model": key}
 
 
 @app.post("/api/model/train")
@@ -1088,14 +1524,19 @@ async def api_events_stream(request: Request):
     async def gen():
         try:
             yield "retry: 3000\n\n"
-            while True:
+            idle = 0.0
+            while not SHUTDOWN.is_set():
                 if await request.is_disconnected():
                     break
                 try:
-                    data = await asyncio.wait_for(q.get(), timeout=15)
+                    data = await asyncio.wait_for(q.get(), timeout=1.0)
+                    idle = 0.0
                     yield f"event: ev\ndata: {data}\n\n"
                 except asyncio.TimeoutError:
-                    yield ": ping\n\n"
+                    idle += 1.0
+                    if idle >= 15:
+                        idle = 0.0
+                        yield ": ping\n\n"
         finally:
             if listener in mgr.listeners:
                 mgr.listeners.remove(listener)
@@ -1240,4 +1681,46 @@ def api_system():
     except Exception:
         pass
     info["base_dir"] = str(BASE_DIR)
+    try:
+        info["sync"] = sync.get_worker().status()
+    except Exception:  # noqa: BLE001
+        info["sync"] = {"configured": False}
     return info
+
+
+# ----------------------------------------------------------------------------- bulut (edge agent)
+@app.get("/api/sync/status")
+def api_sync_status():
+    return sync.get_worker().status()
+
+
+@app.post("/api/sync/test")
+def api_sync_test():
+    """Bulut bilan ulanishni hozir tekshirish (hello)."""
+    w = sync.get_worker()
+    if not sync.configured():
+        raise HTTPException(400, ".env da CLOUD_URL va EDGE_TOKEN berilmagan")
+    ok = w.hello()
+    if ok:
+        w.auth_failed = False
+        w.state = "ishlayapti"
+        db.execute("UPDATE outbox SET next_try=0 WHERE sending=0 AND failed=0 AND next_try > 0")
+        w.kick()
+    return {"ok": ok, "error": None if ok else w.last_error, "status": w.status()}
+
+
+@app.post("/api/sync/retry")
+def api_sync_retry():
+    """Rad etilgan (xato deb belgilangan) qatorlarni qayta navbatga qo'yish."""
+    n = db.scalar("SELECT COUNT(*) FROM outbox WHERE failed=1") or 0
+    db.execute("UPDATE outbox SET failed=0, attempts=0, next_try=0, last_error=NULL WHERE failed=1")
+    sync.get_worker().kick()
+    return {"ok": True, "count": n}
+
+
+@app.get("/api/metrics")
+def api_metrics(hours: float = 24, source_id: int | None = None):
+    """Daqiqalik ko'rsatkichlar; 2 kundan uzun oraliq soatlik o'rtachaga yig'iladi (javob katta bo'lmasin)."""
+    hours = max(0.1, min(hours, 24 * 90))
+    rows = metrics.recent_hourly(hours, source_id) if hours > 48 else metrics.recent(hours, source_id)
+    return {"rows": rows[-20000:], "step": "hour" if hours > 48 else "minute"}

@@ -1,0 +1,17 @@
+# Bazaning kundalik zaxira nusxasi (PostgreSQL — pg_dump; SQLite'da server o'zi ham oladi). Taymer: .timer
+[Unit]
+Description=Hushyor AI bulut — zaxira nusxa
+After=postgresql.service
+
+[Service]
+Type=oneshot
+User=hushyor
+Group=hushyor
+WorkingDirectory=/opt/hushyor-ai
+ExecStart=/opt/hushyor-ai/.venv/bin/python -m cloud.maintenance backup
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/hushyor-ai/cloud/data
+UMask=0077

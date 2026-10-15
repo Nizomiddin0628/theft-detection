@@ -10,7 +10,8 @@ from pathlib import Path
 os.environ.setdefault("OMP_NUM_THREADS", "1")
 
 BASE_DIR = Path(__file__).resolve().parent.parent
-DATA_DIR = BASE_DIR / "data"
+# HUSHYOR_DATA_DIR — boshqa ma'lumot papkasi (masalan, 72 soatlik sinov jonli ma'lumotga tegmasin: tests/soak.py)
+DATA_DIR = Path(os.environ.get("HUSHYOR_DATA_DIR") or BASE_DIR / "data")
 CLIPS_DIR = DATA_DIR / "clips"
 UPLOADS_DIR = DATA_DIR / "uploads"
 POSES_DIR = DATA_DIR / "poses"
@@ -25,19 +26,26 @@ for _d in (DATA_DIR, CLIPS_DIR, UPLOADS_DIR, POSES_DIR, FEEDBACK_DIR, LOGS_DIR, 
     _d.mkdir(parents=True, exist_ok=True)
 
 
-def _load_dotenv() -> None:
-    """python-dotenv bo'lmasa ham ishlaydigan oddiy .env o'quvchi."""
-    env_file = BASE_DIR / ".env"
+def _load_dotenv(env_file: Path | None = None) -> None:
+    """python-dotenv bo'lmasa ham ishlaydigan oddiy .env o'quvchi.
+
+    utf-8-sig: Notepad "UTF-8 with BOM" bilan saqlasa, birinchi kalit (odatda TELEGRAM_BOT_TOKEN) oldidagi
+    ko'rinmas BOM belgisi olib tashlanadi — aks holda token "yo'q" deb o'qilardi.
+    """
+    env_file = env_file or BASE_DIR / ".env"
     if not env_file.exists():
         return
-    for raw in env_file.read_text(encoding="utf-8").splitlines():
+    for raw in env_file.read_text(encoding="utf-8-sig").splitlines():
         line = raw.strip()
         if not line or line.startswith("#") or "=" not in line:
             continue
+        if line.lower().startswith("export "):
+            line = line[7:].strip()
         key, value = line.split("=", 1)
-        key = key.strip()
+        key = key.strip().lstrip("﻿")
         value = value.strip().strip('"').strip("'")
-        os.environ.setdefault(key, value)
+        if key:
+            os.environ.setdefault(key, value)
 
 
 _load_dotenv()
@@ -54,6 +62,9 @@ ADMIN_PASSWORD = env("ADMIN_PASSWORD", "admin123")
 HOST = env("HOST", "0.0.0.0")
 PORT = int(env("PORT", "8000"))
 PUBLIC_URL = env("PUBLIC_URL", "").rstrip("/")
+# Bulut (markaziy server): bo'sh bo'lsa — hamma narsa faqat shu kompyuterda, yuborilmaydi
+CLOUD_URL = env("CLOUD_URL", "").rstrip("/")
+EDGE_TOKEN = env("EDGE_TOKEN", "").strip()
 
 
 def _secret_key() -> str:
@@ -95,6 +106,9 @@ DEFAULT_SETTINGS = {
     "ml_weight": "10",
     "personal_items": "1",
     "calm_fps": "4",
+    "model_set": "yolo11",
+    "ai_runtime": "auto",
+    "runtime_auto": "",
     "show_objects": "0",
     "signal_pocket": "1",
     "signal_torso": "1",
@@ -120,4 +134,4 @@ SETTINGS_MIGRATIONS = {
 SETTINGS_VERSION = max(SETTINGS_MIGRATIONS)
 
 APP_NAME = "Hushyor AI"
-APP_VERSION = "1.3.0"
+APP_VERSION = "1.8.0"

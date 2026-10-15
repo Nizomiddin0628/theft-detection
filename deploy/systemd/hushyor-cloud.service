@@ -1,0 +1,34 @@
+# Hushyor AI bulut serveri (systemd). O'rnatuvchi: deploy/install_vps.sh
+[Unit]
+Description=Hushyor AI bulut serveri (panel, Sync API, bildirishnomalar)
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=hushyor
+Group=hushyor
+WorkingDirectory=/opt/hushyor-ai
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/opt/hushyor-ai/.venv/bin/python -m cloud.server --host 127.0.0.1 --port 9000
+Restart=always
+RestartSec=5
+TimeoutStopSec=20
+# Himoya: faqat cloud/data ga yoza oladi, imtiyoz oshirib bo'lmaydi
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/hushyor-ai/cloud/data
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+LockPersonality=true
+UMask=0077
+MemoryMax=1G
+
+[Install]
+WantedBy=multi-user.target
