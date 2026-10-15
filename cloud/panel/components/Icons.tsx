@@ -57,6 +57,15 @@ export const IconPeople = (p: P) => (
   </svg>
 );
 
+export const IconDoor = (p: P) => (
+  <svg {...base} {...p}>
+    <path d="M5 21V4a1 1 0 011-1h9a1 1 0 011 1v17" />
+    <path d="M3 21h18" />
+    <path d="M12.5 12h.01" />
+    <path d="M19 8l2 2-2 2M21 10h-4" />
+  </svg>
+);
+
 export const IconBell = (p: P) => (
   <svg {...base} {...p}>
     <path d="M6 16V11a6 6 0 0112 0v5l1.5 2h-15z" />

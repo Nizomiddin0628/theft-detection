@@ -20,7 +20,7 @@ from pathlib import Path
 from typing import Any, Iterable
 
 from sqlalchemy import (JSON, BigInteger, Boolean, Column, Float, ForeignKey, Index, Integer, MetaData, String, Table,
-                        Text, UniqueConstraint, create_engine, event, inspect, text)
+                        Text, UniqueConstraint, create_engine, event, inspect, select, text)
 
 ROOT = Path(__file__).resolve().parent
 
@@ -93,6 +93,7 @@ branches = Table(                                          # filial = do'kon = b
     Column("pending", Integer, default=0),
     Column("clock_skew", Float),
     Column("offline_since", Float),                       # aloqa uzilgan (oxirgi hello) vaqti; None — onlayn
+    Column("occupancy", JSON),                            # 1.9.0: hello dagi sanash holati {inside, since, day0, in, out}
 )
 events = Table(
     "events", meta,
@@ -118,6 +119,17 @@ metrics_minute = Table(
     Column("minute", BigInteger, primary_key=True),
     Column("source_id", Integer, primary_key=True),
     Column("data", JSON),
+)
+visits_minute = Table(       # 1.9.0: sanash yig'indisi — metrics_minute dan ajratilgan (hisobot JSON o'qimasdan, SQL'da)
+    "visits_minute", meta,
+    Column("branch_id", Integer, ForeignKey("branches.id"), primary_key=True),
+    Column("minute", BigInteger, primary_key=True),
+    Column("source_id", Integer, primary_key=True),
+    Column("n_in", Integer, nullable=False, default=0),         # xaridorlar (ish vaqtida, xodimsiz)
+    Column("n_out", Integer, nullable=False, default=0),
+    Column("n_staff", Integer, nullable=False, default=0),      # xodim o'tishlari (ikki yo'nalish)
+    Column("n_off_in", Integer, nullable=False, default=0),     # ish vaqtidan tashqari (xodimsiz)
+    Column("n_off_out", Integer, nullable=False, default=0),
 )
 health_log = Table(
     "health_log", meta,
@@ -238,7 +250,7 @@ audit_log = Table(                                         # kim, qachon, nima q
 
 # Mavjud bazalarga (1.6.0) qo'shiladigan ustunlar: create_all eski jadvalni o'zgartirmaydi
 EXTRA_COLUMNS = {
-    "branches": {"offline_since": "FLOAT"},
+    "branches": {"offline_since": "FLOAT", "occupancy": "JSON"},
     "events": {"received_at": "FLOAT"},
 }
 
@@ -351,6 +363,12 @@ def init_db() -> dict:
                 info["timescale"] = True
             except Exception as e:  # noqa: BLE001 — TimescaleDB o'rnatilmagan: oddiy jadval ham ishlaydi
                 info["timescale_error"] = str(e)[:160]
+    try:
+        nv = _backfill_visits()
+        if nv:
+            info["visits_backfilled"] = nv
+    except Exception as e:  # noqa: BLE001
+        info["visits_backfill_error"] = str(e)[:160]
     return info
 
 
@@ -436,6 +454,87 @@ COMMON_PASSWORDS = frozenset("""
 abcd1234 abc12345 iloveyou welcome1 letmein1 sunshine princess football baseball superman trustno1 changeme
 parol123 parol1234 parolim1 dokon123 hushyor1 hushyor123 toshkent uzbekistan qwertyuiop asdfghjk zxcvbnm1
 """.split())
+
+
+VISIT_KEYS = ("in", "out", "staff_in", "staff_out", "off_in", "off_out")
+OCC_FRESH_SEC = 600          # edge yuborgan "hozir ichkarida" shuncha vaqt ichida bo'lsa — o'sha ishlatiladi
+
+
+def _int(v) -> int:
+    try:
+        return max(0, int(float(v or 0)))
+    except (TypeError, ValueError, OverflowError):
+        return 0
+
+
+def put_visits(conn, branch_id: int, minute: int, source_id: int, item: dict) -> None:
+    """Edge daqiqalik qatori keldi: sanash maydonlari bo'lsa — visits_minute ga (almashtirib), bo'lmasa — o'chiriladi
+    (edge qatorni qayta yuborganda sanash yo'qolgan bo'lishi mumkin)."""
+    if source_id > 0 and isinstance(item, dict) and any(k in item for k in VISIT_KEYS):
+        upsert(visits_minute, {"branch_id": branch_id, "minute": minute, "source_id": source_id,
+                               "n_in": _int(item.get("in")), "n_out": _int(item.get("out")),
+                               "n_staff": _int(item.get("staff_in")) + _int(item.get("staff_out")),
+                               "n_off_in": _int(item.get("off_in")), "n_off_out": _int(item.get("off_out"))},
+               ["branch_id", "minute", "source_id"], ["n_in", "n_out", "n_staff", "n_off_in", "n_off_out"], conn=conn)
+    else:
+        conn.execute(visits_minute.delete().where(visits_minute.c.branch_id == branch_id,
+                                                  visits_minute.c.minute == minute,
+                                                  visits_minute.c.source_id == source_id))
+
+
+def visits_hourly(branch_ids: list[int], t0: float, t1: float | None = None, off: int = 0) -> list[dict]:
+    """1.9.0 sanash: mahalliy soat bo'yicha yig'indi (SQL'da). off — vaqt mintaqasi siljishi, soniya (yarim soatli
+    mintaqalarda ham soat chegarasi to'g'ri). [{"branch_id", "hour", "in", "out", "staff", "off_in", "off_out"}]."""
+    if not branch_ids:
+        return []
+    from sqlalchemy import func
+
+    v = visits_minute.c
+    off = int(off)
+    hour = ((v.minute + off) // 3600) * 3600 - off
+    q = (select(v.branch_id, hour.label("hour"), func.sum(v.n_in).label("n_in"), func.sum(v.n_out).label("n_out"),
+                func.sum(v.n_staff).label("n_staff"), func.sum(v.n_off_in).label("n_off_in"),
+                func.sum(v.n_off_out).label("n_off_out"))
+         .where(v.branch_id.in_([int(b) for b in branch_ids]), v.minute >= int(t0))
+         .group_by(v.branch_id, hour))
+    if t1 is not None:
+        q = q.where(v.minute < int(t1))
+    with engine().connect() as c:
+        return [{"branch_id": int(r.branch_id), "hour": int(r.hour), "in": int(r.n_in or 0), "out": int(r.n_out or 0),
+                 "staff": int(r.n_staff or 0), "off_in": int(r.n_off_in or 0), "off_out": int(r.n_off_out or 0)}
+                for r in c.execute(q)]
+
+
+def occupancy_fresh(occupancy) -> bool:
+    occ = json_load(occupancy)
+    return isinstance(occ, dict) and time.time() - float(occ.get("at") or 0) <= OCC_FRESH_SEC
+
+
+def inside_now(occupancy, cin: int, cout: int) -> int:
+    """Hozir ichkarida: edge hello bilan yuborgani (qo'lda "0 qilish" va do'kon yopiq payti hisobga olingan) — yangi
+    bo'lsa; aks holda (eski edge yoki aloqa yo'q) bulutdagi bugungi kirdi − chiqdi (xodimsiz, ish vaqtidan qat'i nazar)."""
+    if occupancy_fresh(occupancy):
+        return _int(json_load(occupancy).get("inside"))
+    return max(0, int(cin) - int(cout))
+
+
+def _backfill_visits() -> int:
+    """Bir marta: 1.9.0 bulutiga yangilanishdan oldin kelgan sanashli qatorlar (metrics_minute JSON) → visits_minute."""
+    if kv_get("visits_minute_v1") == "1":
+        return 0
+    from sqlalchemy import String, cast
+
+    n = 0
+    m = metrics_minute.c
+    q = select(m.branch_id, m.minute, m.source_id, m.data).where(m.source_id > 0, cast(m.data, String).like('%"in"%'))
+    with engine().begin() as c:
+        for r in c.execute(q).fetchall():
+            d = json_load(r.data) or {}
+            if isinstance(d, dict) and "in" in d:
+                put_visits(c, int(r.branch_id), int(r.minute), int(r.source_id), d)
+                n += 1
+    kv_set("visits_minute_v1", "1")
+    return n
 
 
 def password_problem(password: str, email: str = "") -> str | None:

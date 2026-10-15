@@ -146,7 +146,10 @@ def seed() -> dict:
             rows.append({"key": f"m:{minute}:{sid}", "minute": minute, "source_id": sid, "source_name": name,
                          "persons_avg": round(base * busy * (0.7 + 0.3 * ((k * 7 + sid) % 5) / 4), 2),
                          "persons_max": int(base * busy * 2) + 1, "fps_ai": 7.5 + sid, "active_pct": 0.4 * busy,
-                         "up_pct": 1.0 if (k + sid) % 37 else 0.6, "alerts": 1 if (k * sid) % 23 == 0 else 0})
+                         "up_pct": 1.0 if (k + sid) % 37 else 0.6, "alerts": 1 if (k * sid) % 23 == 0 else 0,
+                         # 1.9.0: "Kirish" kamerasida sanash chizig'i
+                         **({"in": int(6 * busy) + k % 3, "out": int(6 * busy) + (k + 1) % 3, "staff_in": k % 2,
+                             "staff_out": 0} if sid == 2 else {})})
         rows.append({"key": f"m:{minute}:0", "minute": minute, "source_id": 0, "source_name": "tizim",
                      "cpu": 35 + 25 * busy, "ram": 58 + (k % 6)})
     for i in range(0, len(rows), 400):
@@ -365,11 +368,30 @@ def _owner(browser, s: dict) -> None:
     db_alerts = sum(int((cloud.cdb.json_load(r["data"]) or {}).get("alerts") or 0) for r in cloud.cdb.rows(
         "SELECT data FROM metrics_minute WHERE branch_id=:b AND source_id > 0 AND minute >= :t",
         {"b": s["a_id"], "t": time.time() - 86400}))
-    ok("Ko'rsatkichlar: 5 grafik, signallar soni bazaga mos", page.locator(".chart").count() == 5
+    ok("Ko'rsatkichlar: 6 grafik (1.9.0: tashriflar), signallar soni bazaga mos", page.locator(".chart").count() == 6
        and page.locator(".chart svg rect").count() > 0 and alerts == db_alerts, f"{alerts} / {db_alerts}")
     page.locator(".chart svg").first.hover()
     ok("Grafik ustida qiymat ko'rinadi", ":" in page.locator(".chart .legend").first.inner_text())
     shot(page, "07_metrics")
+
+    # Tashriflar (1.9.0)
+    page.goto(f"{BASE}/visits/")
+    page.wait_for_selector("[data-testid=visits-inside]", timeout=10000)
+    page.wait_for_selector(".chart svg rect", state="attached", timeout=10000)   # ma'lumotsiz kun — balandligi 0
+    d0 = cloud._local_day0()
+    db_in = sum(int((cloud.cdb.json_load(r["data"]) or {}).get("in") or 0) for r in cloud.cdb.rows(
+        "SELECT data FROM metrics_minute WHERE branch_id=:b AND source_id > 0 AND minute >= :t",
+        {"b": s["a_id"], "t": d0}))
+    today_in = int(page.locator(".kpi b").nth(1).inner_text())
+    ok("Tashriflar: bugun kirdi bazaga mos, 2 grafik, filial tanlovi", today_in == db_in and db_in > 0
+       and page.locator(".chart").count() == 2 and page.locator("select.select").count() == 1, f"{today_in} / {db_in}")
+    page.select_option("select.select", label="Yunusobod do'koni")
+    page.wait_for_selector("text=Hali sanash ma'lumoti yo'q", timeout=8000)
+    page.select_option("select.select", label="Chilonzor do'koni")
+    page.wait_for_selector("[data-testid=visits-inside]", timeout=8000)
+    ok("Filial tanlovi: sanashsiz filial — bo'sh holat, Chilonzor — o'sha son",
+       int(page.locator(".kpi b").nth(1).inner_text()) == db_in)
+    shot(page, "07b_visits")
 
     # Xodimlar
     page.goto(f"{BASE}/users/")
@@ -439,7 +461,7 @@ def _owner(browser, s: dict) -> None:
        and wait(lambda: any("Sinov" in str(c["data"].get("text", "")) for c in tg.calls("sendMessage")
                             if str(c["data"].get("chat_id")) == "5551"), 8))
     srv = page.wait_for_selector("[data-testid=server-status]", timeout=8000)
-    ok("Egasida server holati: versiya, baza, disk, zaxira", srv is not None and "1.8.0" in srv.inner_text()
+    ok("Egasida server holati: versiya, baza, disk, zaxira", srv is not None and cloud.VERSION in srv.inner_text()
        and "SQLite" in srv.inner_text() and "GB" in srv.inner_text(), srv.inner_text()[:160] if srv else "")
     scope = page.evaluate("navigator.serviceWorker.register('/sw.js', {scope: '/'}).then(r => r.scope)")
     ok("Service worker ro'yxatdan o'tdi (push uchun)", scope == f"{BASE}/", scope)
@@ -531,7 +553,8 @@ def _mobile(browser, s: dict) -> None:
         login(page, "menejer@dokon.uz")
         page.wait_for_selector(".tile", timeout=8000)
         bad = []
-        for path in ("/", "/events/", f"/events/?uid={A_DEV}%3A2", "/branches/", f"/metrics/?branch={s['a_id']}", "/settings/"):
+        for path in ("/", "/events/", f"/events/?uid={A_DEV}%3A2", "/branches/", f"/metrics/?branch={s['a_id']}", "/visits/",
+                     "/settings/"):
             page.goto(BASE + path)
             page.wait_for_selector(".page-head", timeout=8000)
             page.wait_for_timeout(250)
@@ -606,7 +629,8 @@ def build_check() -> None:
     same = info.get("source_sha256") == source_hash()
     ok("cloud/panel_dist manbaga mos (build eskirmagan)", same,
        "" if same else ("manba o'zgargan — cd cloud/panel && npm run build" if info else "build.json yo'q"))
-    ok("Panel versiyasi 1.8.0", info.get("version") == "1.8.0", str(info.get("version")))
+    ok(f"Panel versiyasi = server versiyasi ({cloud.VERSION})", info.get("version") == cloud.VERSION,
+       str(info.get("version")))
 
 
 def main() -> int:

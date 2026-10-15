@@ -28,6 +28,8 @@ class Manager:
         self._job_thread.start()
         self._last_cleanup = 0.0
         self.health: dict[int, dict] = {}   # kamera holati: {source_id: {"since", "alerted", "reason"}}
+        self._started = time.time()
+        self._load_health()
         self._health_thread = threading.Thread(target=self._health_loop, daemon=True, name="health")
         self._health_thread.start()
 
@@ -253,6 +255,30 @@ class Manager:
                 log.exception("Telegramga klip yuborishda xato")
         self._cleanup()
 
+    # 1.9.0: "Kamera ishlamayapti" xabari yuborilgan kameralar bazada eslab qolinadi — dastur shu paytda qayta ishga
+    # tushsa (yangilanish, kompyuter o'chib-yondi) "Kamera tiklandi" xabari yo'qolmasin va "ishlamayapti" takrorlanmasin
+    HEALTH_KEY = "camera_health_alerted"
+
+    def _load_health(self) -> None:
+        try:
+            saved = json.loads(db.get_setting(self.HEALTH_KEY, "") or "{}")
+        except Exception:  # noqa: BLE001 — baza hali tayyor emas yoki yozuv buzilgan: eslab qolinmagan deb olinadi
+            saved = {}
+        for k, v in (saved.items() if isinstance(saved, dict) else []):
+            try:
+                self.health[int(k)] = {"since": float(v["since"]), "alerted": True, "reason": str(v.get("reason", "")),
+                                       "name": str(v.get("name", "")), "restored": True}
+            except (KeyError, TypeError, ValueError):
+                continue
+
+    def _save_health(self) -> None:
+        data = {str(k): {"since": h["since"], "reason": h.get("reason", ""), "name": h.get("name", "")}
+                for k, h in self.health.items() if h.get("alerted")}
+        try:
+            db.set_settings({self.HEALTH_KEY: json.dumps(data, ensure_ascii=False)})
+        except Exception:  # noqa: BLE001
+            log.exception("Kamera holatini saqlab bo'lmadi")
+
     def _health_loop(self) -> None:
         """Kamera uzilsa yoki ishdan chiqsa — belgilangan vaqtdan keyin Telegram'ga xabar, tiklansa — yana xabar."""
         while True:
@@ -276,7 +302,8 @@ class Manager:
                 reason = "dastur ichida manba to'xtab qoldi"
             elif w.state in ("xato", "qayta ulanmoqda"):
                 reason = w.error or w.state
-            elif now - w.started_at > 20 and w.latest_t and now - w.latest_t > 15:
+            elif now - w.started_at > 20 and (not w.latest_t or now - w.latest_t > 15):
+                # 1.9.0: ulanib, lekin bitta ham kadr bermagan kamera (masalan, NVR kanali o'lik) ham
                 reason = "kameradan kadr kelmayapti"
             h = self.health.get(sid)
             if reason:
@@ -285,6 +312,7 @@ class Manager:
                 h["reason"] = reason
                 if not h["alerted"] and now - h["since"] >= alert_sec:
                     h["alerted"] = True
+                    self._save_health()
                     log.warning("Kamera ishlamayapti: %s (%s)", w.src["name"], reason)
                     self._sync_health(w.src, "down", reason, h["since"])
                     if enabled and self.notifier is not None:
@@ -294,8 +322,11 @@ class Manager:
                             f"Sabab: {esc(reason)}\n"
                             f"Qachondan: {time.strftime('%H:%M:%S', time.localtime(h['since']))}")
             elif h is not None:
+                if h.get("restored") and not (w.latest_t and w.latest_t >= w.started_at and now - w.latest_t <= 15):
+                    continue    # qayta ishga tushgach kamera hali yangi kadr bermagan — "tiklandi" deyishga erta
                 self.health.pop(sid, None)
                 if h["alerted"]:
+                    self._save_health()
                     secs = now - h["since"]
                     dur = f"{secs / 60:.0f} daqiqa" if secs >= 90 else f"{secs:.0f} soniya"
                     log.info("Kamera tiklandi: %s (%s)", w.src["name"], dur)
@@ -304,8 +335,12 @@ class Manager:
                         from ..telegram_bot import esc
                         self.notifier.send_text_all(f"✅ <b>Kamera tiklandi:</b> {esc(w.src['name'])} "
                                                     f"({dur} ishlamadi)")
-        for sid in [s for s in self.health if s not in seen]:
+        gone = [s for s in self.health if s not in seen
+                and not (self.health[s].get("restored") and now - self._started < 120)]   # ishga tushish payti
+        for sid in gone:
             self.health.pop(sid, None)   # foydalanuvchi o'zi to'xtatgan manba
+        if gone:
+            self._save_health()
 
     @staticmethod
     def _sync_health(src: dict, state: str, reason: str, since: float | None) -> None:

@@ -70,6 +70,26 @@ Xatolar: **409** hodisa hali yo'q; **413** katta fayl; **400** bo'sh fayl / `uid
 ```
 `source_id = 0` — tizim qatori. Server `(device_id, minute, source_id)` bo'yicha almashtiradi.
 
+**1.9.0 — odam sanash.** Kamerada sanash chizig'i bo'lsa, shu daqiqada o'tish bo'lgan kamera qatorida qo'shimcha
+maydonlar keladi (o'tish bo'lmagan daqiqada — maydonlar yo'q, eski bulut ularni e'tiborsiz qoldiradi):
+
+| Maydon | Ma'nosi |
+|---|---|
+| `in`, `out` | xaridorlar: kirdi / chiqdi (xodim va ish vaqtidan tashqari o'tishlar kirmaydi) |
+| `staff_in`, `staff_out` | xodim deb aniqlanganlar (xodim zonasida turgan yoki keyin xodim bo'lib chiqqan iz) |
+| `offhours` | ish vaqtidan tashqari o'tishlar (xodim emas), jami |
+| `off_in`, `off_out` | ... yo'nalish bo'yicha — "hozir ichkarida" zaxira hisobi uchun (yopilgandan keyin chiqqanlar) |
+
+Odam o'tgandan keyin xodim deb aniqlansa (masalan, peshtaxta ortiga o'tdi), o'tish daqiqa yopilgandan keyin yozilsa
+(AI navbati kechikdi) yoki edge daqiqa o'rtasida to'xtagan bo'lsa (keyingi ishga tushishda), edge o'sha **o'tgan
+daqiqa** qatorini qayta hisoblab, xuddi shu `key` bilan yana yuboradi — server almashtiradi, yig'indi ikki marta
+sanalmaydi. Bulut sanash maydonlarini alohida `visits_minute` jadvaliga ham yozadi (hisobotlar SQL'da yig'iladi);
+sanashsiz qayta kelgan qator u yerdan o'chiriladi.
+
+`POST /api/v1/edge/hello` ga 1.9.0 da `"occupancy": {"inside", "since", "day0", "in", "out"}` qo'shildi (sanash
+chizig'i bo'lsa): edge'dagi "hozir ichkarida" (qo'lda "0 qilish" va do'kon yopiq payti hisobga olingan). Bulut uni
+10 daqiqa ichida kelgan bo'lsa ko'rsatadi, aks holda — bugungi (kirdi + tashqari kirdi) − (chiqdi + tashqari chiqdi).
+
 ## `POST /api/v1/edge/health` — kamera holati
 
 ```json
@@ -98,11 +118,12 @@ biriktirilgan filiallar (`branch_ids`). Boshqa filialga so'rov → **403**.
 | Metod | Yo'l | Kim | Nima |
 |---|---|---|---|
 | GET | `/api/v1/me` | hamma | foydalanuvchi, kompaniya, filial identifikatorlari |
-| GET | `/api/v1/branches` | hamma (doirasida) | filiallar: onlayn (oxirgi edge so'rovi 3 daqiqa ichida — hello, hodisa, klip, ko'rsatkich), versiya, kameralar, navbat, 24 soatlik hodisa, tekshirilmagan |
+| GET | `/api/v1/branches` | hamma (doirasida) | filiallar: onlayn (oxirgi edge so'rovi 3 daqiqa ichida — hello, hodisa, klip, ko'rsatkich), versiya, kameralar, navbat, 24 soatlik hodisa, tekshirilmagan; 1.9.0: `visits_today` `{in,out,inside}` (sanash bo'lmasa `null`) |
 | POST | `/api/v1/branches` | owner | `{"name","device_id","address"}` → `device_token` (**bir marta**; edge `.env` → `EDGE_TOKEN`) |
 | POST | `/api/v1/branches/{id}/token` | owner | tokenni almashtirish (eski darhol ishlamaydi) |
 | GET | `/api/v1/branches/{id}/cameras` | doirasida | kameralar (oxirgi hello) va holat jurnali |
-| GET | `/api/v1/branches/{id}/metrics?hours=24&source_id=` | doirasida | soatlik yig'indi (odamlar, AI tezligi, faol ulushi, ishlagan vaqt, signallar; tizim: CPU/RAM) |
+| GET | `/api/v1/branches/{id}/metrics?hours=24&source_id=` | doirasida | soatlik yig'indi (odamlar, AI tezligi, faol ulushi, ishlagan vaqt, signallar, 1.9.0: kirdi/chiqdi; tizim: CPU/RAM) |
+| GET | `/api/v1/visits?days=14&branch_id=` | doirasida | 1.9.0 tashriflar: `days[]` (`day` — filial vaqtida kun boshi, `in`, `out`, `branches{id: {in,out,staff}}`), `branches[]` (`today_in`, `today_out`, `inside`, `hourly[24]`, `busiest_hour`, `total_in`), `tz_offset`, `day0`. `days` 1–90; boshqa filial → **403** |
 | GET/POST | `/api/v1/users`, `/api/v1/users/{id}/deactivate` | owner | `{"email","password"(parol siyosati — pastda),"name","role","branch_ids"}` |
 | POST | `/api/v1/users/{id}/activate` | owner | o'chirilgan xodimni qaytarish (1.8.0) |
 | POST | `/api/v1/users/{id}/update` | owner | `{"name","role","branch_ids"}` (1.8.0; o'z rolini o'zgartirib bo'lmaydi) |

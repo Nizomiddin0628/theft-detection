@@ -69,6 +69,37 @@ def main() -> int:
     m.health[1]["since"] -= 16
     m._health_check()
     ok("Kadr kelmasa ham xabar", len(m.notifier.texts) == 3 and "kadr kelmayapti" in m.notifier.texts[2])
+    # 1.9.0: kamera ishlamay turganda dastur qayta ishga tushdi — "ishlamayapti" takrorlanmaydi, tiklansa xabar keladi
+    m2 = Manager()
+    m2.notifier = FakeNotifier()
+    w2 = FakeWorker("Kassa oldi")
+    w2.state, w2.error = "qayta ulanmoqda", "oqim uzildi"
+    m2.workers[1] = w2
+    m2._health_check()
+    ok("Qayta ishga tushgach (kamera hali ishlamayapti) — takroriy 'ishlamayapti' yo'q", not m2.notifier.texts
+       and m2.health.get(1, {}).get("alerted"), str(m2.notifier.texts))
+    w2.state, w2.error, w2.latest_t = "ishlayapti", "", time.time()
+    m2._health_check()
+    ok("Qayta ishga tushgandan keyin tiklansa — 'tiklandi' xabari keladi", len(m2.notifier.texts) == 1
+       and "tiklandi" in m2.notifier.texts[0], str(m2.notifier.texts))
+    m3 = Manager()
+    ok("Tiklangach eslab qolingan holat tozalandi", 1 not in m3.health)
+    # Qayta ishga tushgach kamera ulanadi, lekin bitta ham kadr bermaydi (NVR kanali o'lik) — soxta "tiklandi" yo'q
+    m2.health[1] = {"since": time.time() - 600, "alerted": True, "reason": "x", "name": "Kassa oldi"}
+    m2._save_health()
+    m4 = Manager()
+    m4.notifier = FakeNotifier()
+    w4 = FakeWorker("Kassa oldi")
+    w4.started_at, w4.latest_t = time.time() - 30, 0.0
+    m4.workers[1] = w4
+    m4._health_check()
+    ok("Qayta ishga tushgach kadr kelmayapti — soxta 'tiklandi' ham, takroriy 'ishlamayapti' ham yo'q",
+       not m4.notifier.texts and m4.health.get(1, {}).get("alerted"), str(m4.notifier.texts))
+    w4.latest_t = time.time()
+    m4._health_check()
+    ok("Birinchi yangi kadr kelgach — 'tiklandi'", len(m4.notifier.texts) == 1 and "tiklandi" in m4.notifier.texts[0])
+    m.health[1]["alerted"] = True
+    m._save_health()
     # Foydalanuvchi o'zi to'xtatdi — holat tozalanadi, xabar yo'q
     m.workers.pop(1)
     m._health_check()

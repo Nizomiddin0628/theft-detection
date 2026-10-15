@@ -244,6 +244,14 @@ input[type=range] { width: 100%; accent-color: var(--brand); }
   .live-grid { grid-template-columns: 1fr; }
 }
 @media (max-width: 560px) { .g4, .g5 { grid-template-columns: 1fr 1fr; } .kpi .value { font-size: 22px; } }
+/* 1.9.0: grid katakchasi ichidagi keng jadval sahifani gorizontal surmasin (jadval o'z joyida suriladi);
+   telefonda sarlavha tugmalari yangi qatorga o'tadi */
+.grid > * { min-width: 0; }
+code { overflow-wrap: anywhere; }
+@media (max-width: 760px) {
+  .top { flex-wrap: wrap; }
+  .top .grow { flex: 1 1 calc(100% - 64px); }
+}
 
 /* Klip ostidagi vaqt chizig'i: qizil — shubhali harakat */
 .susp-bar { position: relative; height: 10px; margin-top: 8px; border-radius: 5px; background: #e2e8f0; cursor: pointer; }

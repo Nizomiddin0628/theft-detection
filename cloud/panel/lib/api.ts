@@ -39,6 +39,31 @@ export interface Branch {
   online: boolean;
   events_24h: number;
   pending_review: number;
+  visits_today?: { in: number; out: number; inside: number } | null;
+}
+
+// 1.9.0: odamlarni sanash (edge sanash chizig'i → daqiqalik kirdi/chiqdi)
+export interface VisitDay {
+  day: number;
+  in: number;
+  out: number;
+  branches: Record<string, { in: number; out: number; staff: number }>;
+}
+export interface VisitBranch {
+  id: number;
+  name: string;
+  today_in: number;
+  today_out: number;
+  inside: number;
+  hourly: number[];
+  busiest_hour: number | null;
+  total_in: number;
+}
+export interface Visits {
+  days: VisitDay[];
+  branches: VisitBranch[];
+  tz_offset: number;
+  day0: number;
 }
 
 export interface EventRow {
@@ -134,6 +159,8 @@ export interface MetricRow {
   alerts: number;
   cpu: number | null;
   ram: number | null;
+  in?: number;
+  out?: number;
 }
 
 export interface AuditRow {

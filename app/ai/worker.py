@@ -13,6 +13,7 @@ import numpy as np
 from .. import db
 from ..logutil import get_logger
 from . import annotate, zones as zones_mod
+from . import counting  # 1.9.0: sanash chizig'i
 from .analyzer import Analyzer
 from .clipper import RingBuffer
 from ..ml.features import body_from_kpts, hand_state
@@ -180,10 +181,14 @@ class Processor:
     bags: list = field(default_factory=list)            # [(vaqt, Obj)] — yaqinda topilgan sumkalar
     counts: dict = field(default_factory=lambda: {IDLE: 0, CALM: 0, ACTIVE: 0, "skip": 0, "obj": 0})
     zones: zones_mod.ZoneSet = field(default_factory=zones_mod.ZoneSet)
+    counter: "counting.LineCounter" = field(default=None)  # type: ignore[assignment]   # 1.9.0: sanash chizig'i
 
     def __post_init__(self):
         if self.analyzer is None:
             self.analyzer = Analyzer(self.source_name)
+        if getattr(self, "counter", None) is None:
+            # 1.9.0: jonli kamera — bazaga yoziladi; video tahlili va aniqlik sinovi (background) — xotirada
+            self.counter = counting.LineCounter(self.source_id, self.source_name, persist=not self.background)
 
     # ------------------------------------------------------------------
     def interval(self, ai_fps: float, calm_fps: float) -> float:
@@ -192,6 +197,8 @@ class Processor:
         if self.mode == ACTIVE:
             return 1.0 / ai_fps
         if self.mode == CALM:
+            if counting.lines_from(self.zones):
+                return 1.0 / ai_fps  # 1.9.0: sanash chizig'i bor kamera — izlar uzilmasin
             return 1.0 / max(1.0, min(ai_fps, calm_fps))
         return 1.0 / min(ai_fps, IDLE_FPS)
 
@@ -222,6 +229,7 @@ class Processor:
             self.counts["skip"] += 1
             self.last_objects = []
             alerts, status = self.analyzer.update([], [], t, w, h, searched=[])
+            self.counter.update([], t, w, h, self.zones, status)  # 1.9.0
             return FrameResult([], [], w, h), ([], [], {}), alerts, status
         self.last_full_t = t
         self.ran = True
@@ -247,6 +255,7 @@ class Processor:
         bags = self._alive_bags(t)
         objects = items + bags
         alerts, status = self.analyzer.update(tracked, objects, t, w, h, searched=searched, zones=self.zones)
+        self.counter.update(tracked, t, w, h, self.zones, status)  # 1.9.0
         self._update_mode(t, tracked, hot)
         self.last_objects = objects
         # Rasmda faqat qo'ldagi mahsulot chiziladi (status["held"]); polkadagi buyumlar ramkasi
@@ -500,6 +509,8 @@ class SourceWorker(threading.Thread):
                 # Video qaytadan aylanmoqda: ko'rsatish davom etadi, lekin bir xil voqea uchun
                 # takroriy hodisa va Telegram xabari yaratilmaydi (faqat birinchi o'tishda)
                 self.loop_no += 1
+                if getattr(self.proc, "counter", None) is not None:
+                    self.proc.counter.persist = False  # 1.9.0: video qaytadan aylanmoqda — takror sanalmaydi
             if kind != "file":
                 self.state = "qayta ulanmoqda"
                 log.warning("%s: oqim uzildi, qayta ulanmoqda", self.src["name"])

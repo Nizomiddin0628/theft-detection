@@ -44,7 +44,7 @@ from .db import CLIPS_DIR, DATA_DIR
 from .live import hub
 
 log = logging.getLogger("hushyor.cloud")
-VERSION = "1.8.0"
+VERSION = "1.9.0"
 
 API_VERSION = 1
 ROOT = Path(__file__).resolve().parent
@@ -304,6 +304,7 @@ def _prune(conn) -> None:
     _last_prune[0] = now
     conn.execute(cdb.received.delete().where(cdb.received.c.t < now - RECEIVED_KEEP_DAYS * 86400))
     conn.execute(cdb.metrics_minute.delete().where(cdb.metrics_minute.c.minute < now - METRICS_KEEP_DAYS * 86400))
+    conn.execute(cdb.visits_minute.delete().where(cdb.visits_minute.c.minute < now - METRICS_KEEP_DAYS * 86400))
     conn.execute(cdb.sessions.delete().where(cdb.sessions.c.expires_at < now))
     conn.execute(cdb.commands.delete().where(cdb.commands.c.acked_at.isnot(None), cdb.commands.c.acked_at < now - 7 * 86400))
     conn.execute(cdb.health_log.delete().where(cdb.health_log.c.t < now - METRICS_KEEP_DAYS * 86400))
@@ -332,10 +333,14 @@ def _hello(b: dict, body: dict, ip: str) -> dict:
             notify.touch(b, int(_num(body.get("pending"))))
         except Exception:  # noqa: BLE001
             pass
+    occ = body.get("occupancy")
+    occ = ({k: float(_num(occ.get(k))) for k in ("inside", "since", "day0", "in", "out")}
+           if isinstance(occ, dict) else None)
     with cdb.engine().begin() as c:
         vals = {"last_seen": now, "last_ip": ip[:64],
                 "version": str(body.get("version") or "")[:40], "cameras": cams,
-                "pending": int(_num(body.get("pending"))), "clock_skew": skew}
+                "pending": int(_num(body.get("pending"))), "clock_skew": skew,
+                "occupancy": ({**occ, "at": now} if occ else None)}
         if b.get("token_hash") == "env" and body.get("name"):
             vals["name"] = str(body.get("name"))[:200]      # muhit tokeni bilan ulangan filial nomi edge'dan
         c.execute(cdb.branches.update().where(cdb.branches.c.id == b["id"]).values(**vals))
@@ -514,6 +519,7 @@ def _edge_metrics(b: dict, items: list[dict]) -> dict:
                 continue
             cdb.upsert(cdb.metrics_minute, {"branch_id": b["id"], "minute": minute, "source_id": sid, "data": it},
                        ["branch_id", "minute", "source_id"], ["data"], conn=c)
+            cdb.put_visits(c, b["id"], minute, sid, it)          # 1.9.0: sanash — alohida jadvalga (tez hisobot)
             _seen(c, b["device_id"], "metrics", key)
             accepted.append(key)
     return {"ok": True, "accepted": accepted, "rejected": rejected}
@@ -791,7 +797,8 @@ def list_branches(request: Request):
         return {"ok": True, "branches": []}
     day0 = time.time() - 86400
     out = []
-    for b in cdb.rows("SELECT id, name, address, device_id, created_at, last_seen, version, cameras, pending, clock_skew "
+    for b in cdb.rows("SELECT id, name, address, device_id, created_at, last_seen, version, cameras, pending, clock_skew, "
+                      "occupancy "
                       "FROM branches WHERE company_id=:c ORDER BY id", {"c": u["company_id"]}):
         if b["id"] not in ids:
             continue
@@ -802,7 +809,76 @@ def list_branches(request: Request):
         b["pending_review"] = cdb.scalar("SELECT COUNT(*) FROM events WHERE branch_id=:b AND status='yangi'",
                                          {"b": b["id"]}) or 0
         out.append(b)
+    vis = cdb.visits_hourly([b["id"] for b in out], _local_day0(), off=_tz_sec())
+    for b in out:
+        mine = [v for v in vis if v["branch_id"] == b["id"]]
+        cin, cout = sum(v["in"] for v in mine), sum(v["out"] for v in mine)
+        ain, aout = cin + sum(v["off_in"] for v in mine), cout + sum(v["off_out"] for v in mine)
+        # Bugun o'tish bo'lmasa ham edge "ichkarida" ni yuborayotgan bo'lsa (masalan, 00:30, ichkarida 3 kishi) — ko'rsatiladi
+        b["visits_today"] = ({"in": cin, "out": cout, "inside": cdb.inside_now(b.get("occupancy"), ain, aout)}
+                             if mine or cdb.occupancy_fresh(b.get("occupancy")) else None)
+        b.pop("occupancy", None)
     return {"ok": True, "branches": out}
+
+
+def _tz_sec() -> int:
+    return int(round(notify.cfg.tz_offset * 3600))
+
+
+def _local_day0(t: float | None = None) -> float:
+    """Kompaniya mahalliy vaqti (CLOUD_TZ_OFFSET, sukut +5) bo'yicha kun boshi."""
+    off = notify.cfg.tz_offset * 3600
+    return (int((t or time.time()) + off) // 86400) * 86400 - off
+
+
+@app.get(f"/api/v{API_VERSION}/visits")
+def visits(request: Request, days: int = 14, branch_id: int | None = None):
+    """1.9.0 Tashriflar (sanash chizig'i): filial va kun bo'yicha kirdi/chiqdi, bugun soatlar bo'yicha, hozir ichkarida."""
+    u = _user(request)
+    ids = _scope(u, branch_id)
+    days = max(1, min(int(days), 90))
+    today = _local_day0()
+    t0 = today - (days - 1) * 86400
+    brows = {r["id"]: r for r in cdb.rows("SELECT id, name, occupancy FROM branches WHERE company_id=:c",
+                                          {"c": u["company_id"]})}
+    names = {k: r["name"] for k, r in brows.items()}
+    rows = cdb.visits_hourly(ids, t0, off=_tz_sec())
+    per_day: dict[tuple[int, int], dict] = {}
+    hourly: dict[int, list[int]] = {}
+    today_all: dict[int, list[int]] = {}                       # xodimsiz, ish vaqtidan qat'i nazar (ichkarida)
+    for v in rows:
+        di = int((v["hour"] - t0) // 86400)
+        a = per_day.setdefault((v["branch_id"], di), {"in": 0, "out": 0, "staff": 0})
+        a["in"] += v["in"]
+        a["out"] += v["out"]
+        a["staff"] += v["staff"]
+        if v["hour"] >= today:
+            hourly.setdefault(v["branch_id"], [0] * 24)[min(23, int((v["hour"] - today) // 3600))] += v["in"]
+            ta = today_all.setdefault(v["branch_id"], [0, 0])
+            ta[0] += v["in"] + v["off_in"]
+            ta[1] += v["out"] + v["off_out"]
+    with_data = sorted({b for b, _ in per_day})
+    out_days = []
+    for di in range(days):
+        row = {"day": t0 + di * 86400, "in": 0, "out": 0, "branches": {}}
+        for b in with_data:
+            a = per_day.get((b, di))
+            if a:
+                row["branches"][str(b)] = a
+                row["in"] += a["in"]
+                row["out"] += a["out"]
+        out_days.append(row)
+    branches = []
+    for b in with_data:
+        a = per_day.get((b, days - 1)) or {"in": 0, "out": 0}
+        h = hourly.get(b, [0] * 24)
+        ta = today_all.get(b, [0, 0])
+        branches.append({"id": b, "name": names.get(b, str(b)), "today_in": a["in"], "today_out": a["out"],
+                         "inside": cdb.inside_now((brows.get(b) or {}).get("occupancy"), ta[0], ta[1]), "hourly": h,
+                         "busiest_hour": (h.index(max(h)) if max(h) > 0 else None),
+                         "total_in": sum((per_day.get((b, i)) or {}).get("in", 0) for i in range(days))})
+    return {"ok": True, "days": out_days, "branches": branches, "tz_offset": notify.cfg.tz_offset,
+            "day0": today}
 
 
 @app.post(f"/api/v{API_VERSION}/branches")
@@ -1123,7 +1199,11 @@ def branch_metrics(request: Request, branch_id: int, hours: float = 24, source_i
         k = (int(r["minute"]) // 3600 * 3600, int(r["source_id"]))
         a = acc.setdefault(k, {"hour": k[0], "source_id": k[1], "source_name": d.get("source_name"), "n": 0,
                                "persons_avg": 0.0, "persons_max": 0, "fps_ai": 0.0, "active_pct": 0.0, "up_pct": 0.0,
-                               "alerts": 0, "cpu": 0.0, "ram": 0.0, "n_sys": 0})
+                               "alerts": 0, "cpu": 0.0, "ram": 0.0, "n_sys": 0, "in": 0, "out": 0})
+        a["in"] += int(_num(d.get("in")))           # 1.9.0: sanash chizig'i (xaridorlar)
+        a["out"] += int(_num(d.get("out")))
+        if k[1] > 0 and d.get("up_pct") is None:
+            continue    # 1.9.0: faqat sanash yig'indisi (edge daqiqa o'rtasida to'xtagan) — o'rtachalarni buzmasin
         a["n"] += 1
         for f in ("persons_avg", "fps_ai", "active_pct", "up_pct"):
             a[f] += _num(d.get(f))

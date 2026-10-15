@@ -1225,6 +1225,20 @@ input[type="range"] {
   font-weight: 600;
 }
 
+.kpi b small {
+  margin-left: 6px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.kpi b small.up {
+  color: var(--ok);
+}
+
+.kpi b small.down {
+  color: var(--off);
+}
+
 .kpi span {
   font-size: 13px;
   color: var(--muted);

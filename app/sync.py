@@ -246,10 +246,19 @@ class SyncWorker(threading.Thread):
                          "running": s.get("running", False)} for s in self.manager.source_info()]
             except Exception:  # noqa: BLE001
                 cams = []
+        payload = {"device_id": device_id(), "name": db.get_setting("store_name", ""), "version": APP_VERSION,
+                   "cameras": cams, "pending": pending()["total"]}
+        try:
+            from .visits import occupancy       # 1.9.0: "hozir ichkarida" — panel va bulut bir xil ko'rsatsin
+
+            occ = occupancy()
+            if occ is not None:
+                payload["occupancy"] = occ
+        except Exception:  # noqa: BLE001
+            log.exception("Sanash holatini olib bo'lmadi")
         t0 = time.time()
-        code, body = self._post(f"/api/v{API_VERSION}/edge/hello", {
-            "device_id": device_id(), "name": db.get_setting("store_name", ""), "version": APP_VERSION,
-            "time": t0, "cameras": cams, "pending": pending()["total"]}, timeout=15)
+        payload["time"] = t0
+        code, body = self._post(f"/api/v{API_VERSION}/edge/hello", payload, timeout=15)
         self.last_hello = time.time()
         if code == 200 and body.get("ok"):
             st = body.get("server_time")

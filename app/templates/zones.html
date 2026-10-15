@@ -41,7 +41,9 @@
         <div class="field"><label class="f">Turi</label><select id="zKind" onchange="dirty();draw()">
           {% for k, z in zone_kinds.items() %}<option value="{{ k }}">{{ z.label }}</option>{% endfor %}
         </select><div class="hint" id="zKindHint"></div></div>
-        <div class="field"><label class="f">Sezgirlik</label><select id="zSens" onchange="dirty()">
+        <div class="field hidden" id="flipBox"><button class="btn sm" type="button" onclick="flipLine()">⇅ Yo'nalishni almashtirish</button>
+          <div class="hint">Strelka "ichkari" tomonni ko'rsatadi: shu tomonga o'tgan odam — "kirdi", teskarisi — "chiqdi".</div></div>
+        <div class="field" id="sensBox"><label class="f">Sezgirlik</label><select id="zSens" onchange="dirty()">
           {% for k, v in sens_labels.items() %}<option value="{{ k }}">{{ v }}</option>{% endfor %}
         </select><div class="hint">Masalan, qimmat mahsulot polkasi uchun "Yuqori".</div></div>
         <div class="field"><label class="switch"><input type="checkbox" id="zOn" onchange="dirty()"> Yoqilgan</label></div>
@@ -60,7 +62,8 @@
     <div class="zk"><span class="zsw" style="background:{{ z.color }};margin-top:3px"></span><div><b>{{ z.label }}.</b> <span class="muted">{{ z.hint }}</span></div></div>
     {% endfor %}
   </div>
-  <div class="muted small" style="margin-top:6px">O'zgarishlar ishlayotgan kameraga 3 soniya ichida qo'llanadi. Odamning joyi oyog'i bo'yicha, polka esa qo'l bo'yicha aniqlanadi.</div>
+  <div class="muted small" style="margin-top:6px">O'zgarishlar ishlayotgan kameraga 3 soniya ichida qo'llanadi. Odamning joyi oyog'i bo'yicha, polka esa qo'l bo'yicha aniqlanadi.
+    Sanash chizig'i natijalari — <a href="/visits">Tashriflar</a> sahifasida.</div>
 </div>
 {% endblock %}
 {% block scripts %}
@@ -91,6 +94,7 @@ function draw() {
   for (const z of zones) {
     if (!z.points.length) continue;
     const isSel = z === sel, col = KINDS[isSel ? document.getElementById("zKind").value : z.kind]?.color || "#64748b";
+    if (isLine(z.kind)) { drawLine(z.points, col, isSel, z.enabled, (isSel ? document.getElementById("zName").value : z.name) || KINDS[z.kind].label, lw, fs); continue; }
     ctx.beginPath(); z.points.forEach((p, i) => { const [x, y] = px(p); i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); }); ctx.closePath();
     ctx.fillStyle = rgba(col, z.enabled ? (isSel ? 0.30 : 0.18) : 0.06); ctx.fill();
     ctx.lineWidth = isSel ? lw * 1.8 : lw; ctx.strokeStyle = col; ctx.setLineDash(z.enabled ? [] : [8, 6]); ctx.stroke(); ctx.setLineDash([]);
@@ -102,7 +106,12 @@ function draw() {
     ctx.fillStyle = "#fff"; ctx.fillText(label, lx + 6, Math.max(fs, ly - 6));
     if (isSel) for (const p of z.points) { const [x, y] = px(p); ctx.beginPath(); ctx.arc(x, y, lw * 3.2, 0, 7); ctx.fillStyle = "#fff"; ctx.fill(); ctx.lineWidth = lw; ctx.strokeStyle = col; ctx.stroke(); }
   }
-  if (drawing) {
+  if (drawing && isLine(document.getElementById("newKind").value)) {
+    const col = KINDS[document.getElementById("newKind").value].color;
+    const pts = drawing.concat(hover && drawing.length === 1 ? [hover] : []);
+    if (pts.length === 2) drawLine(pts, col, true, 1, "", lw, fs);
+    drawing.forEach((p) => { const [x, y] = px(p); ctx.beginPath(); ctx.arc(x, y, lw * 4, 0, 7); ctx.fillStyle = col; ctx.fill(); });
+  } else if (drawing) {
     const col = KINDS[document.getElementById("newKind").value].color;
     ctx.beginPath(); drawing.forEach((p, i) => { const [x, y] = px(p); i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); });
     if (hover && drawing.length) { const [x, y] = px(hover); ctx.lineTo(x, y); }
@@ -110,6 +119,36 @@ function draw() {
     drawing.forEach((p, i) => { const [x, y] = px(p); ctx.beginPath(); ctx.arc(x, y, lw * (i === 0 ? 4.5 : 3), 0, 7); ctx.fillStyle = i === 0 ? col : "#fff"; ctx.fill(); });
   }
 }
+const isLine = (k) => !!(KINDS[k] && KINDS[k].line);
+// Sanash chizig'i: kesma + "ichkari" tomonga strelka (a→b ning o'ng tomoni rasmda — server bilan bir xil qoida)
+function drawLine(points, col, isSel, enabled, label, lw, fs) {
+  const [ax, ay] = px(points[0]), [bx, by] = px(points[1]);
+  ctx.lineWidth = isSel ? lw * 2.4 : lw * 1.8; ctx.strokeStyle = col; ctx.setLineDash(enabled ? [] : [8, 6]);
+  ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(bx, by); ctx.stroke(); ctx.setLineDash([]);
+  const dx = bx - ax, dy = by - ay, L = Math.hypot(dx, dy) || 1, k = Math.max(26, cv.height * 0.07);
+  const nx = -dy / L * k, ny = dx / L * k, mx = (ax + bx) / 2, my = (ay + by) / 2;
+  ctx.beginPath(); ctx.moveTo(mx, my); ctx.lineTo(mx + nx, my + ny); ctx.stroke();
+  const ang = Math.atan2(ny, nx), hs = lw * 5;
+  ctx.beginPath(); ctx.moveTo(mx + nx, my + ny);
+  ctx.lineTo(mx + nx - hs * Math.cos(ang - 0.5), my + ny - hs * Math.sin(ang - 0.5));
+  ctx.lineTo(mx + nx - hs * Math.cos(ang + 0.5), my + ny - hs * Math.sin(ang + 0.5)); ctx.closePath(); ctx.fillStyle = col; ctx.fill();
+  ctx.font = `600 ${fs}px system-ui, sans-serif`;
+  ctx.fillStyle = "#fff"; ctx.strokeStyle = "rgba(0,0,0,.6)"; ctx.lineWidth = 3;
+  ctx.strokeText("ichkari", mx + nx * 1.25 - 20, my + ny * 1.25 + 5); ctx.fillText("ichkari", mx + nx * 1.25 - 20, my + ny * 1.25 + 5);
+  if (label) {
+    const lx = Math.min(Math.max(6, Math.min(ax, bx) + 6), cv.width - ctx.measureText(label).width - 6);
+    const ly = Math.max(fs + 4, (ax < bx ? ay : by) - 8);
+    ctx.strokeText(label, lx, ly); ctx.fillText(label, lx, ly);
+  }
+  if (isSel) for (const [x, y] of [[ax, ay], [bx, by]]) { ctx.beginPath(); ctx.arc(x, y, lw * 3.2, 0, 7); ctx.fillStyle = "#fff"; ctx.fill(); ctx.lineWidth = lw; ctx.strokeStyle = col; ctx.stroke(); }
+}
+function nearSeg(pt, a, b) {
+  const r = cv.getBoundingClientRect(), P = [pt[0] * r.width, pt[1] * r.height], A = [a[0] * r.width, a[1] * r.height], B = [b[0] * r.width, b[1] * r.height];
+  const dx = B[0] - A[0], dy = B[1] - A[1], L2 = dx * dx + dy * dy || 1;
+  const u = Math.max(0, Math.min(1, ((P[0] - A[0]) * dx + (P[1] - A[1]) * dy) / L2));
+  return Math.hypot(P[0] - (A[0] + u * dx), P[1] - (A[1] + u * dy)) < 12;
+}
+function flipLine() { if (sel && isLine(sel.kind)) { sel.points.reverse(); dirty(); draw(); } }
 function evPt(e) { const r = cv.getBoundingClientRect(); return [Math.min(1, Math.max(0, (e.clientX - r.left) / r.width)), Math.min(1, Math.max(0, (e.clientY - r.top) / r.height))]; }
 function distPx(a, b) { const r = cv.getBoundingClientRect(); return Math.hypot((a[0] - b[0]) * r.width, (a[1] - b[1]) * r.height); }
 function inside(pt, poly) {
@@ -123,6 +162,11 @@ function inside(pt, poly) {
 cv.addEventListener("pointerdown", (e) => {
   const pt = evPt(e);
   if (drawing) {
+    if (isLine(document.getElementById("newKind").value)) {
+      drawing.push(pt); setHint(); draw();
+      if (drawing.length === 2) finishDraw();
+      return;
+    }
     if (drawing.length >= 3 && distPx(pt, drawing[0]) < 14) return finishDraw();
     drawing.push(pt); setHint(); draw(); return;
   }
@@ -133,7 +177,7 @@ cv.addEventListener("pointerdown", (e) => {
       drag = i; cv.setPointerCapture(e.pointerId); return;
     }
   }
-  const hit = [...zones].reverse().find((z) => inside(pt, z.points));
+  const hit = [...zones].reverse().find((z) => isLine(z.kind) ? nearSeg(pt, z.points[0], z.points[1]) : inside(pt, z.points));
   if (hit !== sel) discardThen(() => select(hit || null), hit);
 });
 cv.addEventListener("pointermove", (e) => {
@@ -151,8 +195,9 @@ document.addEventListener("keydown", (e) => {
   else if (e.key === "Backspace") { e.preventDefault(); drawing.pop(); setHint(); draw(); }
 });
 function setHint(msg) {
-  document.getElementById("hint").textContent = msg || (drawing
-    ? `Burchaklarni bosib belgilang (${drawing.length} ta). Yopish: birinchi nuqtani bosing, ikki marta bosing yoki Enter. Backspace — oxirgi nuqtani o'chirish.`
+  document.getElementById("hint").textContent = msg || (drawing && isLine(document.getElementById("newKind").value)
+    ? `Eshik ostonasining ikki chetini bosing (${drawing.length}/2). Odam oyog'i shu chiziqdan o'tadi. Keyin strelka ichkariga qarashini tekshiring.`
+    : drawing ? `Burchaklarni bosib belgilang (${drawing.length} ta). Yopish: birinchi nuqtani bosing, ikki marta bosing yoki Enter. Backspace — oxirgi nuqtani o'chirish.`
     : "Zona tanlash uchun ustiga bosing. Burchakni sudrab o'zgartiring, Alt+bosish (yoki o'ng tugma) — burchakni o'chirish.");
 }
 function toggleDrawUI(on) {
@@ -175,8 +220,10 @@ function startDraw() {
 }
 function cancelDraw() { drawing = null; toggleDrawUI(false); setHint(); draw(); }
 async function finishDraw() {
-  if (!drawing || drawing.length < 3) { H.toast("Kamida 3 ta burchak kerak", "alert"); return; }
   const kind = document.getElementById("newKind").value;
+  if (isLine(kind) ? (!drawing || drawing.length !== 2) : (!drawing || drawing.length < 3)) {
+    H.toast(isLine(kind) ? "Chiziq uchun 2 ta nuqta kerak" : "Kamida 3 ta burchak kerak", "alert"); return;
+  }
   const n = zones.filter((z) => z.kind === kind).length + 1;
   const body = { kind, points: drawing, name: `${KINDS[kind].label} ${n}`, sens: "", enabled: 1 };
   drawing = null; toggleDrawUI(false); setHint();
@@ -196,6 +243,10 @@ function fillEditor() {
   document.getElementById("zOn").checked = !!sel.enabled;
   document.getElementById("zKindHint").textContent = KINDS[sel.kind].hint;
   document.getElementById("btnSave").disabled = true;
+  document.getElementById("flipBox").classList.toggle("hidden", !isLine(sel.kind));
+  document.getElementById("sensBox").classList.toggle("hidden", isLine(sel.kind));
+  // Ko'pburchakni chiziqqa (yoki aksincha) aylantirib bo'lmaydi — faqat mos turlar
+  [...document.getElementById("zKind").options].forEach((o) => { o.disabled = isLine(o.value) !== isLine(sel.kind); });
 }
 document.getElementById("zKind").addEventListener("change", (e) => { document.getElementById("zKindHint").textContent = KINDS[e.target.value].hint; });
 async function saveSel() {

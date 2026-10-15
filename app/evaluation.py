@@ -175,7 +175,10 @@ def analyze(path: str, zone_source_id: int | None = None, stop_evt: threading.Ev
                 progress(min(1.0, idx / total))
     finally:
         cap.release()
-    return {"alerts": alerts, "duration": round(idx / fps, 2), "steps": dict(proc.counts),
+    counter = getattr(proc, "counter", None)            # 1.9.0: sanash chizig'i bo'lsa (persist=False — xotirada)
+    crossings = [{"t": round(float(c.t), 2), "dir": c.dir, "line": c.line_name, "staff": bool(c.staff)}
+                 for c in (counter.events if counter is not None else [])]
+    return {"alerts": alerts, "crossings": crossings, "duration": round(idx / fps, 2), "steps": dict(proc.counts),
             "seconds": round(time.time() - t_cpu, 1), "model_set": eng.model_set}
 
 

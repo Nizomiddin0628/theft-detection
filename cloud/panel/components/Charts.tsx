@@ -179,12 +179,24 @@ export function LineChart({
   );
 }
 
-export function BarChart({ points, color = "#c2410c" }: { points: { x: number; y: number }[]; color?: string }) {
+export function BarChart({
+  points,
+  color = "#c2410c",
+  unit = "ta signal",
+  slot = 3600,
+  label,
+}: {
+  points: { x: number; y: number }[];
+  color?: string;
+  unit?: string;
+  slot?: number; // bitta ustun qamragan vaqt (soniya): soatlik — 3600, kunlik — 86400
+  label?: (x: number) => string;
+}) {
   const { ref, w: W } = useWidth();
   const xs = useMemo(() => (points.length ? points.map((p) => p.x) : [Date.now() / 1000 - 3600, Date.now() / 1000]), [points]);
   const { top, step } = ticks(Math.max(1, ...points.map((p) => p.y)), true);
   const sc = scales(xs, top, W);
-  const hours = Math.max(1, sc.spanH);
+  const hours = Math.max(1, (sc.spanH * 3600) / slot);
   const bw = Math.max(2, Math.min(16, ((W - PAD.l - PAD.r) / hours) * 0.7));
   const [hover, setHover] = useState<{ x: number; y: number } | null>(null);
   return (
@@ -208,7 +220,7 @@ export function BarChart({ points, color = "#c2410c" }: { points: { x: number; y
       <div className="legend">
         {hover ? (
           <span style={{ color: "var(--text)" }}>
-            {stamp(hover.x)}: {hover.y} ta signal
+            {label ? label(hover.x) : stamp(hover.x)}: {hover.y} {unit}
           </span>
         ) : (
           <span>Ustun ustiga olib boring — aniq son ko&apos;rinadi</span>

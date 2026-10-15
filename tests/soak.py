@@ -8,7 +8,9 @@ Nima qiladi:
     (5xx yoki osilib qolish), kamera uzilishi; har --restart-hours da edge va bulutni qayta ishga tushirish;
   * har --sample-sec da o'lchaydi: xotira (RSS), oqimlar, dastaklar, CPU, disk, bulut navbati, hodisalar, /healthz;
   * oxirida tekshiradi va hisobot yozadi: xotira oqishi yo'q, navbat bo'shadi, har hodisa bulutga va Telegram'ga
-    aynan bir marta yetdi (yo'qolgan ham, takrorlangan ham yo'q), disk chegaralangan, kutilmagan xato yo'q.
+    aynan bir marta yetdi (yo'qolgan ham, takrorlangan ham yo'q), disk chegaralangan, kutilmagan xato yo'q;
+  * 1.9.0: kamerada sanash chizig'i (--count-line, sukut videosida odamlar uni kesib o'tadi) — har o'tish daqiqalik
+    yig'indiga va bulutga aynan yetgani (uzilish va qayta ishga tushishlarda ham) tekshiriladi.
 
 Ishga tushirish (loyiha ildizidan; virtual muhit faollashtirilgan):
     python tests/soak.py --hours 72                       # to'liq sinov (ma'lumot: %TEMP%/hushyor_soak_<vaqt>)
@@ -661,6 +663,11 @@ class Soak:
         r = self.ec.post("/api/sources", json={"name": "Soak kamera", "kind": "rtsp", "uri": self.cam.url, "enabled": "1",
                                                "start": "1"})
         r.raise_for_status()
+        if a.count_line:                     # 1.9.0: sanash chizig'i — o'tishlar ham bulutga aynan yetishi tekshiriladi
+            x1, y1, x2, y2 = (float(v) for v in a.count_line.split(","))
+            rz = self.ec.post(f"/api/sources/{r.json()['id']}/zones",
+                              json={"kind": "chiziq", "name": "Soak eshik", "points": [[x1, y1], [x2, y2]]})
+            rz.raise_for_status()
         self.say("Edge tayyor: kamera qo'shildi, Telegram obunachisi ulandi, bulutga proksi orqali ulangan")
         self.edge_log = LogTail(self.edge_data / "logs" / "app.log", "edge")
         self.cloud_log = LogTail(self.cloud_data / "logs" / "cloud.log", "bulut")
@@ -947,6 +954,39 @@ class Soak:
             pass
 
     # ------------------------------------------------------------------ tekshirish
+    def check_counts(self, chk) -> None:
+        """1.9.0: har o'tish (counts) → daqiqalik yig'indi (metrics_minute) → bulut: aynan bir xil, uzilish va qayta
+        ishga tushishlarda ham. Oxirgi 3 daqiqa (hali yuborilmagan bo'lishi mumkin) hisobga olinmaydi."""
+        cut = int((time.time() - 180) // 60) * 60
+        with self.edge_db() as c:
+            raw = {(int(r["m"]), int(r["source_id"])): (int(r["i"] or 0), int(r["o"] or 0)) for r in c.execute(
+                "SELECT CAST(t / 60 AS INTEGER) * 60 AS m, source_id, SUM(dir='in' AND staff=0 AND offhours=0) AS i, "
+                "SUM(dir='out' AND staff=0 AND offhours=0) AS o FROM counts WHERE t < ? GROUP BY 1, 2", (cut,))}
+            n_cross = c.execute("SELECT COUNT(*) FROM counts WHERE t < ?", (cut,)).fetchone()[0]
+            loc = {}
+            for r in c.execute("SELECT minute, source_id, extra FROM metrics_minute WHERE source_id > 0 AND minute < ?",
+                               (cut,)):
+                try:
+                    d = json.loads(r["extra"] or "{}")
+                except ValueError:
+                    d = {}
+                if "in" in d:
+                    loc[(int(r["minute"]), int(r["source_id"]))] = (int(d["in"]), int(d.get("out", 0)))
+        cl = {}
+        for r in self.cloud_rows("SELECT m.minute, m.source_id, m.data FROM metrics_minute m JOIN branches b "
+                                 "ON b.id = m.branch_id WHERE b.device_id = :d AND m.source_id > 0 AND m.minute < :c",
+                                 {"d": self.device, "c": cut}):
+            d = r["data"] if isinstance(r["data"], dict) else json.loads(r["data"] or "{}")
+            if "in" in d:
+                cl[(int(r["minute"]), int(r["source_id"]))] = (int(d["in"]), int(d.get("out", 0)))
+        bad_loc = sorted(k for k in raw if loc.get(k) != raw[k])
+        bad_cl = sorted(k for k in loc if cl.get(k) != loc[k])
+        tot = lambda m: (sum(v[0] for v in m.values()), sum(v[1] for v in m.values()))  # noqa: E731
+        chk("Sanash: har o'tish daqiqalik yig'indiga tushdi (qayta ishga tushishda ham)", n_cross > 0 and not bad_loc,
+            f"{n_cross} o'tish, kirdi/chiqdi {tot(raw)}; mos emas: {len(bad_loc)} daqiqa {bad_loc[:5]}")
+        chk("Sanash: bulutdagi kirdi/chiqdi edge bilan aynan bir xil (uzilishlarda yo'qolmadi, takrorlanmadi)",
+            bool(loc) and not bad_cl, f"edge {tot(loc)}, bulut {tot(cl)}; mos emas: {len(bad_cl)} daqiqa {bad_cl[:5]}")
+
     def finish(self) -> int:
         checks: list[dict] = []
 
@@ -1011,6 +1051,8 @@ class Soak:
         miss = [e["id"] for e in evs if e["id"] not in cev]
         chk("Har edge hodisasi bulutda bor (yo'qolgan yo'q)", not miss and len(evs) > 0,
             f"edge {len(evs)}, bulut {len(cev)}, yo'q: {miss[:10]}")
+        if self.a.count_line:
+            self.check_counts(chk)
         clip_miss = [e["id"] for e in evs if e["clip_path"] and e["id"] in cev and not cev[e["id"]]["clip_file"]]
         no_clip = [e["id"] for e in evs if not e["clip_path"]]
         chk("Har klip bulutga yuklandi", not clip_miss, f"yuklanmagan: {clip_miss[:10]}")
@@ -1390,7 +1432,10 @@ def main() -> int:
     ap.add_argument("--max-mem-slope", type=float, default=5.0, help="ruxsat etilgan xotira o'sishi (MB/soat)")
     ap.add_argument("--min-leak-hours", type=float, default=6.0, help="xotira oqishini baholash uchun eng qisqa bo'lak")
     ap.add_argument("--cam-fps", type=float, default=12.0)
-    ap.add_argument("--video", default=str(ROOT / "samples" / "dokon_namuna_20s.mp4"))
+    ap.add_argument("--video", default=str(ROOT / "samples" / "sanash_namuna.mp4"),
+                    help="soxta kamera videosi (sukut: 1.9.0 sanash namunasi — odamlar chiziqni kesib o'tadi)")
+    ap.add_argument("--count-line", default="0,0.72,1,0.72",
+                    help="sanash chizig'i x1,y1,x2,y2 (0..1); bo'sh qator — sanashsiz")
     ap.add_argument("--cloud-db-url", default="", help="masalan PostgreSQL (sukut: sinov papkasidagi SQLite)")
     ap.add_argument("--dir", default="", help="sinov papkasi (sukut: vaqtinchalik papka)")
     ap.add_argument("--report-live", metavar="DB", help="jonli tizim bazasi (data/hushyor.db) — faqat hisobot")

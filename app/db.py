@@ -180,6 +180,31 @@ CREATE TABLE IF NOT EXISTS metrics_minute (
     extra TEXT,
     PRIMARY KEY (minute, source_id)
 );
+-- Odamlarni sanash (1.9.0): har kirish/chiqish chizig'idan o'tish (app/ai/counting.py), 90 kun
+CREATE TABLE IF NOT EXISTS counts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    t REAL NOT NULL,              -- o'tish vaqti (unix)
+    source_id INTEGER,
+    source_name TEXT,
+    line_id INTEGER,              -- zones.id (kind='chiziq')
+    line_name TEXT,
+    dir TEXT NOT NULL,            -- in | out
+    track_id INTEGER,
+    staff INTEGER DEFAULT 0,      -- xodim (xodim zonasida turgan) — xaridorlar soniga kirmaydi
+    offhours INTEGER DEFAULT 0,   -- ish vaqtidan tashqari (sozlama work_hours)
+    x REAL, y REAL                -- o'tish nuqtasi (0..1)
+);
+CREATE INDEX IF NOT EXISTS idx_counts_t ON counts(t);
+CREATE INDEX IF NOT EXISTS idx_counts_src_t ON counts(source_id, t);
+-- Qo'lda sanash sinovi (aniqlik darvozasi): egasi bosgan "kirdi/chiqdi" vaqtlari, avtomatik sanash bilan solishtiriladi
+CREATE TABLE IF NOT EXISTS count_sessions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    started_at REAL NOT NULL,
+    ended_at REAL,
+    source_id INTEGER,            -- NULL — barcha kameralar
+    taps TEXT,                    -- JSON [[t, "in"|"out"], ...]
+    note TEXT
+);
 """
 
 

@@ -16,6 +16,13 @@
   <div class="card kpi ok"><div class="label">{{ icon('shield', 14) }} Signal aniqligi</div><div class="value" id="k-prec">—</div><div class="sub" id="k-prec-sub">tasdiq / (tasdiq + xato)</div></div>
 </div>
 
+<div id="visits-row" class="grid g4 hidden" style="margin-top:16px">
+  <div class="card kpi ok"><div class="label">{{ icon('users', 14) }} Hozir ichkarida</div><div class="value" id="v-inside">—</div><div class="sub"><a href="/visits">Tashriflar {{ icon('chev-r', 12) }}</a></div></div>
+  <div class="card kpi"><div class="label">Bugun kirdi</div><div class="value" id="v-in">—</div><div class="sub">xaridorlar</div></div>
+  <div class="card kpi"><div class="label">Bugun chiqdi</div><div class="value" id="v-out">—</div><div class="sub">xaridorlar</div></div>
+  <div class="card kpi"><div class="label">Xodimlar o'tishi</div><div class="value" id="v-staff">—</div><div class="sub">hisobga olinmaydi</div></div>
+</div>
+
 <div class="grid g3" style="margin-top:16px">
   <div class="card span2">
     <div class="card-h"><h2>Faol kameralar</h2><div class="grow"></div><a class="btn sm" href="/live">{{ icon('eye', 14) }} Jonli kuzatuv</a></div>
@@ -56,6 +63,14 @@ document.addEventListener("summary", (e) => {
   document.getElementById("k-prec").textContent = H.pct(s.precision);
   document.getElementById("k-prec-sub").textContent = s.reviewed ? `${s.reviewed} ta javob asosida` : "hali javob yo'q";
   document.getElementById("tg-warn").classList.toggle("hidden", !!s.subs);
+  const v = s.visits;
+  document.getElementById("visits-row").classList.toggle("hidden", !v);
+  if (v) {
+    document.getElementById("v-inside").textContent = v.inside;
+    document.getElementById("v-in").textContent = v.in;
+    document.getElementById("v-out").textContent = v.out;
+    document.getElementById("v-staff").textContent = v.staff;
+  }
   H.bars(document.getElementById("hours"), [...Array(24).keys()].map((h) => String(h).padStart(2, "0")),
     [{ name: "hodisa", color: "#d97706", values: s.hours }], { height: 200, maxLabels: 8 });
   document.getElementById("latest").innerHTML = s.latest.length ? s.latest.map(H.evCard).join("")

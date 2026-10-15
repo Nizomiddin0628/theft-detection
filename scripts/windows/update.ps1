@@ -1,6 +1,6 @@
 # Hushyor AI - yangi versiyaga yangilash (do'kon kompyuterida). Ma'lumot (data\, cloud\data\, .env) saqlanadi.
 #
-#   powershell -ExecutionPolicy Bypass -File scripts\windows\update.ps1 -Zip "$HOME\Downloads\hushyor_ai_1.8.0_yangilanish.zip"
+#   powershell -ExecutionPolicy Bypass -File scripts\windows\update.ps1 -Zip "$HOME\Downloads\hushyor_ai_1.9.0_yangilanish.zip"
 #   powershell -ExecutionPolicy Bypass -File scripts\windows\update.ps1            # git pull bilan (repo bo'lsa)
 #
 # Tartib: ZIP vaqtinchalik papkada ochilib tekshiriladi -> vazifalar to'xtatiladi -> zaxira (.env, bazalar WAL bilan,
@@ -193,6 +193,20 @@ if ($old -ne $reqHash -or $reqBefore -ne $reqHash) {
         exit 1
     }
 } else { Ok "o'zgarmagan" }
+
+# 1.9.0: odam sanashni sizdagi asl app\ai\worker.py ga ulash (fayl almashtirilmaydi; qayta ishga tushirish zararsiz)
+$hook = Join-Path $root "scripts\apply_counting_hook.py"
+if (Test-Path $hook) {
+    $wk = "app\ai\worker.py"
+    $wkBak = Join-Path $bakCode $wk
+    if ((Test-Path $wk) -and -not (Test-Path $wkBak)) {      # orqaga qaytishda asl worker.py ham tiklansin
+        New-Item -ItemType Directory -Force -Path (Split-Path $wkBak) | Out-Null
+        Copy-Item $wk $wkBak -Force
+    }
+    & $venvPy $hook
+    if ($LASTEXITCODE -eq 0) { Ok "sanash ulangan" }
+    else { Warn "sanash ulanmadi - dastur ishlaydi, lekin tashriflar sanalmaydi. app\ai\worker.py ni Claude'ga yuboring." }
+}
 
 # ---------------------------------------------------------------- [6/7] tekshiruv
 Write-Host "[6/7] Tekshiruv" -ForegroundColor Cyan

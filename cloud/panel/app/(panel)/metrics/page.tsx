@@ -57,6 +57,11 @@ function Metrics() {
     return Array.from(acc, ([x, y]) => ({ x, y })).sort((a, b) => a.x - b.x);
   }, [rows]);
 
+  const visits = useMemo(() => {
+    const acc = new Map<number, number>();
+    rows.filter((r) => r.source_id > 0 && r.in !== undefined).forEach((r) => acc.set(r.hour, (acc.get(r.hour) ?? 0) + (r.in || 0)));
+    return Array.from(acc, ([x, y]) => ({ x, y })).sort((a, b) => a.x - b.x);
+  }, [rows]);
   const cams = rows.filter((r) => r.source_id > 0);
   const totalAlerts = alerts.reduce((a, b) => a + b.y, 0);
   const peak = cams.reduce((a, r) => Math.max(a, r.persons_max || 0), 0);
@@ -126,6 +131,13 @@ function Metrics() {
               <p className="sub">Soatlik o&apos;rtacha, kamera bo&apos;yicha</p>
               <LineChart series={people} />
             </div>
+            {visits.some((p) => p.y > 0) ? (
+              <div className="panel chart">
+                <h3>Tashriflar</h3>
+                <p className="sub">Har soatda kirgan xaridorlar (sanash chizig&apos;i)</p>
+                <BarChart points={visits} color="var(--teal)" unit="kishi" />
+              </div>
+            ) : null}
             <div className="panel chart">
               <h3>Signallar</h3>
               <p className="sub">Har soatda barcha kameralar bo&apos;yicha</p>

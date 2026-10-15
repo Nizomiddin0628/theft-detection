@@ -6,7 +6,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 
 import { api, KIND_UZ, ROLE_UZ, type Me } from "@/lib/api";
 import { beep, emitLive, getPref, unlockAudio, type LiveMsg } from "@/lib/live";
-import { IconBell, IconChart, IconExit, IconList, IconPeople, IconShield, IconStore, IconWall } from "./Icons";
+import { IconBell, IconChart, IconDoor, IconExit, IconList, IconPeople, IconShield, IconStore, IconWall } from "./Icons";
 
 interface Toast {
   id: number;
@@ -36,6 +36,7 @@ const NAV = [
   { href: "/", label: "Bosh sahifa", short: "Bosh", icon: IconWall },
   { href: "/events/", label: "Hodisalar", short: "Hodisalar", icon: IconList },
   { href: "/branches/", label: "Filiallar", short: "Filiallar", icon: IconStore },
+  { href: "/visits/", label: "Tashriflar", short: "Tashrif", icon: IconDoor },
   { href: "/metrics/", label: "Ko'rsatkichlar", short: "Grafiklar", icon: IconChart },
   { href: "/users/", label: "Xodimlar", short: "Xodimlar", icon: IconPeople, owner: true },
   { href: "/settings/", label: "Sozlamalar", short: "Sozlama", icon: IconBell },

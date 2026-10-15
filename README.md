@@ -8,6 +8,97 @@ klipini avtomatik kesib, **Telegram botga** sabablari bilan yuboradi. Qo'riqchi 
 
 ---
 
+## 1.9.0 versiyadagi o'zgarishlar (3-bosqich: odamlarni sanash)
+
+* **Sanash chizig'i** — yangi zona turi (*Kameralar → Zonalar → "Sanash chizig'i"*):
+  * Ikki nuqta bilan chiziladi. Strelka ichkari tomonni ko'rsatadi, "⇅ Yo'nalishni almashtirish" tugmasi bor.
+  * Odam oyog'i chiziqni bir tomondan ikkinchisiga to'liq kesib o'tsa — bitta "kirdi" yoki "chiqdi".
+  * Chiziq atrofida o'lik oraliq bor (odam bo'yining 10%): eshik oldida u yoqdan-bu yoqqa yurish sanalmaydi.
+  * Kuzatuvchi ID ni almashtirsa yoki izni yo'qotib qayta topsa (1,2 s ichida, yaqin joyda) — odam ikki marta ham,
+    umuman sanalmay ham qolmaydi. Ulash 0,8 s "sinovda" turadi: shu orada eski ID qaytsa (detektor bir-ikki kadr
+    ko'rmagan ekan, yonida esa boshqa odam paydo bo'lgan) — ulash bekor, soxta o'tish yo'q. Xodim belgisi faqat
+    ishonchli ulashda (keyingi kadr, juda yaqin) meros bo'ladi: xodimning ortidan kirgan xaridor "xodim" bo'lib
+    qolmaydi.
+  * Chiziq tahrirlansa yoki yo'nalishi almashtirilsa — kadrdagi odamlar soxta "o'tish" bermaydi.
+  * Chiziqli kamerada odam bo'lsa, AI to'liq tezlikda ishlaydi — izlar uzilmaydi.
+  * Sanashdagi har qanday xato kamera tahlilini (o'g'irlikni aniqlashni) to'xtatmaydi.
+  * Aylanuvchi video fayl manbasida o'tishlar faqat birinchi aylanishda sanaladi (signallar kabi).
+* **Xodimlar va ish vaqti xaridorlar soniga kirmaydi:**
+  * Xodimlar joyida turgan odam xodim hisoblanadi. U keyin aniqlansa ham, oldingi o'tishlari orqaga qarab
+    tuzatiladi: lokal baza ham, bulutga ketgan daqiqalik yig'indi ham.
+  * Ish vaqti (masalan `09:00-22:00`, tunni kesib o'tsa ham) — undan tashqaridagi o'tishlar alohida sanaladi.
+  * "Hozir ichkarida" — xodimsiz, lekin ish vaqtidan qat'i nazar: 22:00 dan keyin chiqqan xaridor ham ayiriladi.
+    Har kuni do'kon yopiq paytining o'rtasida nolga qaytadi (09:00-22:00 → 03:30; ish vaqti bo'sh bo'lsa yarim tunda),
+    "0 qilish" tugmasi ham bor. Kun oxiri farqi ham shu hisobda va "biznes kuni" bo'yicha (03:30 dan 03:30 gacha):
+    22:00 dan keyin, hatto yarim tundan keyin chiqqanlar ham o'sha kunga tushadi.
+* **Tashriflar sahifasi** (edge panel, menyuda):
+  * hozir ichkarida — qo'lda "0 qilish" tugmasi bilan;
+  * bugun kirdi/chiqdi va kecha bilan solishtirish;
+  * soatlar bo'yicha grafik, eng gavjum soat, oxirgi o'tishlar;
+  * kunlik jadval (7/14/30/90 kun): kun oxiri farqi, xodimlar, ish vaqtidan tashqari;
+  * oxirgi 7 kun ↔ undan oldingi 7 kun;
+  * CSV eksport.
+
+  Boshqaruv panelida "Bugun kirdi / ichkarida" qatori chiqadi.
+* **Bulut:**
+  * Daqiqalik ko'rsatkichlarda `in/out/staff_in/staff_out/offhours/off_in/off_out`.
+  * Edge kechikkan o'tishni (AI navbati) va daqiqa o'rtasida to'xtab qolgan daqiqani o'zi to'g'rilab, qayta yuboradi.
+    Bulutdagi yig'indi edge bilan aynan bir xil bo'ladi.
+  * Sanash alohida `visits_minute` jadvalida, SQL'da yig'iladi: 280 ming qator (90 kun × 2 filial × 2 kamera)
+    ustida `/visits?days=90` — 0,1–0,2 s (SQLite va PostgreSQL).
+  * `GET /api/v1/visits` — filial va kun bo'yicha.
+  * Panelda yangi **Tashriflar** sahifasi:
+    * filial filtri;
+    * kunlar va bugungi soatlar grafigi — soat do'kon vaqtida;
+    * haftalik taqqoslash;
+    * filiallar va kunlar jadvali.
+  * Bosh sahifadagi filial kartasida "ichkarida · bugun".
+  * Grafiklarda kirganlar.
+  * Telegram `/bugun` buyrug'ida tashriflar.
+  * "Hozir ichkarida" edge'dan hello bilan keladi, shuning uchun bulut va do'kon paneli bir xil ko'rsatadi.
+  * Hujjat: [`docs/SYNC_API.md`](docs/SYNC_API.md).
+* **Aniqlik darvozasi** (reja: "2 × 1 soat qo'lda sanash bilan ≥ 95%; kun oxirida og'ish ≤ 5%"):
+  * Panelda **Tashriflar → Qo'lda sanash**: telefonda katta "Kirdi +1 / Chiqdi +1" tugmalari, bekor qilish va
+    taymer. Tugagach tizim har yo'nalishni alohida solishtiradi. Har bosishni ±4 s ichidagi avtomatik o'tish bilan
+    juftlaydi va o'tkazib yuborilgan hamda ortiqchalarni ko'rsatadi.
+  * Darvoza: oxirgi 2 ta ≥ 1 soatlik sinovning har birida son aniqligi ≥ 95% **va** juftlash ≥ 95%. Ikkinchisi
+    shuning uchun kerak: 10 ta o'tkazib yuborilgan va 10 ta ortiqcha o'tish sonni "100%" qilib ko'rsatishi mumkin.
+  * Buyruq qatoridan: `python tests\count_gate.py` — bazani faqat o'qiydi. Chiqish kodi: 0 — o'tdi,
+    1 — o'tmadi (maslahat bilan), 2 — ma'lumot yetarli emas. Mezonlar bitta joyda: `app/count_eval.py`.
+* **O'rnatishda bir qo'shimcha qadam:** `python scripts\apply_counting_hook.py`.
+  * Sanash kamera jarayoniga (`app/ai/worker.py`) 6 ta kichik qo'shimcha bilan ulanadi (7-chisi ixtiyoriy).
+  * Yangilanish ZIP'i bu faylni **almashtirmaydi** — sizdagi asl 1.4.1 tuzatishlari saqlanadi.
+  * Har qo'shimcha joyi aniq topilmasa, fayl o'zgartirilmaydi. Natija tekshiriladi: import, `Processor`
+    yaratiladi va sanash chaqiriladi. Xato bo'lsa — eski nusxa qaytadi. Zaxira `data\backups\` da.
+    BOM bilan saqlangan fayl ham ishlaydi.
+  * Ulanmagan bo'lsa, Tashriflar sahifasida qizil ogohlantirish chiqadi.
+  * 1.9.0 dan keyingi `update.ps1` bu qadamni o'zi bajaradi.
+* **72 soatlik sinov (`tests/soak.py`) endi sanashni ham tekshiradi:** sukut videosi — `sanash_namuna.mp4`,
+  kamerada sanash chizig'i. Har o'tish daqiqalik yig'indiga va bulutga **aynan** yetganini solishtiradi.
+  45 daqiqalik sinov: 351 o'tish, 4 ta internet uzilishi (rad etish va "qora tuynuk") — edge va bulut bir xil,
+  yo'qolgan ham, takrorlangan ham yo'q.
+* **Sinov topgan va tuzatilgan muammo:** kamera ishlamay turgan paytda dastur qayta ishga tushsa, "Kamera tiklandi"
+  xabari kelmasdi (holat xotirada edi). Endi holat bazada eslab qolinadi: qayta ishga tushgach "ishlamayapti"
+  takrorlanmaydi, kamera tiklansa xabar keladi.
+* **Telefonda panel:** keng jadvallar sahifani yonga surmaydi (jadval o'z joyida suriladi), sarlavha tugmalari yangi
+  qatorga o'tadi.
+* **Sinovlar:**
+  * `tests.test_counting` — 79 ta: mantiq, ID almashishi, xodim, ish vaqti, saqlash, kechikkan o'tish, qayta ishga
+    tushish, API, darvoza, ulash skripti.
+  * `tests.test_counting_cloud` — 18 ta, SQLite va PostgreSQL'da (36 tekshiruv), tezlik ham.
+  * `tests.test_count_video` — haqiqiy video: `samples/sanash_namuna.mp4`, Intel sample-videos, CC BY 4.0.
+    Videoda 7 kishi chiziqni kesib o'tadi:
+    * natija 7/7;
+    * chiziq teskari bo'lsa 7/7 "kirdi";
+    * AI 4 kadr/s da ham 7/7;
+    * chiziq balandligi y = 0,72 / 0,80 / 0,88 — 7/7. Xona ichkarisida (y = 0,55–0,62) esa 4–5: u yerda odamlar
+      chiziqni to'liq kesmasdan yon eshikdan chiqib ketadi. **Chiziq joyi muhim:** odam albatta to'liq kesib
+      o'tadigan joyga qo'ying.
+  * CPU: shu videoda sanash chizig'i AI qadamlarini +3% oshirdi, vaqt farqi o'lchash xatosi ichida
+    (2 yadroli Xeon/Linux, sizning Ryzen'ingizda emas).
+  * **Halol eslatma:** bu bitta ochiq video. Do'koningiz eshigidagi aniqlik faqat qo'lda sanash sinovi bilan
+    isbotlanadi.
+
 ## 1.8.0 versiyadagi o'zgarishlar (2-bosqich, 5-qadam: xavfsizlik va yakun — 2-bosqich yopildi)
 
 * **Xavfsizlik tekshiruvi (OWASP Top 10)** — natija, tuzatilgan 15 ta muammo va qolgan xavflar:
@@ -342,6 +433,7 @@ python run.py
 | AI model | Model aniqligi, versiyalar, qo'riqchi javoblari va PoseLift bilan qayta o'qitish |
 | Telegram bot | Ulanish kodi, obunachilar, sinov xabari, yuborish sozlamalari |
 | Hisobotlar | Kunlar/soatlar/kameralar bo'yicha, signal aniqligi, javob vaqti |
+| Tashriflar | Eshikdan kirdi/chiqdi, hozir ichkarida, soat/kun/hafta, eng gavjum soat, qo'lda sanash sinovi, CSV (1.9.0) |
 | Aniqlik sinovi | O'z videolaringizda hodisalarni belgilash va aniqlik/topishni o'lchash |
 | Sozlamalar | Sezgirlik rejimi, chegara, klip uzunligi, signal turlari, AI tezligi |
 | Tizim holati | CPU/RAM, versiyalar, kameralar tezligi, jurnal |
@@ -402,6 +494,10 @@ python -m tests.test_web video.mp4        # to'liq sinov: web + AI + soxta Teleg
 python -m tests.test_security             # 1.8.0 xavfsizlik (OWASP): edge + bulut (CLOUD_TEST_PG_URL bilan PostgreSQL ham)
 python tests/soak.py --hours 72           # 1.8.0 barqarorlik sinovi (alohida papkada; qisqasi: --hours 1 --cycle-min 15)
 python tests/model_gate.py                # 1.8.0 model darvozasi (Aniqlik sinovi natijalaridan)
+python -m tests.test_counting             # 1.9.0 odam sanash: mantiq, xodim, ish vaqti, API, darvoza, worker.py ga ulash
+python -m tests.test_counting_cloud       # 1.9.0 bulutda tashriflar (CLOUD_TEST_PG_URL bilan PostgreSQL ham)
+python -m tests.test_count_video          # 1.9.0 haqiqiy videoda sanash (samples/sanash_namuna.mp4, 7 kishi)
+python tests/count_gate.py                # 1.9.0 sanash darvozasi (qo'lda sanash sinovlari va kunlik og'ish)
 ```
 
 ---

@@ -8,3 +8,12 @@ Bu oddiy xarid videosi (o'g'irlik yo'q). Undan quyidagicha foydalaning:
   * "Oddiy" rejimda — signal bermasligi kerak (xato signal yo'qligini tekshirish)
   * "Sinov" rejimida — 1 ta signal beradi (klip, Telegram va Tasdiq/Xato tugmalarini sinash uchun)
 Haqiqiy "yashirish" harakatini sinash uchun kompyuter kamerasi oldida o'zingiz harakat qiling.
+
+sanash_namuna.mp4
+-----------------
+Manba: Intel IoT DevKit "sample-videos" — people-detection.mp4 (ovozsiz, H.264 qayta siqilgan, 768x432, 12 kadr/s)
+https://github.com/intel-iot-devkit/sample-videos
+Litsenziya: Creative Commons Attribution 4.0 International (CC BY 4.0)
+
+Odam sanash (3-bosqich) sinovi uchun: 7 kishi kadrning pastki qismidagi chiziqni (y = 0.72) pastdan yuqoriga
+kesib o'tadi. Ishlatish: python -m tests.test_count_video

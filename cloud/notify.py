@@ -1040,7 +1040,13 @@ class TelegramPoller(threading.Thread):
                                  {"b": b["id"], "t": day0}) or 0
                 new = cdb.scalar("SELECT COUNT(*) FROM events WHERE branch_id=:b AND received_at >= :t AND status='yangi'",
                                  {"b": b["id"], "t": day0}) or 0
-                lines.append(f"{esc(b['name'])}: {tot} ta hodisa, tekshirilmagan {new}")
+                vis = cdb.visits_hourly([b["id"]], day0, off=int(round(cfg.tz_offset * 3600)))
+                ain = sum(v["in"] + v["off_in"] for v in vis)
+                aout = sum(v["out"] + v["off_out"] for v in vis)
+                vtxt = (f"; tashrif: {sum(v['in'] for v in vis)} kirdi, ichkarida "
+                        f"{cdb.inside_now(b.get('occupancy'), ain, aout)}") \
+                    if vis or cdb.occupancy_fresh(b.get("occupancy")) else ""
+                lines.append(f"{esc(b['name'])}: {tot} ta hodisa, tekshirilmagan {new}{vtxt}")
             self.reply(chat_id, "\n".join(lines))
         else:
             self.reply(chat_id, "Buyruqlar: /holat — do'konlar holati, /bugun — bugungi hodisalar.\n"

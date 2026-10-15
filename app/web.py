@@ -29,7 +29,7 @@ from .ai.manager import archive_feedback, delete_event_files, get_manager
 from .config import (ADMIN_PASSWORD, ADMIN_USER, APP_NAME, APP_VERSION, BASE_DIR, CLIPS_DIR, DATA_DIR,
                      EVAL_DIR, HOST, MODELS_DIR, PUBLIC_URL, SECRET_KEY, SENSITIVITY_PRESETS, UPLOADS_DIR, env)
 from .logutil import MEMORY_LOG, get_logger, setup_logging
-from . import evaluation
+from . import evaluation, visits
 from .ai import zones as zones_mod
 from .telegram_bot import KIND_UZ, get_bot, latency_stats, susp_info
 
@@ -52,6 +52,7 @@ async def lifespan(_app):
 
 app = FastAPI(title=APP_NAME, version=APP_VERSION, docs_url=None, redoc_url=None, lifespan=lifespan)
 app.mount("/static", StaticFiles(directory=str(APP_DIR / "static")), name="static")
+app.include_router(visits.router)        # 1.9.0: odamlarni sanash — /api/counts/*, /api/export/counts.csv
 
 PUBLIC_PATHS = ("/login", "/static", "/favicon.ico", "/healthz")
 VIDEO_EXT = {".mp4", ".avi", ".mov", ".mkv", ".webm", ".m4v", ".mpg", ".mpeg", ".wmv", ".flv", ".3gp", ".ts"}
@@ -65,6 +66,7 @@ NAV = [
     ("model", "/model", "AI model", "cpu"),
     ("telegram", "/telegram", "Telegram bot", "send"),
     ("reports", "/reports", "Hisobotlar", "chart"),
+    ("visits", "/visits", "Tashriflar", "users"),
     ("eval", "/eval", "Aniqlik sinovi", "target"),
     ("settings", "/settings", "Sozlamalar", "sliders"),
     ("system", "/system", "Tizim holati", "activity"),
@@ -462,6 +464,12 @@ def reports_page(request: Request):
     return page(request, "reports.html", "reports", "Hisobotlar")
 
 
+@app.get("/visits", response_class=HTMLResponse)
+def visits_page(request: Request):
+    srcs = db.rows("SELECT id, name FROM sources ORDER BY id")
+    return page(request, "visits.html", "visits", "Tashriflar", sources=srcs)
+
+
 @app.get("/settings", response_class=HTMLResponse)
 def settings_page(request: Request, saved: int = 0):
     return page(request, "settings.html", "settings", "Sozlamalar", saved=saved)
@@ -565,7 +573,20 @@ def api_summary():
         "subs": cnt("SELECT COUNT(*) FROM subscribers WHERE active=1"),
         "sensitivity": db.get_setting("sensitivity"), "last_id": latest[0]["id"] if latest else 0,
         "jobs_running": cnt("SELECT COUNT(*) FROM jobs WHERE status IN ('navbatda','ishlanmoqda')"),
+        "visits": _visits_brief(d0),
     }
+
+
+def _visits_brief(d0: float) -> dict | None:
+    """1.9.0: sanash chizig'i bor bo'lsa — bugun kirdi/chiqdi va hozir ichkarida (boshqaruv paneli kartasi;
+    Tashriflar sahifasi va bulut bilan bir xil hisob — visits.occupancy)."""
+    occ = visits.occupancy()
+    if occ is None:
+        return None
+    from .ai import counting
+
+    s = counting.summary(d0, time.time() + 1)
+    return {"in": s["in"], "out": s["out"], "inside": occ["inside"], "staff": s["staff"]}
 
 
 # ----------------------------------------------------------------------------- manbalar
@@ -623,7 +644,7 @@ def api_delete_source(source_id: int):
 
 # ----------------------------------------------------------------------------- zonalar
 def _zone_public(r: dict) -> dict:
-    pts = zones_mod.parse_points(r["points"])
+    pts = zones_mod.parse_points(r["points"], r["kind"])
     return {"id": r["id"], "source_id": r["source_id"], "name": r["name"] or "", "kind": r["kind"],
             "points": [] if pts is None else [[round(float(x), 4), round(float(y), 4)] for x, y in pts],
             "sens": r["sens"] or "", "enabled": int(r["enabled"] or 0)}
@@ -809,9 +830,10 @@ async def api_zone_save(request: Request, source_id: int):
     kind = d.get("kind", "")
     if not isinstance(kind, str) or kind not in zones_mod.ZONE_KINDS:
         raise HTTPException(400, "Noto'g'ri zona turi")
-    pts = zones_mod.parse_points(d.get("points"))
+    pts = zones_mod.parse_points(d.get("points"), kind)
     if pts is None:
-        raise HTTPException(400, "Zona kamida 3 nuqtadan iborat bo'lishi kerak")
+        raise HTTPException(400, "Sanash chizig'i — aynan 2 nuqta (bir-biridan uzoqroq)" if kind in zones_mod.LINE_KINDS
+                            else "Zona kamida 3 nuqtadan iborat bo'lishi kerak")
     sens = d.get("sens", "") or ""
     if not isinstance(sens, str) or sens not in zones_mod.SENSITIVITY:
         raise HTTPException(400, "Noto'g'ri sezgirlik")

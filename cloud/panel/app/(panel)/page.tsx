@@ -98,6 +98,11 @@ export default function Dashboard() {
                   <span className={b.pending_review ? "warn" : ""}>
                     <b>{b.pending_review}</b>tekshirilmagan
                   </span>
+                  {b.visits_today ? (
+                    <span title={`Bugun kirdi ${b.visits_today.in}, chiqdi ${b.visits_today.out}`}>
+                      <b>{b.visits_today.inside}</b>ichkarida · bugun {b.visits_today.in}
+                    </span>
+                  ) : null}
                 </span>
                 {!b.online && b.last_seen ? <span className="small muted">Oxirgi aloqa: {ago(b.last_seen)}</span> : null}
               </Link>

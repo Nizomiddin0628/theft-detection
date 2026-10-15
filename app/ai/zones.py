@@ -11,6 +11,8 @@ Zona — kamera rasmi ustiga chizilgan ko'pburchak (nuqtalar 0..1 oralig'ida, ra
   xodim      Xodimlar joyi (peshtaxta orti, ombor eshigi). Shu yerda 2 s turgan odam xodim deb belgilanadi va
              kadrdan chiqquncha unga signal berilmaydi.
   etiborsiz  Televizor, oyna, ko'cha ko'rinadigan deraza: bu yerdagi odamlar va harakat tahlil qilinmaydi.
+  chiziq     Sanash chizig'i (1.9.0): ikki nuqta, eshik ostonasida. Strelka tomoniga o'tgan odam — "kirdi",
+             teskarisi — "chiqdi" (app/ai/counting.py).
 
 Odamning joyi oyog'i (ramka pastining o'rtasi) bo'yicha, polka esa qo'l (bilak) bo'yicha aniqlanadi.
 """
@@ -37,7 +39,10 @@ ZONE_KINDS = {
               "hint": "Shu yerda 2 s turgan odam xodim — unga signal berilmaydi."},
     "etiborsiz": {"label": "E'tiborsiz", "color": "#64748b",
                   "hint": "Televizor, oyna, deraza: bu yerdagi odam va harakat tahlil qilinmaydi."},
+    "chiziq": {"label": "Sanash chizig'i", "color": "#0891b2", "line": True,
+               "hint": "Eshik ostonasiga 2 nuqta. Strelka — ichkari: shu tomonga o'tgan odam 'kirdi', teskarisi 'chiqdi'."},
 }
+LINE_KINDS = {k for k, v in ZONE_KINDS.items() if v.get("line")}
 # Zona sezgirligi: signal chegarasiga qo'shiladi (manfiy — sezgirroq)
 SENSITIVITY = {"": 0, "yuqori": -15, "past": 15}
 SENS_LABELS = {"": "Odatiy", "yuqori": "Yuqori (chegara −15)", "past": "Past (chegara +15)"}
@@ -111,14 +116,20 @@ _cache: dict[int, tuple[float, ZoneSet]] = {}
 _lock = threading.Lock()
 
 
-def parse_points(raw) -> np.ndarray | None:
+def parse_points(raw, kind: str = "") -> np.ndarray | None:
+    """Ko'pburchak — kamida 3 nuqta; chiziq (sanash) — aynan 2 ta, bir-biridan uzoqroq."""
     try:
         pts = np.asarray(json.loads(raw) if isinstance(raw, str) else raw, dtype=np.float32)
     except (TypeError, ValueError):
         return None
-    if pts.ndim != 2 or pts.shape[1] != 2 or len(pts) < 3 or not np.isfinite(pts).all():
+    if pts.ndim != 2 or pts.shape[1] != 2 or not np.isfinite(pts).all():
         return None
-    return pts.clip(0.0, 1.0)
+    pts = pts.clip(0.0, 1.0)
+    if kind in LINE_KINDS:
+        if len(pts) != 2 or float(np.hypot(*(pts[1] - pts[0]))) < 0.03:
+            return None
+        return pts
+    return pts if len(pts) >= 3 else None
 
 
 def load(source_id: int | None) -> ZoneSet:
@@ -132,7 +143,7 @@ def load(source_id: int | None) -> ZoneSet:
             return hit[1]
     zs = []
     for r in db.rows("SELECT * FROM zones WHERE source_id=? AND enabled=1 ORDER BY id", (int(source_id),)):
-        pts = parse_points(r["points"])
+        pts = parse_points(r["points"], r["kind"])
         if pts is not None and r["kind"] in ZONE_KINDS:
             zs.append(Zone(int(r["id"]), r["name"] or ZONE_KINDS[r["kind"]]["label"], r["kind"], pts,
                            r["sens"] or ""))
@@ -157,6 +168,20 @@ def draw(img: np.ndarray, zs: ZoneSet, scale: float = 1.0) -> None:
         col = ZONE_KINDS[z.kind]["color"].lstrip("#")
         bgr = (int(col[4:6], 16), int(col[2:4], 16), int(col[0:2], 16))
         p = np.round(z.pts * np.array([w, h])).astype(np.int32)
+        if z.kind in LINE_KINDS:
+            # Sanash chizig'i: qalinroq chiziq va "ichkari" tomonga strelka
+            a, b = p[0].astype(np.float32), p[1].astype(np.float32)
+            cv2.line(img, tuple(int(v) for v in a), tuple(int(v) for v in b), bgr, 2, cv2.LINE_AA)
+            d = b - a
+            n = np.array([-d[1], d[0]], dtype=np.float32)
+            n = n / max(float(np.hypot(*n)), 1.0) * max(12.0, 0.06 * h)
+            m = (a + b) / 2
+            cv2.arrowedLine(img, tuple(int(v) for v in m), tuple(int(v) for v in m + n), bgr, 2, cv2.LINE_AA,
+                            tipLength=0.35)
+            label = z.name.encode("ascii", "ignore").decode() or "chiziq"
+            cv2.putText(img, label, (int(a[0]) + 4, max(12, int(a[1]) - 6)), cv2.FONT_HERSHEY_SIMPLEX, 0.45, bgr, 1,
+                        cv2.LINE_AA)
+            continue
         cv2.polylines(img, [p], True, bgr, 1, cv2.LINE_AA)
         x, y = int(p[:, 0].min()), int(p[:, 1].min())
         label = z.name.encode("ascii", "ignore").decode() or z.kind

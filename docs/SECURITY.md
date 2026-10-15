@@ -68,6 +68,17 @@ CLOUD_TEST_PG_URL=postgresql+psycopg://u:p@127.0.0.1/hushyor_test python -m test
 6. **Ikki bosqichli kirish (2FA) yo'q.** Bulut paneli uchun TOTP — keyingi bosqich (ko'p filial, ko'p xodim bo'lganda).
 7. **Login cheklovi xotirada saqlanadi.** Server qayta ishga tushsa, hisoblagich nollanadi. Bitta server jarayoni uchun bu yetarli; bir nechta jarayon bo'lsa, Redis kerak bo'ladi.
 
+## 1.9.0 (odam sanash) — nima qo'shildi va qanday himoyalangan
+
+- Yangi edge API'lar (`/api/counts/*`, `/api/export/counts.csv`) mavjud kirish va CSRF himoyasi ostida, boshqa
+  API'lar bilan bir xil. CSV'da formula belgilari (`= + - @`) neytrallanadi. Ish vaqti qat'iy `HH:MM-HH:MM` shaklida.
+- Bulut `GET /api/v1/visits` — filial doirasi tekshiriladi (qo'riqchi faqat o'z filialini ko'radi, boshqasiga — 403).
+  Edge'dan kelgan sanash qiymatlari butun songa aylantiriladi, manfiy bo'lmaydi.
+- Shaxsiy ma'lumot: sanashda rasm yoki yuz saqlanmaydi — faqat vaqt, yo'nalish, chiziq nomi va o'tish nuqtasi
+  (kadrga nisbatan koordinata). 90 kundan keyin o'chiriladi.
+- `scripts/apply_counting_hook.py` faqat `app/ai/worker.py` ni o'zgartiradi, zaxira oladi va tekshiruv o'tmasa
+  eski nusxani qaytaradi.
+
 ## Muntazam tekshirish
 
 - Har yangilanishdan oldin: `python -m tests.test_security` va `pip-audit -r requirements.txt` (yoki `pip-audit` virtual muhitda).
