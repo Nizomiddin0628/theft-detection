@@ -1,0 +1,258 @@
+{% extends "base.html" %}
+{% from "_icons.html" import icon %}
+{% block subtitle %}<div class="muted small">Yiqilish, odam yotibdi, tungi kirish, gavjumlik, to'silgan favqulodda chiqish, olov (tajriba) va kritik SMS</div>{% endblock %}
+{% block actions %}
+<a class="btn" href="#gate-card">{{ icon('target') }} Aniqlik sinovi</a>
+{% endblock %}
+{% block content %}
+<style>
+  .sk { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; }
+  .sk .card { padding: 12px 14px; }
+  .sk .v { font-size: 30px; font-weight: 700; line-height: 1.1; font-variant-numeric: tabular-nums; }
+  .sk .n { font-weight: 600; font-size: 13px; }
+  .ev-row { display: flex; gap: 10px; align-items: flex-start; padding: 8px 0; border-bottom: 1px solid #eef2f6; }
+  .ev-row img { width: 96px; height: 54px; object-fit: cover; border-radius: 6px; background: #e2e8f0; flex: none; }
+  .ev-row .k { font-weight: 600; }
+  .set-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 10px 14px; }
+  .set-grid input[type=number], .set-grid input[type=text], .set-grid select { width: 100%; }
+  .rule-row { display: flex; gap: 10px; align-items: flex-start; padding: 8px 0; border-bottom: 1px solid #eef2f6; }
+  .rule-row .switch { min-width: 220px; }
+  .exit { display: flex; gap: 12px; align-items: center; padding: 10px 0; border-bottom: 1px solid #eef2f6; flex-wrap: wrap; }
+  .exit img { width: 120px; border-radius: 6px; border: 1px solid #e2e8f0; background: #f8fafc; }
+  .gate-ok { color: #166534; font-weight: 700; } .gate-bad { color: #b91c1c; font-weight: 700; } .gate-wait { color: #92400e; font-weight: 700; }
+  .pill { display: inline-block; border-radius: 999px; padding: 1px 8px; font-size: 12px; background: #eef2f6; }
+  .pill.on { background: #dcfce7; color: #166534; } .pill.off { background: #fee2e2; color: #b91c1c; }
+</style>
+
+<div class="sk" id="kpis"></div>
+
+<div class="grid g2" style="margin-top:16px">
+  <div class="card">
+    <div class="card-h"><h2>Signallar</h2><div class="grow"></div>
+      <select id="days"><option value="1">Bugun</option><option value="7">7 kun</option><option value="30">30 kun</option></select></div>
+    <div class="card-b"><div id="events"><div class="muted">Yuklanmoqda…</div></div>
+      <div class="hint">Har signalni oching va ✅ (haqiqatan shunday) yoki ❌ (xato signal) bosing — darvoza (xato ≤ 1 / kamera / hafta) shu javoblar bilan o'lchanadi. Telegram'da <b>/xavfsizlik</b>.</div></div>
+  </div>
+  <div class="card">
+    <div class="card-h"><h2>Hozir</h2></div>
+    <div class="card-b"><div id="now" class="small"></div></div>
+  </div>
+</div>
+
+<div class="card" style="margin-top:16px">
+  <div class="card-h"><h2>Qoidalar</h2></div>
+  <div class="card-b">
+    <div class="rule-row"><label class="switch"><input type="checkbox" id="s-safety_fall"> <span><b>Yiqilish</b></span></label>
+      <div class="small muted grow">Odam tik holatdan 2 s ichida yerga tushdi va 2 s turmadi. Xodimlar ham. <select id="s-safety_fall_sens" style="margin-left:6px"><option value="normal">Sezgirlik: oddiy</option><option value="high">Sezgirlik: yuqori (ko'proq xato signal)</option></select></div></div>
+    <div class="rule-row"><label class="switch"><input type="checkbox" id="s-safety_lying"> <span><b>Odam yotibdi</b></span></label>
+      <div class="small muted grow">Yerda harakatsiz yotgan odam ≥ <input type="number" id="s-safety_lying_sec" min="10" max="600" style="width:70px"> s (yiqilishi ko'rinmagan bo'lsa ham).</div></div>
+    <div class="rule-row"><label class="switch"><input type="checkbox" id="s-safety_night"> <span><b>Tungi kirish</b></span></label>
+      <div class="small muted grow">Ish vaqtidan tashqarida kamerada odam (≥ 2 s). Ish vaqti: <b id="wh">—</b> (<a href="/visits">Tashriflar</a> sahifasida). Yopilgandan keyin va ochilishdan oldin
+        <input type="number" id="s-safety_night_grace_min" min="0" max="180" style="width:64px"> daqiqa hisobga olinmaydi.
+        Yoki o'z jadvali: <input type="text" id="s-safety_night_hours" placeholder="22:30-07:30" style="width:110px"> (bo'sh — ish vaqtidan).</div></div>
+    <div class="rule-row"><label class="switch"><input type="checkbox" id="s-safety_crowd"> <span><b>Gavjumlik</b></span></label>
+      <div class="small muted grow">Do'konda "hozir ichkarida" &gt; <input type="number" id="s-safety_crowd_inside" min="0" max="5000" style="width:70px"> kishi (sanash chizig'i kerak)
+        yoki bitta kadrda &gt; <input type="number" id="s-safety_crowd_cam" min="0" max="200" style="width:60px"> kishi,
+        ≥ <input type="number" id="s-safety_crowd_sec" min="10" max="3600" style="width:64px"> s davomida. 0 — o'chiq.</div></div>
+    <div class="rule-row"><label class="switch"><input type="checkbox" id="s-safety_blocked"> <span><b>Chiqish to'silgan</b></span></label>
+      <div class="small muted grow">"Favqulodda chiqish" zonasining ≥ <input type="number" id="s-safety_blocked_frac" min="0.1" max="0.9" step="0.05" style="width:64px"> qismi
+        ≥ <input type="number" id="s-safety_blocked_min" min="1" max="240" style="width:60px"> daqiqa bo'sh holatidan farq qilsa (ish vaqtida, zonada odam yo'q paytda).</div></div>
+    <div class="rule-row"><label class="switch"><input type="checkbox" id="s-safety_fire"> <span><b>Olov (tajriba)</b></span></label>
+      <div class="small muted grow">Olov rangidagi miltillovchi joy ≥ <input type="number" id="s-safety_fire_sec" min="3" max="120" style="width:60px"> s.
+        <b>Tajriba:</b> qizil/to'q sariq kiyim, lampa, ekran ham signal berishi mumkin; tutun aniqlanmaydi — yong'in signalizatsiyasining o'rnini bosmaydi.</div></div>
+    <div class="row" style="gap:10px;margin-top:12px;align-items:center;flex-wrap:wrap">
+      <span class="small muted">Takror signal (tungi kirish, gavjumlik, olov) — bitta kamerada har</span>
+      <input type="number" id="s-safety_cooldown_min" min="1" max="720" style="width:70px"><span class="small muted">daqiqada bir.</span>
+      <div class="grow"></div><button class="btn primary" id="save">Saqlash</button></div>
+  </div>
+</div>
+
+<div class="grid g2" style="margin-top:16px">
+  <div class="card">
+    <div class="card-h"><h2>Favqulodda chiqishlar</h2></div>
+    <div class="card-b"><div id="exits"></div>
+      <div class="hint">Zonani chizish: <a href="/sources">Kameralar</a> → <b>Zonalar</b> → <b>"Favqulodda chiqish"</b> (eshik va uning oldi). Keyin shu yerda, zona <b>bo'sh</b> paytda <b>"Bo'sh holatini eslab qolish"</b>. Mebel joyi o'zgarsa yoki kamera surilsa — qayta eslab qoling. Kunduzgi va kechki yorug'lik juda farq qilsa — ish vaqtidagi odatiy yorug'likda eslab qoling.</div></div>
+  </div>
+  <div class="card">
+    <div class="card-h"><h2>Kritik SMS</h2><div class="grow"></div><button class="btn sm" id="sms-test">{{ icon('send', 14) }} Sinov SMS</button></div>
+    <div class="card-b">
+      <div id="sms-state" class="small" style="margin-bottom:10px"></div>
+      <div class="set-grid">
+        <label class="switch"><input type="checkbox" id="s-sms_enabled"> <span>SMS yoqilgan</span></label>
+        <div class="field"><label class="f">Shlyuz</label><select id="s-sms_provider"><option value="eskiz">Eskiz.uz</option><option value="http">Umumiy HTTP shlyuz</option></select></div>
+        <div class="field" style="grid-column:1/-1"><label class="f">Telefonlar (vergul bilan, 998XXXXXXXXX)</label><input type="text" id="s-sms_phones" placeholder="998901234567, 998911234567"></div>
+        <div class="field"><label class="f">Soatiga ko'pi bilan</label><input type="number" id="s-sms_max_per_hour" min="1" max="60"></div>
+      </div>
+      <div class="small" style="margin:10px 0 4px">Qaysi signallar SMS bilan:</div>
+      <div id="sms-kinds" class="row" style="gap:12px;flex-wrap:wrap"></div>
+      <div class="row" style="margin-top:10px"><button class="btn primary" id="sms-save">Saqlash</button></div>
+      <div class="hint">Login va parol faqat <code>.env</code> faylida: <code>SMS_ESKIZ_EMAIL</code>, <code>SMS_ESKIZ_PASSWORD</code>, <code>SMS_FROM</code> (sukut 4546); HTTP shlyuz: <code>SMS_HTTP_URL</code>, <code>SMS_HTTP_TOKEN</code>. O'zgartirgach dasturni qayta ishga tushiring.
+        <b>Eskiz har SMS matnini moderatsiya qiladi</b> — avval kabinetda shablonni tasdiqlating (matn namunasi pastdagi jurnalda), aks holda SMS ketmaydi.</div>
+      <div class="table-wrap" style="margin-top:10px"><table class="small"><thead><tr><th>Vaqt</th><th>Raqam</th><th>Tur</th><th>Holat</th></tr></thead><tbody id="sms-log"></tbody></table></div>
+    </div>
+  </div>
+</div>
+
+<div class="card" style="margin-top:16px" id="gate-card">
+  <div class="card-h"><h2>Aniqlik sinovi (6-bosqich darvozasi)</h2><div class="grow"></div><span id="gate-state"></span></div>
+  <div class="card-b">
+    <p class="small muted" id="gate-crit"></p>
+    <div class="grid g2" style="gap:16px">
+      <div>
+        <h3 style="margin:0 0 6px">1) Yiqilish videolari (recall)</h3>
+        <p class="small muted">Do'konda <b>yumshoq gilam ustida</b> sahnalashtirilgan yiqilishlarni kamerada yozib oling: turli joyda, oldinga/orqaga/yonga, sekin cho'kib yiqilish, kameraga qarab va yon tomondan. Har videoga yiqilish soniyalarini (odam yerga tekkan payt) yozing. Salbiy videolar ham (cho'kkalash, egilish, polka pastidan olish) — "yiqilish yo'q".</p>
+        <div class="row" style="gap:8px;flex-wrap:wrap;align-items:center">
+          <input type="file" id="v-file" accept="video/*">
+          <input type="text" id="v-falls" placeholder="soniyalar: 3.5, 12, 1:05" style="max-width:200px">
+          <label class="switch"><input type="checkbox" id="v-neg"> <span>yiqilish yo'q</span></label>
+          <button class="btn" id="v-up">{{ icon('upload', 16) }} Yuklash</button>
+        </div>
+        <div class="row" style="gap:8px;margin-top:10px"><button class="btn primary" id="g-run">{{ icon('play', 16) }} Tahlil qilish</button>
+          <button class="btn sm ghost" id="g-all">Hammasini qayta</button><span id="g-prog" class="small muted"></span></div>
+        <div class="table-wrap" style="margin-top:10px"><table class="small"><thead><tr><th>Video</th><th>Yiqilish</th><th>Topildi</th><th>Xato</th><th>Signallar (s)</th><th></th></tr></thead><tbody id="vids"></tbody></table></div>
+        <div class="hint" id="g-recall"></div>
+      </div>
+      <div>
+        <h3 style="margin:0 0 6px">2) Jonli kameralarda xato signal</h3>
+        <p class="small muted">"Yiqilish" va "Odam yotibdi" signallariga berilgan ❌ javoblar / kamera-hafta (kamera ishlagan vaqt bo'yicha). Har kamerada kamida 7 kun ishlash kerak, javobsiz signal qolmasin.</p>
+        <div class="table-wrap"><table class="small"><thead><tr><th>Kamera</th><th>Ishladi</th><th>❌</th><th>✅</th><th>Javobsiz</th><th>Hafta­sida</th><th></th></tr></thead><tbody id="cams"></tbody></table></div>
+        <div class="hint">Buyruq qatoridan: <code>python tests\safety_gate.py</code> (bazani faqat o'qiydi).</div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+const p2 = (n) => String(n).padStart(2, "0");
+const fmtT = (t) => { if (!t) return "—"; const d = new Date(t * 1000), now = new Date(); const hm = `${p2(d.getHours())}:${p2(d.getMinutes())}`; return d.toDateString() === now.toDateString() ? hm : `${p2(d.getDate())}.${p2(d.getMonth() + 1)} ${hm}`; };
+const pct = (v) => v === null || v === undefined ? "—" : (v * 100).toFixed(0) + "%";
+const ICON = { fall: "🆘", lying: "🛌", night: "🌙", crowd: "👥", blocked: "🚪", fire: "🔥" };
+const STAT = { yangi: "🟡", tasdiqlangan: "✅", rad_etilgan: "❌" };
+const FLAGS = ["safety_fall", "safety_lying", "safety_night", "safety_crowd", "safety_blocked", "safety_fire"];
+const NUMS = ["safety_lying_sec", "safety_night_grace_min", "safety_crowd_inside", "safety_crowd_cam", "safety_crowd_sec", "safety_blocked_frac", "safety_blocked_min", "safety_fire_sec", "safety_cooldown_min"];
+let S = null, loaded = false;
+const $ = (id) => document.getElementById(id);
+
+function fill(st) {
+  for (const k of FLAGS) $("s-" + k).checked = st[k] === "1";
+  for (const k of NUMS) $("s-" + k).value = st[k];
+  $("s-safety_fall_sens").value = st.safety_fall_sens || "normal";
+  $("s-safety_night_hours").value = st.safety_night_hours || "";
+  $("wh").textContent = st.work_hours || "kiritilmagan";
+  $("s-sms_enabled").checked = st.sms_enabled === "1";
+  $("s-sms_provider").value = st.sms_provider || "eskiz";
+  $("s-sms_phones").value = st.sms_phones || "";
+  $("s-sms_max_per_hour").value = st.sms_max_per_hour || 6;
+}
+
+async function load() {
+  const r = await H.api(`/api/safety/summary?days=${$("days").value}`);
+  S = r;
+  $("kpis").innerHTML = Object.entries(r.kinds).map(([k, lab]) => { const c = r.counts[k]; return `<div class="card"><div class="n">${ICON[k] || ""} ${H.esc(lab)}</div><div class="v" data-testid="kpi-${k}">${c.n}</div><div class="small muted">bugun · ✅ ${c.ok} · ❌ ${c.no}</div></div>`; }).join("");
+  $("events").innerHTML = r.events.length ? r.events.map((e) => `<div class="ev-row">${e.thumb_url ? `<img src="${e.thumb_url}" loading="lazy" alt="">` : `<img alt="">`}
+      <div class="grow"><div><span class="k">${ICON[e.kind] || ""} ${H.esc(e.kind_label)}</span> <span class="muted small">#${e.id} · ${fmtT(e.created_at)} · ${H.esc(e.source_name || "")}</span> ${STAT[e.status] || ""}</div>
+      <div class="small muted">${H.esc((e.reasons || [])[0] || "")}</div></div><a class="btn sm" href="/events/${e.id}">Ochish</a></div>`).join("")
+    : `<div class="muted">Bu davrda xavfsizlik signali yo'q ✅</div>`;
+  const n = r.night, cams = r.cams || [];
+  $("now").innerHTML = `<div>🌙 Tungi kirish: ${H.esc(n.text)}${n.mode ? (n.now ? ` — <b>hozir nazoratda</b>` : " — hozir ish vaqti") : ""}</div>
+    ${r.store_inside !== null && r.store_inside !== undefined ? `<div>👥 Do'konda hozir: <b>${r.store_inside}</b> kishi</div>` : ""}
+    <div style="margin-top:6px">${cams.length ? cams.map((c) => `📷 ${H.esc(c.name)}: ${c.persons} odam${c.crowd_since ? " · gavjum" : ""} · ${c.update_ms} ms/qadam`).join("<br>") : "Ishlayotgan kamera yo'q"}</div>`;
+  if (!loaded) { fill(r.settings); loaded = true; }
+  renderExits(r.exits);
+  renderSms(r.sms);
+}
+
+function renderExits(ex) {
+  $("exits").innerHTML = ex.length ? ex.map((z) => `<div class="exit" data-testid="exit-${z.id}">
+      ${z.remembered_at ? `<img src="/api/safety/exits/${z.id}/ref.png?t=${z.remembered_at}" alt="bo'sh holat">` : `<span class="pill off">eslab qolinmagan</span>`}
+      <div class="grow small"><b>${H.esc(z.name)}</b> · ${H.esc(z.source_name || "")}${z.enabled ? "" : " · <i>o'chiq</i>"}<br>
+        ${z.remembered_at ? `Bo'sh holati: ${fmtT(z.remembered_at)}${z.stale ? ` · <b style="color:#b91c1c">zona o'zgargan — qayta eslab qoling</b>` : ""}` : "Zona bo'sh paytda tugmani bosing"}<br>
+        ${z.frac !== null && z.frac !== undefined ? `Joriy farq: <b>${pct(z.frac)}</b> (chegara ${pct(parseFloat($("s-safety_blocked_frac").value))})${z.blocked_since ? ` · to'silgan ${fmtT(z.blocked_since)} dan` : ""}` : ""}
+        ${z.why ? `<span class="muted">${H.esc(z.why)}</span>` : ""}</div>
+      <button class="btn sm" onclick="remember(${z.id}, this)">Bo'sh holatini eslab qolish</button>
+      ${z.remembered_at ? `<button class="btn sm ghost" onclick="forget(${z.id}, this)">O'chirish</button>` : ""}</div>`).join("")
+    : `<div class="muted small">"Favqulodda chiqish" zonasi hali chizilmagan.</div>`;
+}
+
+function renderSms(m) {
+  $("sms-state").innerHTML = m.configured ? `<span class="pill on">tayyor</span> ${m.phones.length} ta raqam · so'nggi soatda ${m.sent_hour} ta SMS`
+    : `<span class="pill off">sozlanmagan</span> ${H.esc(m.why)}`;
+  const sel = new Set(m.kinds);
+  if (!$("sms-kinds").dataset.done) $("sms-kinds").dataset.done = "1"; else return renderSmsLog(m);
+  $("sms-kinds").innerHTML = S.critical.map((k) => `<label class="switch"><input type="checkbox" class="smsk" value="${k}" ${sel.has(k) ? "checked" : ""}> <span>${ICON[k] || ""} ${H.esc(S.kinds[k])}</span></label>`).join("");
+  renderSmsLog(m);
+}
+function renderSmsLog(m) {
+  $("sms-log").innerHTML = m.recent.map((x) => `<tr><td>${fmtT(x.t)}</td><td>${H.esc(x.phone)}</td><td>${H.esc(x.kind || "")}${x.test ? " (sinov)" : ""}</td><td>${x.ok ? "✅" : "❌ " + H.esc(x.error || "")}</td></tr>`).join("") || `<tr><td colspan="4" class="muted">Hali SMS yuborilmagan</td></tr>`;
+}
+
+async function remember(id, btn) {
+  btn.disabled = true;
+  try { const r = await H.post(`/api/safety/exits/${id}/remember`, {}); H.toast("✅ Bo'sh holati eslab qolindi", "ok"); if (r.note) H.toast(H.esc(r.note), "", 8000); renderExits(r.exits); }
+  finally { btn.disabled = false; }
+}
+async function forget(id, btn) {
+  btn.disabled = true;
+  try { const r = await H.post(`/api/safety/exits/${id}/forget`, {}); renderExits(r.exits); } finally { btn.disabled = false; }
+}
+
+$("save").onclick = async () => {
+  const d = {};
+  for (const k of FLAGS) d[k] = $("s-" + k).checked ? "1" : "0";
+  for (const k of NUMS) d[k] = $("s-" + k).value;
+  d.safety_fall_sens = $("s-safety_fall_sens").value;
+  d.safety_night_hours = $("s-safety_night_hours").value;
+  const r = await H.post("/api/safety/settings", d);
+  fill(r.settings); H.toast("Saqlandi", "ok"); load();
+};
+$("sms-save").onclick = async () => {
+  const d = { sms_enabled: $("s-sms_enabled").checked ? "1" : "0", sms_provider: $("s-sms_provider").value,
+              sms_phones: $("s-sms_phones").value, sms_max_per_hour: $("s-sms_max_per_hour").value,
+              sms_kinds: [...document.querySelectorAll(".smsk:checked")].map((x) => x.value) };
+  const r = await H.post("/api/safety/settings", d);
+  fill(r.settings); H.toast("Saqlandi", "ok"); load();
+};
+$("sms-test").onclick = async () => {
+  const r = await H.post("/api/safety/sms/test", {});
+  H.toast(r.ok ? "✅ Sinov SMS yuborildi" : "⚠️ " + H.esc(r.results.filter((x) => !x.ok).map((x) => x.phone + ": " + x.info).join("; ")), r.ok ? "ok" : "alert", 9000);
+  load();
+};
+$("days").onchange = load;
+
+// ---------------------------------------------------------------- darvoza
+async function loadGate() {
+  const g = await H.api("/api/safety/gate");
+  const c = g.criteria;
+  $("gate-crit").innerHTML = `Darvoza: <b>yiqilish recall ≥ ${c.recall * 100}%</b> (kamida ${c.falls} ta belgilangan yiqilish; signal [belgi − ${c.win[0]} s, belgi + ${c.win[1]} s] oynasida) va <b>xato signal ≤ ${c.fp_week} / kamera / hafta</b> (har kamera ≥ ${c.days} kun). Video oxiri ${c.hold} s takrorlanadi (odam yerda qoladi).`;
+  const st = g.state;
+  $("gate-state").innerHTML = st === "otdi" ? `<span class="gate-ok" data-testid="gate">✅ O'tdi</span>` : st === "otmadi" ? `<span class="gate-bad" data-testid="gate">❌ O'tmadi</span>` : `<span class="gate-wait" data-testid="gate">⏳ Ma'lumot yetarli emas</span>`;
+  const R = g.recall;
+  $("vids").innerHTML = g.videos.map((v) => { const m = v.match; return `<tr><td>${H.esc(v.filename)}${v.negative ? ' <span class="pill">salbiy</span>' : ""}</td>
+      <td>${v.negative ? "—" : v.falls.join(", ")}</td><td>${m ? m.tp.length + "/" + v.falls.length : "…"}</td><td>${m ? m.fp.length : "…"}</td>
+      <td>${v.analyzed_at ? (v.alerts.map((a) => `${ICON[a.kind] || ""}${a.t}`).join(" ") || "—") : "<i>tahlil qilinmagan</i>"}</td>
+      <td><button class="btn sm ghost" onclick="delVid(${v.id})">${"✕"}</button></td></tr>`; }).join("") || `<tr><td colspan="6" class="muted">Hali video yo'q</td></tr>`;
+  $("g-recall").innerHTML = `Jami yiqilish: <b>${R.falls}</b>/${R.need_falls} · topildi ${R.tp} · recall <b>${R.recall === null ? "—" : (R.recall * 100).toFixed(1) + "%"}</b> · videolardagi xato signal ${R.fp}${R.delay_med !== null ? ` · kechikish (mediana) ${R.delay_med} s` : ""}${R.pending ? ` · <b>${R.pending} ta video tahlil qilinmagan</b>` : ""}`;
+  const F = g.fp;
+  $("cams").innerHTML = F.cams.map((x) => `<tr><td>${H.esc(x.name)}</td><td>${x.days} kun</td><td>${x.rejected}</td><td>${x.confirmed}</td><td>${x.unreviewed}</td>
+      <td>${x.rate === null ? "—" : x.rate}</td><td>${x.enough ? (x.ok ? "✅" : "❌") : "⏳"}</td></tr>`).join("") || `<tr><td colspan="7" class="muted">Ma'lumot yo'q</td></tr>`;
+  const run = g.runner;
+  $("g-prog").textContent = run.running ? `Tahlil: ${run.done}/${run.total} ${run.current}` : (run.error ? "Xato: " + run.error : "");
+  if (run.running) setTimeout(loadGate, 2000);
+}
+async function delVid(id) { if (!confirm("Videoni o'chirasizmi?")) return; await H.post(`/api/safety/videos/${id}/delete`, {}); loadGate(); }
+$("v-up").onclick = async () => {
+  const f = $("v-file").files[0];
+  if (!f) { H.toast("Video tanlang", "alert"); return; }
+  const fd = new FormData(); fd.append("file", f); fd.append("falls", $("v-falls").value); fd.append("negative", $("v-neg").checked ? "1" : "0");
+  $("v-up").disabled = true;
+  try { await H.api("/api/safety/videos", { method: "POST", body: fd }); H.toast("Yuklandi", "ok"); $("v-file").value = ""; $("v-falls").value = ""; loadGate(); }
+  finally { $("v-up").disabled = false; }
+};
+$("g-run").onclick = async () => { const r = await H.post("/api/safety/gate/run", {}); if (r.message) H.toast(H.esc(r.message)); loadGate(); };
+$("g-all").onclick = async () => { await H.post("/api/safety/gate/run", { all: true }); loadGate(); };
+
+load(); loadGate();
+setInterval(load, 15000);
+</script>
+{% endblock %}

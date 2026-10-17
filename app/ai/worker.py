@@ -5,6 +5,7 @@ import os
 import platform
 import threading
 import time
+from collections import deque
 from dataclasses import dataclass, field
 
 import cv2
@@ -14,6 +15,7 @@ from .. import db
 from ..logutil import get_logger
 from . import annotate, zones as zones_mod
 from . import counting  # 1.9.0: sanash chizig'i
+from . import safety  # 2.2.0: xavfsizlik va salomatlik
 from .analyzer import Analyzer
 from .clipper import RingBuffer
 from ..ml.features import body_from_kpts, hand_state
@@ -46,6 +48,8 @@ def susp_label(ts: float, live: bool) -> str:
 
 def alert_banner(alert: dict, live: bool) -> str:
     s0 = float(alert.get("susp_start", alert["t"]))
+    if safety.is_safety(alert.get("kind")):   # 2.2.0: xavfsizlik signali — ball emas, lahza
+        return f"XAVFSIZLIK: {alert['kind_label']} | {susp_label(float(alert['t']), live)}"
     return (f"TEKSHIRING: {alert['kind_label']} | ball {alert['score']:.0f} | "
             f"shubha: {susp_label(s0, live)}")
 
@@ -182,6 +186,7 @@ class Processor:
     counts: dict = field(default_factory=lambda: {IDLE: 0, CALM: 0, ACTIVE: 0, "skip": 0, "obj": 0})
     zones: zones_mod.ZoneSet = field(default_factory=zones_mod.ZoneSet)
     counter: "counting.LineCounter" = field(default=None)  # type: ignore[assignment]   # 1.9.0: sanash chizig'i
+    safety: "safety.SafetyMonitor" = field(default=None)  # type: ignore[assignment]   # 2.2.0: xavfsizlik qoidalari
 
     def __post_init__(self):
         if self.analyzer is None:
@@ -189,6 +194,8 @@ class Processor:
         if getattr(self, "counter", None) is None:
             # 1.9.0: jonli kamera — bazaga yoziladi; video tahlili va aniqlik sinovi (background) — xotirada
             self.counter = counting.LineCounter(self.source_id, self.source_name, persist=not self.background)
+        if self.safety is None:
+            self.safety = safety.SafetyMonitor(self.source_id, self.source_name, background=self.background)
 
     # ------------------------------------------------------------------
     def interval(self, ai_fps: float, calm_fps: float) -> float:
@@ -230,6 +237,8 @@ class Processor:
             self.last_objects = []
             alerts, status = self.analyzer.update([], [], t, w, h, searched=[])
             self.counter.update([], t, w, h, self.zones, status)  # 1.9.0
+            # 2.2.0: jim kadrda ham — tungi/chiqish/olov qoidalari kadr bilan ishlaydi, kutayotgan yiqilish tasdig'i
+            alerts = alerts + self.safety.update([], t, w, h, frame, self.zones, status, detected=False)
             return FrameResult([], [], w, h), ([], [], {}), alerts, status
         self.last_full_t = t
         self.ran = True
@@ -256,6 +265,8 @@ class Processor:
         objects = items + bags
         alerts, status = self.analyzer.update(tracked, objects, t, w, h, searched=searched, zones=self.zones)
         self.counter.update(tracked, t, w, h, self.zones, status)  # 1.9.0
+        alerts = alerts + self.safety.update(tracked, t, w, h, frame, self.zones, status,  # 2.2.0
+                                             loose=[p for p in persons if p.track_id < 0])
         self._update_mode(t, tracked, hot)
         self.last_objects = objects
         # Rasmda faqat qo'ldagi mahsulot chiziladi (status["held"]); polkadagi buyumlar ramkasi
@@ -444,6 +455,7 @@ class SourceWorker(threading.Thread):
         self.last_preview_t = 0.0
         self.loop_no = 0              # video fayl necha marta qaytadan boshlangani
         self.want_fps = float(RING_FPS)   # o'quvchi kadrni shu tezlikda "ochadi" (qolganlari faqat o'tkaziladi)
+        self.injected: deque = deque(maxlen=20)   # 2.2.0: tashqaridan berilgan signal (do'kon gavjumligi) — shu kamera kadri bilan
 
     # ------------------------------------------------------------------
     def stop(self):
@@ -558,6 +570,11 @@ class SourceWorker(threading.Thread):
                 self.last_preview_t = now
             if self.loop_no == 0:
                 for a in alerts:
+                    self._on_alert(a, ft, frame, ann)
+            while self.injected:
+                a = self.injected.popleft()
+                if self.loop_no == 0:
+                    a["t"] = ft
                     self._on_alert(a, ft, frame, ann)
             self._flush_pending(ft)
             n += self.proc.ran          # "AI kadr/s" — faqat model ishlagan qadamlar (bo'sh kamerada ~0.3)
@@ -686,6 +703,13 @@ class FileJob(threading.Thread):
                     self.manager.finish_clip(p, ring.slice(p.t_start, p.t_end))
                 idx += 1
                 self._progress(idx, total, jid)
+            if not self.stop_evt.is_set() and getattr(proc, "safety", None) is not None:
+                # 2.2.0: video tugadi — muddati yetgan yiqilish tasdig'i (evaluation.analyze bilan bir xil)
+                t_end = idx / fps
+                for a in proc.safety.falls.flush(t_end):
+                    self.events += 1
+                    ev_id = self.manager.create_event(a, source=src, job_id=jid, video_time=t_end)
+                    pending.append(make_pending(ev_id, a, t_end, pre, post, live=False))
         except Exception as e:
             err = str(e)
             log.exception("Video tahlilida xato")

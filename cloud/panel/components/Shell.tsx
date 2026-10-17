@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
-import { api, KIND_UZ, ROLE_UZ, type Me } from "@/lib/api";
+import { api, isSafety, KIND_UZ, ROLE_UZ, type Me } from "@/lib/api";
 import { beep, emitLive, getPref, unlockAudio, type LiveMsg } from "@/lib/live";
 import { IconBell, IconCart, IconChart, IconDoor, IconExit, IconList, IconMap, IconPeople, IconShield, IconStore, IconWall } from "./Icons";
 
@@ -130,10 +130,13 @@ export default function Shell({ children }: { children: ReactNode }) {
         if (kind === "event_new" && data.alert === true) {
           const score = Number(data.score || 0);
           const cam = String(data.source_name || "kamera");
+          const safe = isSafety(String(data.kind));
           toast({
             tone: "alert",
-            title: `Shubhali harakat: ${String(data.branch_name || "filial")}`,
-            body: `${cam}, ${KIND_UZ[String(data.kind)] ?? "harakat"}, ball ${Math.round(score)}`,
+            title: safe
+              ? `${KIND_UZ[String(data.kind)]}: ${String(data.branch_name || "filial")}`
+              : `Shubhali harakat: ${String(data.branch_name || "filial")}`,
+            body: safe ? `${cam} — darhol tekshiring` : `${cam}, ${KIND_UZ[String(data.kind)] ?? "harakat"}, ball ${Math.round(score)}`,
             href: `/events/?uid=${encodeURIComponent(String(data.uid))}`,
             action: "Ko'rish",
           });

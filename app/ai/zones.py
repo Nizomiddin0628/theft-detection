@@ -18,6 +18,8 @@ Zona — kamera rasmi ustiga chizilgan ko'pburchak (nuqtalar 0..1 oralig'ida, ra
   kassir     Kassir joyi (2.0.0): peshtaxta orti. Bu yerda odam bo'lmasa va navbat bo'lsa — "kassani tekshiring".
              Bu yerdagi odam navbatga qo'shilmaydi. O'g'irlik signallarini o'chirmaydi (kassir yo'qligida peshtaxta
              ortiga o'tgan begona odam ham kuzatilsin) — kassirga signal kelmasin desangiz, "xodim" zonasini ham chizing.
+  favqulodda Favqulodda chiqish (2.2.0): eshik va uning oldi. "Bo'sh holati" eslab qolinadi; u yer uzoq vaqt
+             to'silib tursa — "Chiqish to'silgan" signali (app/ai/safety.py). O'g'irlik tahliliga ta'sir qilmaydi.
 
 Odamning joyi oyog'i (ramka pastining o'rtasi) bo'yicha, polka esa qo'l (bilak) bo'yicha aniqlanadi.
 """
@@ -52,6 +54,9 @@ ZONE_KINDS = {
     "kassir": {"label": "Kassir joyi", "color": "#4f46e5",
                "hint": "Peshtaxta orti, kassir turadigan joy. Navbat bo'lib, bu yer bo'sh qolsa — 'kassani tekshiring'. "
                        "Kassirga o'g'irlik signali kelmasin desangiz — shu joyga 'Xodimlar joyi' ham chizing."},
+    "favqulodda": {"label": "Favqulodda chiqish", "color": "#dc2626",
+                   "hint": "Favqulodda chiqish eshigi va uning oldi (2.2.0). Zona bo'sh paytda Xavfsizlik sahifasida "
+                           "'Bo'sh holatini eslab qolish' ni bosing — keyin u yer uzoq to'silsa (quti, arava) signal."},
 }
 LINE_KINDS = {k for k, v in ZONE_KINDS.items() if v.get("line")}
 # Zona sezgirligi: signal chegarasiga qo'shiladi (manfiy — sezgirroq)

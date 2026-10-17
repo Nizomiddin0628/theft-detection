@@ -85,7 +85,7 @@ CREATE TABLE IF NOT EXISTS zones (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     source_id INTEGER NOT NULL,
     name TEXT,
-    kind TEXT NOT NULL,           -- polka | kassa | eshik | xodim | etiborsiz
+    kind TEXT NOT NULL,           -- polka | kassa | eshik | xodim | etiborsiz | chiziq | navbat | kassir | favqulodda
     points TEXT NOT NULL,         -- JSON [[x, y], ...], 0..1
     sens TEXT DEFAULT '',         -- '' | yuqori | past
     enabled INTEGER DEFAULT 1,
@@ -356,6 +356,45 @@ CREATE TABLE IF NOT EXISTS flow_sessions (
     taps TEXT,                    -- JSON [[t, bo'lim id], ...]
     note TEXT
 );
+-- Xavfsizlik (2.2.0, app/ai/safety.py): favqulodda chiqish zonasining "bo'sh holati" (eslab qolingan rasm)
+CREATE TABLE IF NOT EXISTS safety_exits (
+    zone_id INTEGER PRIMARY KEY,  -- zones.id (kind='favqulodda')
+    source_id INTEGER,
+    img TEXT,                     -- data/safety/ dagi kulrang rasm
+    points TEXT,                  -- eslab qolingan paytdagi zona nuqtalari (o'zgarsa — eskirgan)
+    frame_w INTEGER,
+    frame_h INTEGER,
+    mean REAL,                    -- o'rtacha yorqinlik
+    created_at REAL
+);
+-- Yiqilish darvozasi: belgilangan videolar (yiqilish soniyalari) va tahlil natijasi
+CREATE TABLE IF NOT EXISTS safety_videos (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    filename TEXT,
+    path TEXT,
+    duration REAL,
+    falls TEXT DEFAULT '[]',      -- JSON [soniya, ...] — yiqilish lahzalari (yerga tekkan payt)
+    negative INTEGER DEFAULT 0,   -- 1: yiqilish yo'q video (xato signal tekshiruvi)
+    result TEXT,                  -- JSON: oxirgi tahlil (signallar, mos kelganlar)
+    analyzed_at REAL,
+    version TEXT,
+    note TEXT,
+    created_at REAL
+);
+-- SMS jurnali (2.2.0, app/sms.py)
+CREATE TABLE IF NOT EXISTS sms_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    t REAL NOT NULL,
+    event_id INTEGER,
+    phone TEXT,                   -- oxirgi 4 raqami ko'rinadi (panelda)
+    kind TEXT,
+    provider TEXT,
+    text TEXT,
+    ok INTEGER,
+    error TEXT,
+    test INTEGER DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_sms_t ON sms_log(t);
 """
 
 
@@ -452,6 +491,9 @@ def init_db() -> None:
                   (f"{secrets.randbelow(900000) + 100000}",))
         # Qurilma identifikatori (bulutda shu do'kon kompyuterini ajratish uchun) — bir marta yaratiladi
         c.execute("INSERT OR IGNORE INTO settings(key, value) VALUES('device_id', ?)", (secrets.token_hex(6),))
+        # 2.2.0: xavfsizlik qoidalari ishlay boshlagan vaqt — darvozadagi "xato / kamera-hafta" shundan hisoblanadi
+        # (undan oldingi kamera daqiqalari xato signal sonini sun'iy kamaytirmasin)
+        c.execute("INSERT OR IGNORE INTO settings(key, value) VALUES('safety_since', ?)", (str(round(time.time())),))
         c.execute("UPDATE outbox SET sending=0 WHERE sending=1")   # dastur to'xtaganda yarim qolgan yuborishlar
         # Ishlanmay qolgan vazifalarni yopish (dastur qayta ishga tushganda)
         c.execute("UPDATE jobs SET status='toxtatildi' WHERE status IN ('navbatda','ishlanmoqda')")

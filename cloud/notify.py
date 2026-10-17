@@ -39,7 +39,14 @@ from .db import CLIPS_DIR, DATA_DIR
 log = logging.getLogger("hushyor.cloud.notify")
 
 KIND_UZ = {"pocket": "Cho'ntakka solish", "torso": "Kiyim ichiga yashirish", "bag": "Sumkaga solish",
-           "offscreen": "Qo'l kadrdan yashirildi", "exit": "Chiqish tomon ketmoqda"}
+           "offscreen": "Qo'l kadrdan yashirildi", "exit": "Chiqish tomon ketmoqda",
+           # 2.2.0: xavfsizlik va salomatlik (edge: app/ai/safety.py — bulutda numpy/cv2 yo'q, shuning uchun nusxa)
+           "fall": "Yiqilish", "lying": "Odam yotibdi", "night": "Tungi kirish", "crowd": "Gavjumlik",
+           "blocked": "Chiqish to'silgan", "fire": "Olov (tajriba)"}
+SAFETY_KINDS = ("fall", "lying", "night", "crowd", "blocked", "fire")
+SAFETY_HEAD = {"fall": "🆘 Yiqilish — yordam kerak bo'lishi mumkin", "lying": "🆘 Odam yotibdi — yordam kerak bo'lishi mumkin",
+               "night": "🌙 Tungi kirish — ish vaqtidan tashqari odam", "crowd": "👥 Gavjumlik — odam soni me'yordan oshdi",
+               "blocked": "🚪 Favqulodda chiqish to'silgan", "fire": "🔥 Olov belgisi (tajriba) — darhol tekshiring"}
 STATUS_UZ = {"tasdiqlangan": "✅ TASDIQLANDI", "rad_etilgan": "❌ XATO SIGNAL", "yangi": "↩️ Qaror bekor qilindi"}
 RETRY = (5, 20, 60, 300, 900)            # soniya: har xatodan keyingi kutish; 6-urinish ham xato bo'lsa — failed
 NOTIFY_MAX_AGE = 600                     # bundan eski hodisa (navbatdan kelgan, backfill) uchun xabar yuborilmaydi
@@ -356,7 +363,9 @@ def on_new_event(uid: str) -> int:
     p = _event_payload(ev, br)
     if time.time() - p["t_event"] > NOTIFY_MAX_AGE or (ev.get("status") or "yangi") != "yangi":
         return 0
-    return notify_branch(br["id"], "event", uid, p, "event", score=p["score"])
+    # 2.2.0: xavfsizlik signali (yiqilish, tungi kirish...) — egasining min_score chegarasi (75) uni to'smaydi
+    return notify_branch(br["id"], "event", uid, p, "event",
+                         score=None if p.get("kind") in SAFETY_KINDS else p["score"])
 
 
 def _clip_for(s: dict) -> bool:
@@ -542,14 +551,22 @@ def monitor() -> dict:
 
 # ----------------------------------------------------------------------------- matnlar
 def _event_text(p: dict, kind: str) -> str:
-    head = ("⏰ <b>Javobsiz hodisa — {} dan beri tekshirilmagan</b>".format(fmt_dur(p.get("waited", 0)))
-            if kind == "escalation" else "⚠️ <b>Shubhali harakat — tekshirib ko'ring</b>")
+    safe = p.get("kind") in SAFETY_KINDS
+    if kind == "escalation":
+        head = "⏰ <b>Javobsiz hodisa — {} dan beri tekshirilmagan</b>".format(fmt_dur(p.get("waited", 0)))
+    elif safe:
+        head = f"<b>{esc(SAFETY_HEAD[p['kind']])}</b>"
+    else:
+        head = "⚠️ <b>Shubhali harakat — tekshirib ko'ring</b>"
+    what = f"🎯 {esc(KIND_UZ.get(p.get('kind'), p.get('kind')))}"
+    if not safe:
+        what += f" — ball <b>{p.get('score', 0):.0f}</b>" + (f" ({esc(p.get('level'))})" if p.get("level") else "")
     lines = [head, f"🏪 {esc(p.get('branch'))}", f"📷 Kamera: {esc(p.get('camera'))}", f"🕒 {fmt_time(p.get('t_event'))}",
-             f"🎯 {esc(KIND_UZ.get(p.get('kind'), p.get('kind')))} — ball <b>{p.get('score', 0):.0f}</b>"
-             + (f" ({esc(p.get('level'))})" if p.get("level") else "")]
+             what]
     if p.get("reasons"):
-        lines += ["", "<b>Sabablar:</b>"] + [f"• {esc(r)}" for r in p["reasons"][:5]]
-    lines += ["", "<i>Bu ayblov emas — videoni ko'rib, o'zingiz qaror qiling.</i>"]
+        lines += ["", "<b>Nima bo'ldi:</b>" if safe else "<b>Sabablar:</b>"] + [f"• {esc(r)}" for r in p["reasons"][:5]]
+    if not safe:
+        lines += ["", "<i>Bu ayblov emas — videoni ko'rib, o'zingiz qaror qiling.</i>"]
     return "\n".join(lines)[:3900]
 
 
@@ -560,8 +577,12 @@ def _plain(s: str) -> str:
 def render(kind: str, p: dict) -> tuple[str, str, str]:
     """(sarlavha, matn HTML (Telegram), havola yo'li)."""
     if kind in ("event", "escalation"):
-        title = (f"Javobsiz hodisa: {p.get('branch')}" if kind == "escalation"
-                 else f"Shubhali harakat: {p.get('branch')}, ball {p.get('score', 0):.0f}")
+        if kind == "escalation":
+            title = f"Javobsiz hodisa: {p.get('branch')}"
+        elif p.get("kind") in SAFETY_KINDS:
+            title = f"{KIND_UZ[p['kind']]}: {p.get('branch')}, {p.get('camera') or ''}".rstrip(", ")
+        else:
+            title = f"Shubhali harakat: {p.get('branch')}, ball {p.get('score', 0):.0f}"
         return title, _event_text(p, kind), f"/events/?uid={p.get('uid')}"
     if kind == "camera":
         if p.get("state") == "down":

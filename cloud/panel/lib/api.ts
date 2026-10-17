@@ -357,7 +357,18 @@ export const KIND_UZ: Record<string, string> = {
   bag: "Sumkaga solish",
   offscreen: "Qo'l kadrdan yashirildi",
   exit: "Chiqish tomon ketmoqda",
+  // 2.2.0: xavfsizlik va salomatlik
+  fall: "Yiqilish",
+  lying: "Odam yotibdi",
+  night: "Tungi kirish",
+  crowd: "Gavjumlik",
+  blocked: "Chiqish to'silgan",
+  fire: "Olov (tajriba)",
 };
+
+/** 2.2.0: xavfsizlik signali — ball yo'q, "ayblov emas" yozuvi kerak emas, yordam/chora kerak */
+export const SAFETY_KINDS = ["fall", "lying", "night", "crowd", "blocked", "fire"];
+export const isSafety = (kind: string | null | undefined) => SAFETY_KINDS.includes(String(kind || ""));
 
 export const STATUS_UZ: Record<Status, string> = {
   yangi: "Tekshirilmagan",

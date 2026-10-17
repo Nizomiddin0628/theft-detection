@@ -33,6 +33,9 @@ const H = (() => {
   }
   const post = (url, json = {}) => api(url, { method: "POST", json });
 
+  // 2.2.0: xavfsizlik signali — "shubhali harakat" va ball emas
+  const evHead = (ev) => ev.safety ? `🆘 <b>${esc(ev.kind_label)}</b> — darhol tekshiring`
+    : `🚨 <b>Shubhali harakat:</b> ${esc(ev.kind_label)} — ball ${Math.round(ev.score)}`;
   const levelCls = (l) => ({ "past": "past", "o'rta": "orta", "yuqori": "yuqori" }[l] || "past");
   const STATUS = { yangi: "Tekshirilmagan", tasdiqlangan: "Tasdiqlangan", rad_etilgan: "Xato signal" };
   const statusBadge = (s) => `<span class="badge ${esc(s)}">${esc(STATUS[s] || s)}</span>`;
@@ -46,7 +49,7 @@ const H = (() => {
          <button class="btn sm" onclick="H.review(${ev.id},'rad_etilgan',this)">✕ Xato</button>`
       : `${statusBadge(ev.status)}<span class="muted small" style="margin-left:auto">${esc(ev.reviewed_by || "")}</span>`;
     return `<div class="card ev" id="ev-${ev.id}">
-      <a class="img" href="/events/${ev.id}">${img}<span class="score ${levelCls(ev.level)}">${Math.round(ev.score)}</span>
+      <a class="img" href="/events/${ev.id}">${img}<span class="score ${levelCls(ev.level)}">${ev.safety ? "🆘" : Math.round(ev.score)}</span>
         <span class="play"><svg width="44" height="44" viewBox="0 0 24 24" fill="#fff"><path d="M8 5v14l11-7z"/></svg></span></a>
       <div class="body"><h3>${esc(ev.kind_label)}</h3>
         <div class="muted small">#${ev.id} · ${esc(ev.time_str)}</div>
@@ -125,7 +128,7 @@ const H = (() => {
       if (np) np.textContent = s.pending;
       if (lastId && s.last_id > lastId) {
         const ev = (s.latest || []).find((e) => e.id === s.last_id);
-        if (ev) toast(`🚨 <b>Shubhali harakat:</b> ${esc(ev.kind_label)} — ball ${Math.round(ev.score)}<br><a href="/events/${ev.id}">Ko'rish →</a>`, "alert", 9000);
+        if (ev) toast(`${evHead(ev)}<br><a href="/events/${ev.id}">Ko'rish →</a>`, "alert", 9000);
       }
       lastId = s.last_id;
       sessionStorage.setItem("lastEventId", String(lastId));
@@ -171,7 +174,7 @@ const H = (() => {
         const ev = d.event || {};
         if (d.kind === "new") {
           if (ev.id > lastId) { lastId = ev.id; sessionStorage.setItem("lastEventId", String(lastId)); }
-          toast(`🚨 <b>Shubhali harakat:</b> ${esc(ev.kind_label)} — ball ${Math.round(ev.score)}<br>${esc(ev.source_name || "")}<br><a href="/events/${ev.id}">Ko'rish →</a>`, "alert", 12000);
+          toast(`${evHead(ev)}<br>${esc(ev.source_name || "")}<br><a href="/events/${ev.id}">Ko'rish →</a>`, "alert", 12000);
           beep();
         }
         document.dispatchEvent(new CustomEvent("ev-" + d.kind, { detail: ev }));

@@ -65,6 +65,13 @@ PUBLIC_URL = env("PUBLIC_URL", "").rstrip("/")
 # Bulut (markaziy server): bo'sh bo'lsa — hamma narsa faqat shu kompyuterda, yuborilmaydi
 CLOUD_URL = env("CLOUD_URL", "").rstrip("/")
 EDGE_TOKEN = env("EDGE_TOKEN", "").strip()
+# 2.2.0: SMS shlyuzi (app/sms.py) — maxfiy qiymatlar bazada emas, faqat shu yerda
+SMS_ESKIZ_EMAIL = env("SMS_ESKIZ_EMAIL", "").strip()
+SMS_ESKIZ_PASSWORD = env("SMS_ESKIZ_PASSWORD", "").strip()
+SMS_FROM = env("SMS_FROM", "4546").strip() or "4546"
+SMS_ESKIZ_BASE = env("SMS_ESKIZ_BASE", "https://notify.eskiz.uz/api").rstrip("/")
+SMS_HTTP_URL = env("SMS_HTTP_URL", "").strip()
+SMS_HTTP_TOKEN = env("SMS_HTTP_TOKEN", "").strip()
 
 
 def _secret_key() -> str:
@@ -133,6 +140,30 @@ DEFAULT_SETTINGS = {
     "queue_tg": "1",               # 1-2-qoida Telegram'ga
     "queue_tg_low": "0",           # 3-qoida ("kassir kerak emas") Telegram'ga — sukut bo'yicha faqat panelda
     "queue_tg_schedule": "1",      # 4-qoida (haftalik kassir jadvali) Telegram'ga
+    # 2.2.0: xavfsizlik va salomatlik (app/ai/safety.py)
+    "safety_fall": "1",            # yiqilish
+    "safety_lying": "1",           # odam yotibdi (≥ safety_lying_sec)
+    "safety_night": "1",           # tungi kirish (ish vaqtidan tashqari yoki o'z jadvali)
+    "safety_crowd": "1",           # gavjumlik (chegara berilsa)
+    "safety_blocked": "1",         # favqulodda chiqish to'silgan (zona chizilsa)
+    "safety_fire": "0",            # olov (tajriba) — sukut bo'yicha o'chiq
+    "safety_fall_sens": "normal",  # normal | high
+    "safety_lying_sec": "20",
+    "safety_night_hours": "",      # o'z jadvali "22:30-07:30" (bo'sh — ish vaqtidan tashqari)
+    "safety_night_grace_min": "20",
+    "safety_crowd_inside": "0",    # do'kon bo'yicha "hozir ichkarida" chegarasi (0 — o'chiq)
+    "safety_crowd_cam": "0",       # bitta kadrdagi odamlar chegarasi (0 — o'chiq)
+    "safety_crowd_sec": "60",
+    "safety_blocked_min": "10",
+    "safety_blocked_frac": "0.35",
+    "safety_fire_sec": "10",
+    "safety_cooldown_min": "10",
+    # 2.2.0: kritik SMS (app/sms.py). Login/parol — faqat .env da (SMS_ESKIZ_EMAIL, SMS_ESKIZ_PASSWORD)
+    "sms_enabled": "0",
+    "sms_provider": "eskiz",       # eskiz | http
+    "sms_phones": "",              # 998901234567, 998911234567
+    "sms_kinds": "fall,lying,night,fire",
+    "sms_max_per_hour": "6",
 }
 
 # Eski versiyadan qolgan sozlamalarni yangilash: {kalit: (eski standart, yangi standart)}.
@@ -143,4 +174,4 @@ SETTINGS_MIGRATIONS = {
 SETTINGS_VERSION = max(SETTINGS_MIGRATIONS)
 
 APP_NAME = "Hushyor AI"
-APP_VERSION = "2.1.0"
+APP_VERSION = "2.2.0"

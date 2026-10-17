@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 
-import { api, clipUrl, KIND_UZ, STATUS_UZ, type EventFull, type EventRow, type Status } from "@/lib/api";
+import { api, clipUrl, isSafety, KIND_UZ, STATUS_UZ, type EventFull, type EventRow, type Status } from "@/lib/api";
 import { scoreTone, when } from "@/lib/format";
 import { useLive } from "@/lib/live";
 import { useData } from "@/lib/useData";
@@ -185,7 +185,11 @@ export default function EventView({ uid, queue }: { uid: string; queue: boolean 
                     <IconX /> Xato signal <kbd>X</kbd>
                   </button>
                 </div>
-                <p className="disclaimer">Bu ayblov emas. Tasdiqlash — videoda shubhali harakat haqiqatan borligini bildiradi.</p>
+                <p className="disclaimer">
+                  {isSafety(e.kind)
+                    ? "Xavfsizlik signali: Tasdiqlash — haqiqatan shunday bo'lgan, Xato signal — bo'lmagan."
+                    : "Bu ayblov emas. Tasdiqlash — videoda shubhali harakat haqiqatan borligini bildiradi."}
+                </p>
               </>
             ) : (
               <>

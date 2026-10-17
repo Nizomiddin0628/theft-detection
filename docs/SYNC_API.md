@@ -49,6 +49,10 @@ buyruqlarni o'qimaydi — bulutdagi tekshirish do'konga yetmaydi, buyruqlar 7 ku
 ```
 Javob: `{"ok": true, "accepted": ["ev:12"], "rejected": [{"key": "ev:13", "reason": "uid noto'g'ri"}]}`
 
+`kind` (2.2.0): o'g'irlik — `pocket`, `torso`, `bag`, `offscreen`, `exit`; xavfsizlik — `fall`, `lying`, `night`, `crowd`,
+`blocked`, `fire` (ball doim 100; bulut ularni egasining `min_score` chegarasiga qaramay yuboradi, matnida "ayblov
+emas" yozuvi yo'q — docs/SAFETY.md). Yangi API yoki `features` kerak emas.
+
 Qoidalar: `uid` = `<device_id>:<local_id>` va shu qurilmaniki bo'lishi shart. Bitta hodisa holati o'zgarganda
 (✅/❌, izoh, klip tayyor) **o'sha `key` bilan** to'liq yozuv qayta yuboriladi — server upsert qiladi.
 

@@ -32,7 +32,7 @@
     </ol>
 
     <h2>Zonalar</h2>
-    <p><a href="/sources">Kameralar</a> → "Zonalar" tugmasi: kamera rasmi ustida soha chizing va turini tanlang. <b>Polka</b> — qo'l shu yerga kirsa "mahsulot olinyapti" (aniqroq va tezroq topadi); <b>Kassa</b> — to'lov paytidagi sumkaga solish signal bermaydi; <b>Kirish/chiqish</b> — shubhali odam eshikka kelsa yana xabar beradi; <b>Sanash chizig'i</b> — eshikdan kirgan/chiqqanlarni sanaydi (<a href="#sanash">pastda</a>); <b>Kassa navbati</b> va <b>Kassir joyi</b> — navbat va kutish vaqti (<a href="#navbat">pastda</a>); heatmap va bo'limlar uchun zona emas, kamerani do'kon rejasiga bog'lash kerak (<a href="#oqim">pastda</a>); <b>Xodimlar joyi</b> — u yerda turgan xodimga signal berilmaydi; <b>E'tiborsiz</b> — televizor, oyna, deraza. Har zonaga sezgirlik berish mumkin (masalan, qimmat mahsulot polkasi — "Yuqori").</p>
+    <p><a href="/sources">Kameralar</a> → "Zonalar" tugmasi: kamera rasmi ustida soha chizing va turini tanlang. <b>Polka</b> — qo'l shu yerga kirsa "mahsulot olinyapti" (aniqroq va tezroq topadi); <b>Kassa</b> — to'lov paytidagi sumkaga solish signal bermaydi; <b>Kirish/chiqish</b> — shubhali odam eshikka kelsa yana xabar beradi; <b>Sanash chizig'i</b> — eshikdan kirgan/chiqqanlarni sanaydi (<a href="#sanash">pastda</a>); <b>Kassa navbati</b> va <b>Kassir joyi</b> — navbat va kutish vaqti (<a href="#navbat">pastda</a>); heatmap va bo'limlar uchun zona emas, kamerani do'kon rejasiga bog'lash kerak (<a href="#oqim">pastda</a>); <b>Favqulodda chiqish</b> — u yer uzoq to'silsa signal (<a href="#xavfsizlik">pastda</a>); <b>Xodimlar joyi</b> — u yerda turgan xodimga o'g'irlik signali berilmaydi; <b>E'tiborsiz</b> — televizor, oyna, deraza. Har zonaga sezgirlik berish mumkin (masalan, qimmat mahsulot polkasi — "Yuqori").</p>
 
     <h2 id="sanash">Odamlarni sanash (Tashriflar)</h2>
     <ol>
@@ -64,6 +64,19 @@
       <li><b>Aniqlikni tekshirish</b> (Oqim → Aniqlik sinovi): (a) <b>Nuqtada turish</b> — polga skotch bilan belgi qo'ying, uning rejadagi joyini o'lchang, odam belgida tursin — tizim 3 s o'lchaydi (har kamerada 5 ta o'lchov, 3 xil joyda; darvoza: 90% o'lchovda xato ≤ 0,5 m). (b) <b>Qo'lda sanash</b> — 1–3 bo'limni 30 daqiqa kuzatib, kirgan har xaridorda "+1" (2 marta; darvoza: aniqlik ≥ 90%, juftlash ≥ 85%). Buyruq qatoridan: <code>python tests\flow_gate.py</code>.</li>
     </ol>
     <p class="muted">Cheklovlar: kamera chetida (keng burchakli linza) va uzoqda aniqlik pasayadi — u yerdagi odamlar rejaga tushirilmaydi yoki ko'proq kalibrlash nuqtasi kerak. Oyoqlari polka orqasida ko'rinmagan odamning joyi skelet bo'yicha taxmin qilinadi. Kameradan kameraga o'tgan odamni tanish (yo'nalishlar kameralar orasida) — keyingi bosqich. Bo'limda qancha vaqt turgani hisoblanmaydi.</p>
+
+    <h2 id="xavfsizlik">Xavfsizlik va salomatlik</h2>
+    <p><a href="/xavfsizlik">Xavfsizlik</a> sahifasi — o'g'irlikdan tashqari, odamlar xavfsizligi uchun signallar. Ular ham Telegramga rasm va klip bilan keladi, lekin "ayblov" emas: <b>yordam yoki chora kerak</b>. Xodimlar ham hisobga olinadi (yiqilgan xodimga ham yordam kerak).</p>
+    <ul>
+      <li><b>Yiqilish</b> — odam tik holatdan 2 soniya ichida yerga tushdi va 2 soniya turmadi. Cho'kkalash, egilish, tiz cho'kish, polga o'tirish signal bermaydi (gavda tik qolsa). Yerda yotgan odamni detektor ko'pincha ko'rmaydi — shuning uchun "yiqilib, ko'rinmay qoldi" ham yiqilish deb hisoblanadi; o'sha joyda o'sha bo'yli tik odam paydo bo'lsa — bekor.</li>
+      <li><b>Odam yotibdi</b> — yerda harakatsiz ≥ 20 s (yiqilishi ko'rinmagan bo'lsa ham).</li>
+      <li><b>Tungi kirish</b> — ish vaqtidan tashqarida (Tashriflar sahifasidagi ish vaqti; yopilgandan keyin va ochilishdan oldin 20 daqiqa hisobga olinmaydi) yoki o'z jadvalingiz bo'yicha kamerada odam.</li>
+      <li><b>Gavjumlik</b> — do'konda "hozir ichkarida" yoki bitta kadrdagi odamlar soni chegaradan ≥ 60 s oshsa (chegara berilsa).</li>
+      <li><b>Chiqish to'silgan</b> — "Favqulodda chiqish" zonasini chizing, zona bo'sh paytda "Bo'sh holatini eslab qolish". Keyin u yer ≥ 10 daqiqa (ish vaqtida, zonada odam yo'q paytda) quti yoki arava bilan to'silsa — signal. Mebel yoki kamera joyi o'zgarsa — qayta eslab qoling.</li>
+      <li><b>Olov (tajriba, sukut bo'yicha o'chiq)</b> — olov rangidagi miltillovchi joy ≥ 10 s. Qizil/to'q sariq kiyim, lampa, ekran ham signal berishi mumkin; <b>tutun aniqlanmaydi</b> — yong'in signalizatsiyasining o'rnini bosmaydi.</li>
+      <li><b>Kritik SMS</b> — tanlangan turlar telefonlarga SMS bilan ham (Eskiz.uz yoki boshqa HTTP shlyuz). Login va parol faqat <code>.env</code> da. Eskiz har SMS matnini moderatsiya qiladi: avval kabinetda shablonni tasdiqlating.</li>
+    </ul>
+    <p><b>Darvoza:</b> yiqilish recall ≥ 85% (do'konda, yumshoq gilam ustida sahnalashtirilgan kamida 20 ta yiqilish — turli joy va yo'nalishda) va xato signal ≤ 1 / kamera / hafta (har signalga ✅/❌ javob bering). Buyruq qatoridan: <code>python tests\safety_gate.py</code>.</p>
 
     <h2>Aniqlikni oshirish bo'yicha maslahatlar</h2>
     <ul>

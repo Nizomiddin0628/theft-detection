@@ -34,18 +34,23 @@
       </div>
     </div>
     <div class="card">
-      <div class="card-h"><h2>Nega shubhali deb topildi?</h2></div>
+      <div class="card-h"><h2>{{ 'Nima aniqlandi?' if ev.safety else 'Nega shubhali deb topildi?' }}</h2></div>
       <div class="card-b">
         <ul style="margin:0 0 14px;padding-left:18px">{% for r in ev.reasons %}<li>{{ r }}</li>{% endfor %}</ul>
+        {% if ev.safety %}
+        <p class="hint">Xavfsizlik signali (<a href="/xavfsizlik">Xavfsizlik</a> sahifasi): ball hisoblanmaydi, kim bo'lishidan qat'i nazar (xodim ham) xabar beriladi. ✅ — haqiqatan shunday bo'lgan, ❌ — xato signal (darvoza shu javoblar bilan o'lchanadi).</p>
+        {% else %}
         <h3 style="margin-bottom:6px">Ball tarkibi</h3>
         <div id="bd"></div>
         <p class="hint" style="margin-top:10px">Chegara: {{ settings.threshold }} ball. Ball shu chegaradan oshganda signal beriladi. Manfiy qiymatlar — "oddiy harakat" tomonidagi dalillar.</p>
+        {% endif %}
       </div>
     </div>
   </div>
   <div class="stack">
     <div class="card card-b">
-      <div class="row between"><span class="muted small">Xavf bali</span><span class="score {{ lvl }}" style="font-size:18px;height:34px;min-width:56px">{{ ev.score|round|int }}</span></div>
+      {% if ev.safety %}<div class="row between"><span class="muted small">Xavfsizlik signali</span><span class="score yuqori" style="font-size:18px;height:34px;min-width:56px">🆘</span></div>
+      {% else %}<div class="row between"><span class="muted small">Xavf bali</span><span class="score {{ lvl }}" style="font-size:18px;height:34px;min-width:56px">{{ ev.score|round|int }}</span></div>{% endif %}
       <h2 style="margin:10px 0 2px">{{ kind_uz.get(ev.kind, ev.kind) }}</h2>
       <div class="muted small">Daraja: {{ ev.level }}</div>
       <table style="margin-top:12px" class="small">
@@ -54,7 +59,7 @@
         {% if ev.susp_label %}<tr><td class="muted">Shubhali lahza</td><td><b>{{ ev.susp_label }}</b></td></tr>{% endif %}
         {% if ev.video_time is not none %}<tr><td class="muted">Videoda</td><td>{{ '%.1f'|format(ev.video_time) }}-soniya</td></tr>{% endif %}
         <tr><td class="muted">Kamera</td><td>{{ ev.source_name }}</td></tr>
-        <tr><td class="muted">Odam ID</td><td>#{{ ev.track_id }}</td></tr>
+        <tr><td class="muted">Odam ID</td><td>{{ '#' ~ ev.track_id if ev.track_id is not none and ev.track_id >= 0 else '—' }}</td></tr>
         <tr><td class="muted">AI model</td><td>{{ (ev.ml_prob * 100)|round|int ~ '%' if ev.ml_prob is not none else '—' }}</td></tr>
         <tr><td class="muted">Telegram</td><td>{{ 'yuborilgan' if ev.telegram_sent else 'yuborilmagan' }}</td></tr>
       </table>
@@ -70,7 +75,7 @@
       <label class="f" style="margin-top:14px">Izoh</label>
       <textarea id="note" placeholder="Masalan: mijoz telefonini cho'ntagiga solgan, mahsulot emas">{{ ev.note or '' }}</textarea>
       <button class="btn sm" style="margin-top:8px" onclick="saveNote(this)">Izohni saqlash</button>
-      <p class="hint" style="margin-top:10px">Har bir javobingiz AI modelni o'qitish uchun saqlanadi (<a href="/model">AI model</a> → Qayta o'qitish).</p>
+      {% if not ev.safety %}<p class="hint" style="margin-top:10px">Har bir javobingiz AI modelni o'qitish uchun saqlanadi (<a href="/model">AI model</a> → Qayta o'qitish).</p>{% endif %}
     </div>
     {% if ev.crop_url %}
     <div class="card card-b"><h3 style="margin-bottom:8px">Odam (hodisa lahzasi)</h3><img src="{{ ev.crop_url }}" style="max-width:100%;border-radius:8px;display:block;margin:auto;max-height:320px" alt=""></div>
@@ -85,9 +90,9 @@ function renderState(ev) {
   document.getElementById("rstate").innerHTML = H.statusBadge(ev.status) + (ev.reviewed_by ? ` <span class="muted small">${H.esc(ev.reviewed_by)} · ${H.esc(ev.reviewed_str || "")}</span>` : "");
 }
 renderState(EV);
-const bd = EV.breakdown || [];
+const bd = EV.safety ? [] : (EV.breakdown || []);
 const maxAbs = Math.max(40, ...bd.map((x) => Math.abs(x[1])));
-document.getElementById("bd").innerHTML = bd.map(([k, v]) => `
+if (document.getElementById("bd")) document.getElementById("bd").innerHTML = bd.map(([k, v]) => `
   <div class="bd-row"><span>${H.esc(k)}</span><span class="bd-bar"><i style="width:${Math.abs(v) / maxAbs * 100}%;background:${v >= 0 ? "#d97706" : "#16a34a"}"></i></span>
   <b class="num" style="text-align:right;color:${v >= 0 ? "#92400e" : "#15803d"}">${v > 0 ? "+" : ""}${v}</b></div>`).join("");
 async function rev(status, btn) {

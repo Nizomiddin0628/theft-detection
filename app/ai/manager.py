@@ -12,6 +12,7 @@ from .. import db
 from ..config import CLIPS_DIR, FEEDBACK_DIR, POSES_DIR, SNAP_DIR, UPLOADS_DIR
 from ..logutil import get_logger
 from .clipper import make_clip, make_snapshot
+from .safety import SAFETY_KINDS
 from .worker import FileJob, PendingClip, SourceWorker, open_capture
 
 log = get_logger("manager")
@@ -188,7 +189,7 @@ class Manager:
 
     # ---------------- Hodisalar ----------------
     def create_event(self, alert: dict, source: dict, job_id: int | None, video_time: float | None,
-                     snapshot: dict | None = None) -> int:
+                     snapshot: dict | None = None, no_clip: bool = False) -> int:
         """Hodisani yozadi va DARHOL xabar beradi (klipni kutmasdan).
 
         snapshot: {"frame", "ann", "banner", "time_text"} — signal lahzasidagi kadr; undan rasm tayyorlanadi
@@ -213,6 +214,7 @@ class Manager:
             # Jonli kamerada alert["t"] — kadr olingan devor vaqti; video faylda — hodisa yaratilgan vaqt
             "t_detect": float(alert["t"]) if video_time is None else now,
             "status": "yangi",
+            **({"clip_error": 1} if no_clip else {}),   # 2.2.0: klip bo'lmaydi — "tayyorlanmoqda" deb va'da qilinmasin
         })
         if snapshot is not None:
             try:
@@ -236,7 +238,28 @@ class Manager:
                 self.notifier.notify_alert(ev_id)
             except Exception:
                 log.exception("Telegramga darhol xabar berishda xato")
+        if job_id is None and alert.get("kind") in SAFETY_KINDS:
+            # 2.2.0: kritik xavfsizlik signali — SMS (sozlangan bo'lsa; alohida oqimda, kamera kutmaydi)
+            try:
+                from .. import sms
+
+                sms.notify_event(ev_id)
+            except Exception:  # noqa: BLE001
+                log.exception("SMS navbatiga qo'yishda xato")
         return ev_id
+
+    def inject_alert(self, alert: dict) -> bool:
+        """2.2.0: kameradan tashqari signal (do'kon bo'yicha gavjumlik) — eng ko'p odam ko'rayotgan jonli kameraga
+        beriladi (rasm va klip o'sha kameradan). Jonli kamera bo'lmasa — rasmsiz hodisa."""
+        live = [w for w in list(self.workers.values())
+                if w.is_alive() and w.src.get("kind") != "file" and w.state == "ishlayapti"]
+        live = [w for w in live if getattr(w, "injected", None) is not None]
+        if live:
+            w = max(live, key=lambda x: x.persons)
+            w.injected.append(dict(alert))
+            return True
+        self.create_event(alert, source={"id": None, "name": "Do'kon"}, job_id=None, video_time=None, no_clip=True)
+        return False
 
     def finish_clip(self, p: PendingClip, frames: list) -> None:
         stem = f"ev{p.event_id:05d}_{time.strftime('%Y%m%d_%H%M%S')}"
@@ -299,6 +322,9 @@ class Manager:
 
     def _health_check(self) -> None:
         now = time.time()
+        from . import safety
+
+        safety.store_check(self)          # 2.2.0: do'kon bo'yicha gavjumlik ("hozir ichkarida")
         alert_sec = db.fnum("camera_alert_sec", 60)
         enabled = db.flag("camera_alerts")
         seen = set()

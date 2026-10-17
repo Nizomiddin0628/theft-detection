@@ -26,11 +26,12 @@ import httpx
 from . import db
 from .config import CLIPS_DIR, PUBLIC_URL, TELEGRAM_API_BASE, TELEGRAM_BOT_TOKEN
 from .logutil import get_logger
+from .ai.safety import HEADLINES as SAFETY_HEADLINES, KIND_LABELS as SAFETY_LABELS, SAFETY_KINDS
 
 log = get_logger("telegram")
 
 KIND_UZ = {"pocket": "Cho'ntakka solish", "torso": "Kiyim ichiga yashirish", "bag": "Sumkaga solish",
-           "offscreen": "Qo'l kadrdan yashirildi", "exit": "Chiqish tomon ketmoqda"}
+           "offscreen": "Qo'l kadrdan yashirildi", "exit": "Chiqish tomon ketmoqda", **SAFETY_LABELS}
 STATUS_UZ = {"yangi": "🟡 Tekshirilmagan", "tasdiqlangan": "✅ Tasdiqlangan",
              "rad_etilgan": "❌ Xato signal"}
 
@@ -59,6 +60,7 @@ HELP = (
     "/tekshirilmagan — javob kutayotgan hodisalar\n"
     "/navbat — kassalardagi navbat hozir (navbat signallarini o'chirish/yoqish ham shu yerda)\n"
     "/oqim — bugun qaysi bo'limlarga ko'p kirildi va yo'nalishlar\n"
+    "/xavfsizlik — bugungi xavfsizlik signallari (yiqilish, tungi kirish, chiqish to'silgan...)\n"
     "/stop — xabarlarni to'xtatish\n"
     "/yordam — shu yordam\n\n"
     "⚠️ Bot hech kimni ayblamaydi: u faqat \"tekshirib ko'ring\" deydi. Qaror har doim odamniki."
@@ -473,6 +475,10 @@ class TelegramBot:
             from .ai import flow
 
             self._reply(chat_id, flow.status_text())
+        elif cmd == "/xavfsizlik":
+            from .ai import safety
+
+            self._reply(chat_id, safety.status_text())
         else:
             self._reply(chat_id, "Buyruqni tushunmadim. /yordam ni bosing.")
 
@@ -523,7 +529,8 @@ class TelegramBot:
         lines = [title, ""]
         for e in evs:
             lines.append(f"#{e['id']} · {fmt_time(e['created_at'])} · {esc(KIND_UZ.get(e['kind'], e['kind']))} · "
-                         f"ball {e['score']:.0f} · {STATUS_UZ.get(e['status'], e['status'])}")
+                         + ("" if e.get("kind") in SAFETY_KINDS else f"ball {e['score']:.0f} · ")
+                         + f"{STATUS_UZ.get(e['status'], e['status'])}")
         return "\n".join(lines)
 
     def _on_callback(self, cb: dict) -> None:
@@ -598,16 +605,21 @@ class TelegramBot:
             if si["susp_offset"] is not None:
                 susp_line += f" — klipning <b>{si['susp_offset']:.0f}-soniyasida</b> (qizil belgi)"
         reasons = ev.get("reasons") or []
+        safe = ev.get("kind") in SAFETY_KINDS       # 2.2.0: xavfsizlik signali — ayblov emas, yordam/chora kerak
+        if safe:
+            susp_line = None
+            if si["susp_offset"] is not None:
+                susp_line = f"⏱ Klipning <b>{si['susp_offset']:.0f}-soniyasida</b> (qizil belgi)"
         lines = [
-            "⚠️ <b>Shubhali harakat — tekshirib ko'ring</b>",
+            f"<b>{esc(SAFETY_HEADLINES[ev['kind']])}</b>" if safe else "⚠️ <b>Shubhali harakat — tekshirib ko'ring</b>",
             f"🏪 {esc(store)}",
             f"📷 Kamera: {esc(ev.get('source_name'))}",
             f"🕒 {esc(when)}",
             *([susp_line] if susp_line else []),
             f"🎯 Turi: <b>{esc(KIND_UZ.get(ev.get('kind'), ev.get('kind')))}</b>",
-            f"📊 Ball: <b>{ev['score']:.0f}/100</b> ({esc(ev.get('level'))})",
+            *([] if safe else [f"📊 Ball: <b>{ev['score']:.0f}/100</b> ({esc(ev.get('level'))})"]),
             "",
-            "<b>Sabablar:</b>",
+            "<b>Nima bo'ldi:</b>" if safe else "<b>Sabablar:</b>",
         ]
         for r in reasons[:6]:
             lines.append(f"• {esc(r)}")
@@ -616,7 +628,10 @@ class TelegramBot:
             lines.append("⚠️ <i>Video klip yaratilmadi — rasm va sabablarga qarab tekshiring</i>")
         elif clip_pending:
             lines.append("⏳ <i>Video klip tayyorlanmoqda — bir necha soniyada shu xabarga qo'shiladi</i>")
-        lines.append("<i>Bu ayblov emas — videoni ko'rib, o'zingiz qaror qiling.</i>")
+        if safe:
+            lines.append("<i>✅ — haqiqatan shunday, ❌ — xato signal (javobingiz aniqlikni o'lchash uchun kerak).</i>")
+        else:
+            lines.append("<i>Bu ayblov emas — videoni ko'rib, o'zingiz qaror qiling.</i>")
         if ev.get("status") == "yangi" and ev.get("claimed_by"):
             lines += ["", f"👀 <b>Ko'ryapti:</b> {esc(ev['claimed_by'])}, {fmt_time(ev.get('claimed_at'))[-8:]}"]
         if ev.get("status") and ev["status"] != "yangi":

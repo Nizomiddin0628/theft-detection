@@ -1,6 +1,6 @@
 import Link from "next/link";
 
-import { clipUrl, KIND_UZ, type EventRow } from "@/lib/api";
+import { clipUrl, isSafety, KIND_UZ, type EventRow } from "@/lib/api";
 import { clock, dayLabel } from "@/lib/format";
 import { IconCamera } from "./Icons";
 
@@ -26,8 +26,8 @@ export default function Tile({ ev, fresh }: { ev: EventRow; fresh?: boolean }) {
           {KIND_UZ[ev.kind] ?? (ev.kind || "Shubhali harakat")}
           <small>{ev.branch_name}</small>
         </span>
-        <span className="tile-score" aria-label={`ball ${Math.round(ev.score)}`}>
-          {Math.round(ev.score)}
+        <span className="tile-score" aria-label={isSafety(ev.kind) ? "xavfsizlik" : `ball ${Math.round(ev.score)}`}>
+          {isSafety(ev.kind) ? "🆘" : Math.round(ev.score)}
         </span>
       </span>
     </Link>

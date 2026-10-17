@@ -8,6 +8,35 @@ klipini avtomatik kesib, **Telegram botga** sabablari bilan yuboradi. Qo'riqchi 
 
 ---
 
+## 2.2.0 — 6-bosqich: xavfsizlik va salomatlik
+
+* **Yangi bo'lim: Xavfsizlik** (panel menyusida, Telegram'da **/xavfsizlik**). Signallar o'g'irlik signallari bilan bir
+  xil yo'ldan keladi (rasm, klip, ✅/❌, bulut), lekin "ayblov" emas — sarlavha "🆘 Yiqilish — yordam kerak bo'lishi
+  mumkin" kabi, ball yo'q, xodimlar ham hisobga olinadi:
+  * **Yiqilish** — skelet bo'yicha: tik holatdan 2 s ichida yerga tushdi (yoki cho'kib, keyin yotdi) va 2 s turmadi.
+    Yerda yotgan odamni detektor ko'pincha ko'rmaydi — "yiqilib, ko'rinmay qoldi" ham hisoblanadi; o'sha joyda o'sha
+    bo'yli tik odam paydo bo'lsa — bekor. Cho'kkalash, egilish, tiz cho'kish, polga o'tirish — signal emas (gavda tik).
+    Sezgirlik "yuqori" — ko'proq topadi, ko'proq xato.
+  * **Odam yotibdi** — yerda harakatsiz ≥ 20 s (yiqilishi ko'rinmagan bo'lsa ham).
+  * **Tungi kirish** — ish vaqtidan tashqarida (yopilgandan keyin / ochilishdan oldin 20 daqiqa hisobga olinmaydi) yoki
+    o'z jadvali bo'yicha kamerada odam ≥ 2 s.
+  * **Gavjumlik** — do'konda "hozir ichkarida" (sanash) yoki bitta kadrdagi odamlar soni chegaradan ≥ 60 s oshsa.
+  * **Chiqish to'silgan** — yangi zona **"Favqulodda chiqish"** + "Bo'sh holatini eslab qolish"; zona ≥ 10 daqiqa
+    (ish vaqtida, zonada odam yo'q paytda) ≥ 35% o'zgargan tursa. Yorug'lik farqi tekislanadi, chiroq o'chsa
+    solishtirilmaydi.
+  * **Olov (tajriba, sukut bo'yicha o'chiq)** — olov rangi + miltillash ≥ 10 s. Tutun aniqlanmaydi.
+  * **Kritik SMS** (`app/sms.py`): Eskiz.uz yoki umumiy HTTP shlyuz; telefonlar, qaysi turlar, soatlik chegara, sinov
+    tugmasi, jurnal (`sms_log`). Login/parol faqat `.env` da (`SMS_ESKIZ_EMAIL`, `SMS_ESKIZ_PASSWORD`, `SMS_FROM`).
+    Eskiz SMS matnini moderatsiya qiladi — shablonni oldindan tasdiqlating.
+* Xavfsizlik hodisalari o'g'irlik modelini o'qitishga va o'g'irlik aniqlik sinoviga **aralashmaydi**; bulutda egasining
+  ball chegarasi (75) ularni to'smaydi; bulut paneli va boti yangi turlarni ko'rsatadi.
+* **Darvoza** (reja: *yiqilish recall ≥ 85%, xato ≤ 1 / kamera / hafta*): Xavfsizlik → Aniqlik sinovi — do'konda
+  sahnalashtirilgan yiqilish videolari (soniyalari bilan, ≥ 20 ta) va jonli ❌ javoblar (har kamera ≥ 7 kun).
+  `python tests\safety_gate.py`. Mezonlar: `app/safety_eval.py`. Batafsil: **docs/SAFETY.md**.
+* **O'lchovlarim (rostini aytsam)** — Linux, 2 yadro, YOLO11n-pose: sintetik skelet 192/192 yiqilish, 148 salbiy
+  harakatda 0 xato; ochiq videolar (ambianic, oxirgi kadr 3,5 s takrorlangan) **3/5**; do'kon namunalarida 0 xato
+  signal; qo'shimcha ~0,15 ms/qadam. Bu do'koningizdagi natija emas — darvoza faqat do'konda o'tadi.
+
 ## 2.1.0 — 5-bosqich: oqim va heatmap (do'kon rejasi)
 
 * **Yangi bo'lim: Oqim** (panel menyusida). Sozlash — **Oqim → Reja va kameralar**:

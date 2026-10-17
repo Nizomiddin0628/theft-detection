@@ -29,8 +29,11 @@ from .ai.manager import archive_feedback, delete_event_files, get_manager
 from .config import (ADMIN_PASSWORD, ADMIN_USER, APP_NAME, APP_VERSION, BASE_DIR, CLIPS_DIR, DATA_DIR,
                      EVAL_DIR, HOST, MODELS_DIR, PUBLIC_URL, SECRET_KEY, SENSITIVITY_PRESETS, UPLOADS_DIR, env)
 from .logutil import MEMORY_LOG, get_logger, setup_logging
-from . import evaluation, flow_web, queue_web, visits
+from . import evaluation, flow_web, queue_web, safety_web, visits
 from .ai import zones as zones_mod
+from .ai.safety import SAFETY_KINDS
+# 2.2.0: o'g'irlik aniqligi (precision, model javoblari) xavfsizlik signallarisiz hisoblanadi
+NOT_SAFETY = "(kind IS NULL OR kind NOT IN (" + ",".join(f"'{k}'" for k in SAFETY_KINDS) + "))"
 from .telegram_bot import KIND_UZ, get_bot, latency_stats, susp_info
 
 log = get_logger("web")
@@ -55,6 +58,7 @@ app.mount("/static", StaticFiles(directory=str(APP_DIR / "static")), name="stati
 app.include_router(visits.router)        # 1.9.0: odamlarni sanash — /api/counts/*, /api/export/counts.csv
 app.include_router(queue_web.router)     # 2.0.0: kassa navbati — /api/queues/*, /api/export/queues.csv
 app.include_router(flow_web.router)      # 2.1.0: oqim va heatmap — /api/flow/*, /media/plans/*, /api/export/flow.csv
+app.include_router(safety_web.router)    # 2.2.0: xavfsizlik va salomatlik — /api/safety/*
 
 PUBLIC_PATHS = ("/login", "/static", "/favicon.ico", "/healthz")
 VIDEO_EXT = {".mp4", ".avi", ".mov", ".mkv", ".webm", ".m4v", ".mpg", ".mpeg", ".wmv", ".flv", ".3gp", ".ts"}
@@ -64,6 +68,7 @@ NAV = [
     ("live", "/live", "Jonli kuzatuv", "eye"),
     ("upload", "/upload", "Video tahlili", "upload"),
     ("events", "/events", "Hodisalar", "alert"),
+    ("safety", "/xavfsizlik", "Xavfsizlik", "shield"),
     ("sources", "/sources", "Kameralar", "camera"),
     ("model", "/model", "AI model", "cpu"),
     ("telegram", "/telegram", "Telegram bot", "send"),
@@ -240,6 +245,7 @@ def day_start(ts: float | None = None) -> float:
 def event_public(ev: dict) -> dict:
     ev = dict(ev)
     ev["kind_label"] = KIND_UZ.get(ev.get("kind"), ev.get("kind"))
+    ev["safety"] = ev.get("kind") in SAFETY_KINDS          # 2.2.0: xavfsizlik signali (ball yo'q, "ayblov" emas)
     ev["clip_url"] = f"/media/clips/{ev['clip_path']}" if ev.get("clip_path") else None
     ev["thumb_url"] = f"/media/clips/{ev['thumb_path']}" if ev.get("thumb_path") else None
     ev["crop_url"] = f"/media/clips/{ev['crop_path']}" if ev.get("crop_path") else None
@@ -501,6 +507,11 @@ def flow_calib_page(request: Request, source_id: int):
     return page(request, "kalibr.html", "flow", f"Kalibrlash — {src['name']}", src=src)
 
 
+@app.get("/xavfsizlik", response_class=HTMLResponse)
+def safety_page(request: Request):
+    return page(request, "xavfsizlik.html", "safety", "Xavfsizlik va salomatlik")
+
+
 @app.get("/settings", response_class=HTMLResponse)
 def settings_page(request: Request, saved: int = 0):
     return page(request, "settings.html", "settings", "Sozlamalar", saved=saved)
@@ -590,8 +601,8 @@ def api_summary():
     ok = cnt("SELECT COUNT(*) FROM events WHERE created_at>=? AND status='tasdiqlangan'", d0)
     no = cnt("SELECT COUNT(*) FROM events WHERE created_at>=? AND status='rad_etilgan'", d0)
     pending = cnt("SELECT COUNT(*) FROM events WHERE status='yangi'")
-    all_ok = cnt("SELECT COUNT(*) FROM events WHERE status='tasdiqlangan'")
-    all_no = cnt("SELECT COUNT(*) FROM events WHERE status='rad_etilgan'")
+    all_ok = cnt(f"SELECT COUNT(*) FROM events WHERE status='tasdiqlangan' AND {NOT_SAFETY}")
+    all_no = cnt(f"SELECT COUNT(*) FROM events WHERE status='rad_etilgan' AND {NOT_SAFETY}")
     hours = [0] * 24
     for r in db.rows("SELECT created_at FROM events WHERE created_at>=?", (d0,)):
         hours[time.localtime(r["created_at"]).tm_hour] += 1
@@ -1312,14 +1323,17 @@ def api_reports(days: int = 14):
             review_mins.append((e["reviewed_at"] - e["created_at"]) / 60)
     ok = sum(e["status"] == "tasdiqlangan" for e in evs)
     no = sum(e["status"] == "rad_etilgan" for e in evs)
+    th = [e for e in evs if e.get("kind") not in SAFETY_KINDS]          # o'g'irlik aniqligi — xavfsizliksiz
+    t_ok = [e for e in th if e["status"] == "tasdiqlangan"]
+    t_no = [e for e in th if e["status"] == "rad_etilgan"]
     review_mins.sort()
     return {
         "days": days, "total": len(evs), "ok": ok, "no": no, "pending": len(evs) - ok - no,
-        "precision": ok / (ok + no) if ok + no else None,
+        "precision": len(t_ok) / (len(t_ok) + len(t_no)) if t_ok or t_no else None,
         "median_review_min": review_mins[len(review_mins) // 2] if review_mins else None,
         "daily": daily, "by_kind": by_kind, "by_source": by_source, "hours": hours,
-        "avg_score_ok": (sum(e["score"] for e in evs if e["status"] == "tasdiqlangan") / ok) if ok else None,
-        "avg_score_no": (sum(e["score"] for e in evs if e["status"] == "rad_etilgan") / no) if no else None,
+        "avg_score_ok": (sum(e["score"] for e in t_ok) / len(t_ok)) if t_ok else None,
+        "avg_score_no": (sum(e["score"] for e in t_no) / len(t_no)) if t_no else None,
     }
 
 
@@ -1346,8 +1360,8 @@ def api_model():
                        "version": b.get("version")}
         except Exception:
             bundled = {"path": active_path.name}
-    fb_ok = db.scalar("SELECT COUNT(*) FROM events WHERE status='tasdiqlangan'") or 0
-    fb_no = db.scalar("SELECT COUNT(*) FROM events WHERE status='rad_etilgan'") or 0
+    fb_ok = db.scalar(f"SELECT COUNT(*) FROM events WHERE status='tasdiqlangan' AND {NOT_SAFETY}") or 0
+    fb_no = db.scalar(f"SELECT COUNT(*) FROM events WHERE status='rad_etilgan' AND {NOT_SAFETY}") or 0
     from .ai.engine import Engine
 
     try:

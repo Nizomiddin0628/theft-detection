@@ -216,7 +216,11 @@ function Push({ info, reload }: { info: NotifyInfo; reload: () => void }) {
 }
 
 const PREF_ROWS: { key: keyof Omit<Prefs, "min_score">; title: string; hint: string }[] = [
-  { key: "event", title: "Shubhali harakat", hint: "Kamera yangi signal berganda (Telegram'da video bilan)" },
+  {
+    key: "event",
+    title: "Shubhali harakat va xavfsizlik",
+    hint: "Kamera yangi signal berganda (Telegram'da video bilan). Yiqilish, tungi kirish kabi xavfsizlik signallari ball chegarasiga qaramay keladi",
+  },
   { key: "escalation", title: "Javobsiz hodisa", hint: "Hech kim belgilangan vaqtda tekshirmasa" },
   { key: "camera", title: "Kamera ishlamay qoldi", hint: "Kamera uzilsa va tiklansa" },
   { key: "offline", title: "Do'kon bilan aloqa uzildi", hint: "Do'kondagi kompyuter yoki internet o'chsa" },

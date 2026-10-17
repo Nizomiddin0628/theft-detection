@@ -20,6 +20,7 @@ import numpy as np
 from .. import db
 from ..config import FEEDBACK_DIR, MODELS_DIR, POSES_DIR
 from ..logutil import get_logger
+from ..ai.safety import SAFETY_KINDS
 from . import synthetic
 from .features import feature_names, window_features
 from .model import BehaviorModel
@@ -42,8 +43,10 @@ def _feedback_sample(data: dict, status: str, ev_id) -> dict | None:
 def feedback_windows() -> list[dict]:
     """Qo'riqchi javoblari: bazadagi hodisalar + o'chirilgan hodisalar arxivi (data/feedback)."""
     out, seen = [], set()
+    # 2.2.0: xavfsizlik signallari (yiqilish, tungi kirish...) o'g'irlik modeliga aralashmaydi
+    marks = ",".join("?" for _ in SAFETY_KINDS)
     for ev in db.rows("SELECT id, status, pose_path FROM events WHERE status IN ('tasdiqlangan','rad_etilgan') "
-                      "AND pose_path IS NOT NULL"):
+                      f"AND pose_path IS NOT NULL AND (kind IS NULL OR kind NOT IN ({marks}))", SAFETY_KINDS):
         p = POSES_DIR / ev["pose_path"]
         if not p.exists():
             continue
@@ -61,7 +64,7 @@ def feedback_windows() -> list[dict]:
         except (OSError, ValueError):
             continue
         ev_id = int(data.get("event_id", 0))
-        if ev_id in seen or data.get("status") not in ("tasdiqlangan", "rad_etilgan"):
+        if ev_id in seen or data.get("status") not in ("tasdiqlangan", "rad_etilgan") or data.get("kind") in SAFETY_KINDS:
             continue
         s = _feedback_sample(data, data["status"], ev_id)
         if s:

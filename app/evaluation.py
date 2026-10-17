@@ -26,6 +26,7 @@ import numpy as np
 
 from . import db
 from .ai.clipper import ffmpeg_exe
+from .ai.safety import is_safety
 from .config import APP_VERSION
 from .logutil import get_logger
 
@@ -134,8 +135,11 @@ def clean_labels(raw) -> list[dict]:
 
 # ----------------------------------------------------------------------------- tahlil va solishtirish
 def analyze(path: str, zone_source_id: int | None = None, stop_evt: threading.Event | None = None,
-            progress=None, model_set: str | None = None) -> dict:
-    """Videoni jonli kameradagi kabi tahlil qiladi; signallar ro'yxatini qaytaradi (hodisa yaratilmaydi)."""
+            progress=None, model_set: str | None = None, hold_last: float = 0.0) -> dict:
+    """Videoni jonli kameradagi kabi tahlil qiladi; signallar ro'yxatini qaytaradi (hodisa yaratilmaydi).
+
+    hold_last (2.2.0, yiqilish darvozasi): video tugagach oxirgi kadr shuncha soniya takrorlanadi — ochiq yiqilish
+    videolari yiqilishdan keyin tezda tugaydi, haqiqatda esa odam yerda qoladi (natijada buni rostini yozamiz)."""
     from .ai.worker import Processor
 
     cap = cv2.VideoCapture(path)
@@ -150,29 +154,53 @@ def analyze(path: str, zone_source_id: int | None = None, stop_evt: threading.Ev
     eng = engine_for(model_set)
     proc = Processor("Baholash", source_id=zone_source_id, background=True, engine=eng)
     alerts: list[dict] = []
+    safety_alerts: list[dict] = []        # 2.2.0: xavfsizlik signallari — o'g'irlik aniqligiga aralashmaydi
     idx = 0
     last_ai = -1e9
     t_cpu = time.time()
+    hold_n = int(round(max(0.0, float(hold_last or 0)) * fps))
+    last_frame = None
+    held = 0
     try:
         while not (stop_evt and stop_evt.is_set()):
-            if not cap.grab():
+            if cap.grab():
+                t = idx / fps
+                idx += 1
+                due = t - last_ai >= proc.interval(ai_fps, calm_fps) - 0.5 / fps
+                if not due and not hold_n:
+                    continue
+                ok, frame = cap.retrieve()
+                if not ok or frame is None:
+                    continue
+                if hold_n:
+                    last_frame = frame
+                if not due:
+                    continue
+            elif held < hold_n and last_frame is not None:
+                t = idx / fps
+                idx += 1
+                held += 1
+                if t - last_ai < proc.interval(ai_fps, calm_fps) - 0.5 / fps:
+                    continue
+                frame = last_frame
+            else:
                 break
-            t = idx / fps
-            idx += 1
-            if t - last_ai < proc.interval(ai_fps, calm_fps) - 0.5 / fps:
-                continue
-            ok, frame = cap.retrieve()
-            if not ok or frame is None:
-                continue
             last_ai = t
             _, _, al, _ = proc.step(frame, t)
             for a in al:
-                alerts.append({"t": round(float(t), 2), "kind": a["kind"], "kind_label": a["kind_label"],
-                               "score": round(float(a["score"]), 1),
-                               "susp_start": round(float(a.get("susp_start", t)), 2),
-                               "reasons": a["reasons"][:4]})
+                (safety_alerts if is_safety(a["kind"]) else alerts).append(
+                    {"t": round(float(t), 2), "kind": a["kind"], "kind_label": a["kind_label"],
+                     "score": round(float(a["score"]), 1), "susp_start": round(float(a.get("susp_start", t)), 2),
+                     "susp_end": round(float(a.get("susp_end", t)), 2), "track_id": a.get("track_id"),
+                     "reasons": a["reasons"][:4]})
             if progress and total and idx % 15 == 0:
                 progress(min(1.0, idx / total))
+        if getattr(proc, "safety", None) is not None:   # video tugadi: muddati yetgan yiqilish tasdig'i
+            for a in proc.safety.falls.flush(idx / fps):
+                safety_alerts.append({"t": round(idx / fps, 2), "kind": a["kind"], "kind_label": a["kind_label"],
+                                      "score": 100.0, "susp_start": round(float(a["susp_start"]), 2),
+                                      "susp_end": round(float(a["susp_end"]), 2), "track_id": a.get("track_id"),
+                                      "reasons": a["reasons"][:4], "at_end": True})
     finally:
         cap.release()
     counter = getattr(proc, "counter", None)            # 1.9.0: sanash chizig'i bo'lsa (persist=False — xotirada)
@@ -196,7 +224,8 @@ def analyze(path: str, zone_source_id: int | None = None, stop_evt: threading.Ev
                     "trace": [{"t": round(float(t_), 2), "tid": tid, "x": round(x, 3), "y": round(y, 3)}
                               for t_, tid, x, y in fm.trace],
                     "update_ms": round(fm.cpu_sec * 1000 / max(fm.n_updates, 1), 3)}
-    return {"alerts": alerts, "crossings": crossings, "queue": queue, "flow": flow_res, "duration": round(idx / fps, 2),
+    return {"alerts": alerts, "safety": safety_alerts, "crossings": crossings, "queue": queue, "flow": flow_res,
+            "duration": round(idx / fps, 2), "held": round(held / fps, 2),
             "steps": dict(proc.counts), "seconds": round(time.time() - t_cpu, 1), "model_set": eng.model_set}
 
 
