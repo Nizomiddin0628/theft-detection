@@ -1,0 +1,243 @@
+{% extends "base.html" %}
+{% from "_icons.html" import icon %}
+{% block subtitle %}<div class="muted small"><a href="/oqim/sozlash">← Reja va kameralar</a> · Kadrdagi pol nuqtasi ↔ rejadagi o'sha joy</div>{% endblock %}
+{% block content %}
+<style>
+  .cwrap { position: relative; background: #0f172a; border-radius: 10px; overflow: hidden; touch-action: none; }
+  .cwrap.plan { background: #f1f5f9; border: 1px solid var(--line); }
+  .cwrap canvas { display: block; width: 100%; height: auto; cursor: crosshair; }
+  .ctool { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 10px; }
+  .pairs td, .pairs th { padding: 5px 7px; font-size: 12.5px; white-space: nowrap; }
+  .pairs tr.sel td { background: #eff6ff; }
+  .e-ok { color: #15803d; font-weight: 600; } .e-mid { color: #a16207; font-weight: 600; } .e-bad { color: #b42318; font-weight: 600; }
+  .step { display: flex; gap: 10px; align-items: flex-start; margin-bottom: 8px; font-size: 13px; }
+  .step b.n { background: var(--brand); color: #fff; border-radius: 50%; width: 22px; height: 22px; display: inline-flex; align-items: center; justify-content: center; flex: none; font-size: 12px; }
+  .pending { background: #fef9c3; border: 1px solid #fde047; border-radius: 8px; padding: 6px 10px; font-size: 13px; }
+</style>
+<div class="card card-b" style="margin-bottom:16px">
+  <div class="grid g3">
+    <div class="step"><b class="n">1</b><div>Kadrda <b>pol sathidagi</b> aniq nuqtani bosing: plitka burchagi, polka oyog'i, eshik ostonasining burchagi, gilam chekkasi. Devor yoki polka tepasi <b>emas</b> — faqat pol.</div></div>
+    <div class="step"><b class="n">2</b><div>Rejada o'sha joyni bosing. Juftlik ro'yxatga qo'shiladi. Nuqtalarni keyin sudrab tuzatish mumkin. Lupa (burchakdagi kattalashtirish) aniq bosishga yordam beradi.</div></div>
+    <div class="step"><b class="n">3</b><div>Kamida 6 ta, yaxshisi 8–12 ta juft — kadrning <b>hamma qismidan</b> (yaqin, uzoq, chap, o'ng). Kadr ustidagi 1 m to'r pol plitkalariga mos tushsa — kalibrlash to'g'ri.</div></div>
+  </div>
+</div>
+<div class="grid g2">
+  <div class="card">
+    <div class="card-h"><h2>Kamera kadri</h2><div class="grow"></div>
+      <label class="switch small"><input type="checkbox" id="showGrid" checked onchange="draw()"> 1 m to'r</label>
+      <button class="btn sm ghost" onclick="loadFrame(true)" title="Kameradan yangi kadr">{{ icon('refresh', 14) }}</button></div>
+    <div class="card-b"><div class="cwrap"><canvas id="cvF" width="1280" height="720"></canvas></div></div>
+  </div>
+  <div class="card">
+    <div class="card-h"><h2>Reja</h2><div class="grow"></div><select id="planSel" onchange="pickPlan(+this.value)" style="width:auto"></select></div>
+    <div class="card-b"><div class="cwrap plan"><canvas id="cvP" width="1000" height="700"></canvas></div></div>
+  </div>
+</div>
+<div class="ctool" style="margin-top:12px">
+  <label class="switch"><input type="checkbox" id="nextCheck"> Keyingi juftlik — <b>tekshiruv nuqtasi</b> (moslashda ishtirok etmaydi, xatoni halol ko'rsatadi)</label>
+  <div style="flex:1"></div>
+  <span class="pending hidden" id="pend"></span>
+  <button class="btn sm ghost" onclick="clearPending()" id="btnPendX" title="Bosilgan, juftlanmagan nuqtani bekor qilish">Bekor</button>
+</div>
+<div class="grid g3" style="margin-top:4px">
+  <div class="card span2">
+    <div class="card-h"><h2>Juftliklar</h2><div class="grow"></div><span class="muted small" id="pcount"></span></div>
+    <div class="card-b">
+      <div class="table-wrap"><table class="pairs"><thead><tr><th>#</th><th>Turi</th><th>Kadr (x, y)</th><th>Reja (m)</th><th>LOO xato</th><th>Tekshiruv xatosi</th><th></th></tr></thead><tbody id="pairs"></tbody></table></div>
+      <div class="muted small" style="margin-top:8px">LOO — shu nuqtasiz moslangan model uni qanchalik topadi (halol baho). Qizil (> 1 m) nuqta — ehtimol kadrda yoki rejada noto'g'ri bosilgan. Yashil ≤ 0,3 m, sariq ≤ 0,5 m.</div>
+    </div>
+  </div>
+  <div class="card">
+    <div class="card-h"><h2>Natija</h2></div>
+    <div class="card-b">
+      <div id="res" class="small muted">Kamida 4 ta juftlik kerak.</div>
+      <div id="warn" style="margin-top:8px"></div>
+      <div class="row" style="margin-top:12px;gap:8px;flex-wrap:wrap">
+        <button class="btn primary" id="btnSave" onclick="save()" disabled>{{ icon('check', 14) }} Saqlash</button>
+        <button class="btn danger" onclick="delCalib()" id="btnDel">Kalibrlashni o'chirish</button>
+      </div>
+      <div class="muted small" style="margin-top:10px">Saqlangach kamera 3 soniya ichida odamlarni rejaga tushira boshlaydi. Haqiqiy aniqlik — <a href="/oqim#gate-card">Oqim → Aniqlik sinovi</a> ("nuqtada turish").</div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script src="/static/plan.js?v={{ version }}"></script>
+<script>
+const SID = {{ src.id }};
+const cvF = document.getElementById("cvF"), cF = cvF.getContext("2d");
+const cvP = document.getElementById("cvP"), cP = cvP.getContext("2d");
+let frame = null, planImg = null, plans = [], plan = null, pairs = [], fit = null, pending = null, sel = -1, drag = null;
+let hoverF = null, hoverP = null, saved = null, live = [], fitT = null, fitSeq = 0;
+
+function loadFrame(fresh) {
+  const im = new Image();
+  im.onload = () => { frame = im; cvF.width = im.naturalWidth; cvF.height = im.naturalHeight; draw(); };
+  im.src = `/api/sources/${SID}/frame.jpg?fresh=${fresh ? 1 : 0}&t=${Date.now()}`;
+}
+async function init() {
+  const r = await H.api(`/api/flow/calib/${SID}`);
+  plans = r.plans;
+  if (!plans.length) { document.querySelector(".content").insertAdjacentHTML("afterbegin", `<div class="note warn" style="margin-bottom:16px"><b>Avval do'kon rejasini kiriting:</b>&nbsp;<a href="/oqim/sozlash">Reja va kameralar</a></div>`); return; }
+  const ps = document.getElementById("planSel");
+  ps.innerHTML = plans.map((p) => `<option value="${p.id}">${H.esc(p.name)}</option>`).join("");
+  saved = r.calib;
+  if (saved) { pairs = saved.pairs.map((p) => ({ ...p })); fit = saved.fit || null; }
+  document.getElementById("btnDel").classList.toggle("hidden", !saved);
+  await pickPlan(saved ? saved.plan_id : plans[0].id, true);
+}
+async function pickPlan(pid, keep) {
+  if (!keep && pairs.length && !confirm("Boshqa rejaga o'tilsa, juftliklar o'chadi. Davom etilsinmi?")) { document.getElementById("planSel").value = plan.id; return; }
+  if (!keep) { pairs = []; fit = null; }
+  plan = plans.find((p) => p.id === pid) || plans[0];
+  document.getElementById("planSel").value = plan.id;
+  planImg = await P.loadImg(plan.img_url);
+  cvP.width = planImg.naturalWidth; cvP.height = planImg.naturalHeight;
+  render(); if (!keep) refit();
+}
+const mpp = () => plan.m_per_px;
+function errCls(e) { return e === null || e === undefined ? "" : e <= 0.3 ? "e-ok" : e <= 0.5 ? "e-mid" : "e-bad"; }
+function draw() {
+  // --- kadr
+  cF.clearRect(0, 0, cvF.width, cvF.height);
+  if (frame) cF.drawImage(frame, 0, 0, cvF.width, cvF.height);
+  const W = cvF.width, Hh = cvF.height, sF = P.k(cvF);
+  if (fit && fit.ok && document.getElementById("showGrid").checked) {
+    cF.lineWidth = 1.3 * sF; cF.strokeStyle = "rgba(34,211,238,.85)";
+    for (const ln of fit.grid || []) { cF.beginPath(); ln.forEach((p, i) => i ? cF.lineTo(p[0] * W, p[1] * Hh) : cF.moveTo(p[0] * W, p[1] * Hh)); cF.stroke(); }
+  }
+  pairs.forEach((p, i) => {
+    const col = p.check ? "#a855f7" : "#22c55e";
+    P.dot(cF, cvF, p.img[0] * W, p.img[1] * Hh, i === sel ? "#f59e0b" : col, i === sel ? 8 : 6);
+    P.num(cF, cvF, p.img[0] * W, p.img[1] * Hh, String(i + 1));
+  });
+  if (pending && pending.img) P.dot(cF, cvF, pending.img[0] * W, pending.img[1] * Hh, "#facc15", 8, "#000");
+  if (hoverF && frame) P.loupe(cF, cvF, frame, [hoverF[0] * W, hoverF[1] * Hh], 4);
+  // --- reja
+  cP.clearRect(0, 0, cvP.width, cvP.height);
+  if (planImg) cP.drawImage(planImg, 0, 0);
+  if (!plan) return;
+  P.sections(cP, cvP, plan.sections, { fill: 0.08 });
+  if (fit && fit.ok && fit.coverage_px && fit.coverage_px.length > 2) {
+    P.path(cP, fit.coverage_px); cP.fillStyle = "rgba(34,211,238,.12)"; cP.fill();
+    cP.lineWidth = 1.5 * P.k(cvP); cP.setLineDash([6, 4]); cP.strokeStyle = "#0891b2"; cP.stroke(); cP.setLineDash([]);
+  }
+  const pts = fit && fit.points ? fit.points : [];
+  pairs.forEach((p, i) => {
+    const x = p.plan[0], y = p.plan[1], q = pts[i];
+    if (q && q.pred_px) {   // model topgan joy va xato chizig'i
+      cP.lineWidth = 1.5 * P.k(cvP); cP.strokeStyle = "#ef4444"; cP.beginPath(); cP.moveTo(x, y); cP.lineTo(q.pred_px[0], q.pred_px[1]); cP.stroke();
+      P.cross(cP, cvP, q.pred_px[0], q.pred_px[1], "#ef4444", 5);
+    }
+    P.dot(cP, cvP, x, y, i === sel ? "#f59e0b" : (p.check ? "#a855f7" : "#22c55e"), i === sel ? 8 : 6);
+    P.num(cP, cvP, x, y, String(i + 1), "#0f172a");
+  });
+  for (const lp of live) P.dot(cP, cvP, lp.px, lp.py, "#dc2626", 7);
+  if (pending && pending.plan) P.dot(cP, cvP, pending.plan[0], pending.plan[1], "#facc15", 8, "#000");
+  if (hoverP && planImg) P.loupe(cP, cvP, planImg, hoverP, 3);
+}
+function render() {
+  const pts = fit && fit.points ? fit.points : [];
+  document.getElementById("pcount").textContent = `${pairs.filter((p) => !p.check).length} ta + ${pairs.filter((p) => p.check).length} tekshiruv`;
+  document.getElementById("pairs").innerHTML = pairs.map((p, i) => {
+    const q = pts[i] || {};
+    return `<tr class="${i === sel ? "sel" : ""}" onclick="sel=${i};render()"><td><b>${i + 1}</b></td>
+      <td><select onchange="pairs[${i}].check=this.value==='1'?1:0;refit()" onclick="event.stopPropagation()" style="padding:2px 4px">
+        <option value="0" ${p.check ? "" : "selected"}>kalibrlash</option><option value="1" ${p.check ? "selected" : ""}>tekshiruv</option></select></td>
+      <td>${Math.round(p.img[0] * cvF.width)}, ${Math.round(p.img[1] * cvF.height)}</td>
+      <td>${(p.plan[0] * mpp()).toFixed(2)}, ${(p.plan[1] * mpp()).toFixed(2)}</td>
+      <td class="${errCls(q.loo)}">${p.check ? "" : P.m(q.loo)}</td>
+      <td class="${errCls(q.check_err)}">${p.check ? P.m(q.check_err) : ""}</td>
+      <td><button class="btn sm ghost" onclick="event.stopPropagation();pairs.splice(${i},1);sel=-1;refit()">✕</button></td></tr>`;
+  }).join("") || `<tr><td colspan="7" class="muted">Hali juftlik yo'q — kadrda pol nuqtasini bosing.</td></tr>`;
+  const res = document.getElementById("res"), warn = document.getElementById("warn");
+  if (fit && fit.ok) {
+    const k = fit.k || [0, 0];
+    res.innerHTML = `<div>LOO xato (o'rtacha): <b class="${errCls(fit.loo_rms)}">${P.m(fit.loo_rms)}</b>, eng katta: <b class="${errCls(fit.loo_max)}">${P.m(fit.loo_max)}</b></div>
+      ${fit.check_rms !== null ? `<div>Tekshiruv nuqtalari: <b class="${errCls(fit.check_rms)}">${P.m(fit.check_rms)}</b> (eng katta ${P.m(fit.check_max)})</div>` : ""}
+      <div class="muted">Linza egriligi: ${k[0] || k[1] ? `bor (k1=${k[0]}${k[1] ? `, k2=${k[1]}` : ""})` : "yo'q"} · kadr qamrovi ${Math.round((fit.hull_area || 0) * 100)}%</div>`;
+  } else res.textContent = "Kamida 4 ta kalibrlash juftligi kerak (yaxshisi 8–12 ta).";
+  warn.innerHTML = (fit && fit.warnings || []).map((w) => `<div class="note warn small" style="margin-bottom:6px">${H.esc(w)}</div>`).join("");
+  document.getElementById("btnSave").disabled = !(fit && fit.ok);
+  const pe = document.getElementById("pend");
+  pe.classList.toggle("hidden", !pending);
+  document.getElementById("btnPendX").classList.toggle("hidden", !pending);
+  if (pending) pe.textContent = pending.img ? "Kadr nuqtasi bosildi → endi rejada o'sha joyni bosing" : "Reja nuqtasi bosildi → endi kadrda o'sha joyni bosing";
+  draw();
+}
+function clearPending() { pending = null; render(); }
+function refit() {
+  render();
+  clearTimeout(fitT);
+  fitT = setTimeout(async () => {
+    const seq = ++fitSeq;
+    if (pairs.filter((p) => !p.check).length < 4) { fit = null; render(); return; }
+    try {
+      const r = await H.post(`/api/flow/calib/${SID}/preview`, { plan_id: plan.id, pairs, frame_w: cvF.width, frame_h: cvF.height });
+      if (seq === fitSeq) { fit = r; render(); }
+    } catch (e) { /* xabar ko'rsatildi */ }
+  }, 250);
+}
+function addPoint(kind, pt) {
+  if (pending && !pending[kind]) {
+    const p = { ...pending, [kind]: pt, check: document.getElementById("nextCheck").checked ? 1 : 0 };
+    pairs.push(p); pending = null; sel = pairs.length - 1;
+    document.getElementById("nextCheck").checked = false;
+    refit(); return;
+  }
+  pending = { [kind]: pt }; render();
+}
+function hitPair(kind, pt, cv) {
+  const s = P.k(cv);
+  return pairs.findIndex((p) => {
+    const q = kind === "img" ? [p.img[0] * cv.width, p.img[1] * cv.height] : p.plan;
+    return Math.hypot(q[0] - pt[0], q[1] - pt[1]) < 12 * s;
+  });
+}
+for (const [cv, kind] of [[cvF, "img"], [cvP, "plan"]]) {
+  cv.addEventListener("pointerdown", (e) => {
+    if (!plan) return;
+    const pt = P.evPt(cv, e);
+    const i = hitPair(kind, pt, cv);
+    if (i >= 0 && !pending) { sel = i; drag = { kind, i }; cv.setPointerCapture(e.pointerId); render(); return; }
+    addPoint(kind, kind === "img" ? [pt[0] / cv.width, pt[1] / cv.height] : pt);
+  });
+  cv.addEventListener("pointermove", (e) => {
+    const pt = P.evPt(cv, e);
+    if (kind === "img") hoverF = [pt[0] / cv.width, pt[1] / cv.height]; else hoverP = pt;
+    if (drag && drag.kind === kind) {
+      pairs[drag.i][kind] = kind === "img" ? [pt[0] / cv.width, pt[1] / cv.height] : pt; drag.moved = true;
+    }
+    draw();
+  });
+  cv.addEventListener("pointerup", () => { if (drag && drag.moved) refit(); drag = null; });
+  cv.addEventListener("pointerleave", () => { if (kind === "img") hoverF = null; else hoverP = null; draw(); });
+}
+document.addEventListener("keydown", (e) => {
+  if (["INPUT", "TEXTAREA", "SELECT"].includes(document.activeElement.tagName)) return;
+  if (e.key === "Escape") clearPending();
+  if ((e.key === "Delete" || e.key === "Backspace") && sel >= 0) { e.preventDefault(); pairs.splice(sel, 1); sel = -1; refit(); }
+});
+async function save() {
+  const r = await H.post(`/api/flow/calib/${SID}`, { plan_id: plan.id, pairs, frame_w: cvF.width, frame_h: cvF.height });
+  if (r && r.ok) { fit = r.fit; saved = true; document.getElementById("btnDel").classList.remove("hidden"); H.toast("Kalibrlash saqlandi. Rejada qizil nuqtalar — hozir kadrdagi odamlar.", "ok", 7000); render(); }
+}
+async function delCalib() {
+  if (!confirm("Bu kameraning kalibrlashi o'chirilsinmi? (Kamera endi oqim va heatmap'ga qo'shilmaydi)")) return;
+  const r = await H.post(`/api/flow/calib/${SID}/delete`);
+  if (r && r.ok) { H.toast("O'chirildi", "ok"); pairs = []; fit = null; saved = null; document.getElementById("btnDel").classList.add("hidden"); render(); }
+}
+async function pollLive() {
+  try {
+    if (saved && plan && !document.hidden) {
+      const r = await fetch(`/api/flow/live?plan_id=${plan.id}`, { headers: { Accept: "application/json" } });
+      if (r.ok) { live = (await r.json()).people.filter((p) => p.source_id === SID); draw(); }
+    }
+  } catch (e) { /* jim */ }
+  setTimeout(pollLive, 1000);
+}
+window.addEventListener("resize", draw);
+loadFrame(true);
+init().then(pollLive);
+</script>
+{% endblock %}

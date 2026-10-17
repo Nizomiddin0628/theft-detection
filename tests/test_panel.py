@@ -103,6 +103,11 @@ def frames(n: int) -> list[bytes]:
     return out
 
 
+FLOW_PLAN = {"id": 1, "name": "Asosiy zal", "w_m": 20, "h_m": 12, "cell": 0.5, "nx": 40, "ny": 24, "grid": "40x24@0.5",
+             "sections": [{"id": 1, "name": "Sut", "color": "#2563eb", "pts": [[2, 2], [7, 2], [7, 6], [2, 6]]},
+                          {"id": 2, "name": "Non", "color": "#16a34a", "pts": [[13, 2], [18, 2], [18, 6], [13, 6]]}]}
+
+
 def seed() -> dict:
     cdb = cloud.cdb
     r = cloud.bootstrap_owner("egasi@dokon.uz", "Parol12345", "Baraka savdo")
@@ -116,7 +121,8 @@ def seed() -> dict:
         {"zone_id": 11, "name": "1-kassa", "source_name": "Kassa 1", "length": 5, "max_wait": 205, "cashier": True,
          "state": "navbat", "live": True},
         {"zone_id": 12, "name": "2-kassa", "source_name": "Kassa 1", "length": 2, "max_wait": 40, "cashier": False,
-         "state": "kassir_yoq", "live": True}]}).status_code == 200
+         "state": "kassir_yoq", "live": True}],
+                                             "flow_plans": [FLOW_PLAN]}).status_code == 200   # 2.1.0: reja
     assert edge(B_DEV, b_tok, "hello", json={"time": time.time(), "version": "1.6.0", "cameras": [
         {"id": 1, "name": "Kassa", "kind": "rtsp", "state": "ishlayapti"}], "pending": 4}).status_code == 200
 
@@ -186,6 +192,15 @@ def seed() -> dict:
         {"key": "qa:2", "local_id": 2, "t": now - 600, "rule": "R2", "level": "danger", "zone_name": "2-kassa",
          "title": "Kassani tekshiring", "text": "2-kassa: navbatda <b>2 kishi</b>, kassir joyi 1 daq dan beri bo'sh."}]}
         ).status_code == 200
+    # 2.1.0: oqim — bugungi soatlik yig'indi (bo'limlar, yo'nalish, heatmap)
+    h0 = int(cloud._local_day0() // 3600 * 3600)
+    if h0 < cloud._local_day0():
+        h0 += 3600
+    h0 = min(h0, int(now // 3600 * 3600))
+    assert edge(A_DEV, a_tok, "flow", json={"items": [
+        {"key": f"fh:1:{h0}", "plan_id": 1, "hour": h0, "grid": "40x24@0.5", "nx": 40, "ny": 24, "cell": 0.5, "obs": 3000,
+         "visits": {"1": 9, "2": 4}, "moves": [[1, 2, 3]], "occ": {str(5 * 40 + 8): 60, str(6 * 40 + 9): 30},
+         "pas": {str(5 * 40 + 8): 12}}]}).json()["accepted"]
     # B do'kon 3 soatdan beri aloqasiz (har qanday edge so'rovi last_seen ni yangilaydi — shuning uchun oxirida)
     cdb.execute("UPDATE branches SET last_seen=:t WHERE id=:b", {"t": time.time() - 3 * 3600, "b": b_id})
     return {"a_id": a_id, "a_tok": a_tok, "b_id": b_id, "b_tok": b_tok}
@@ -434,6 +449,18 @@ def _owner(browser, s: dict) -> None:
     ok("Navbat: signallar ro'yxati (matn oddiy, teg ko'rinmaydi)", page.locator(".qalerts li").count() == 2
        and "<b>" not in page.locator(".qalerts").inner_text() and "5 kishi" in page.locator(".qalerts").inner_text())
     shot(page, "07c_queues")
+
+    # Oqim (2.1.0)
+    page.goto(f"{BASE}/flow/")
+    page.wait_for_selector("[data-testid=flow-total]", timeout=10000)
+    page.wait_for_timeout(500)
+    blank = page.evaluate("""() => { const c = document.querySelector('[data-testid=flow-canvas]');
+        const d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data; let n = 0;
+        for (let i = 0; i < d.length; i += 4) if (d[i] > 200 && d[i + 1] < 120 && d[i + 2] < 120) n++; return n; }""")
+    ok("Oqim: jami 13 tashrif, eng ko'p 'Sut', yo'nalish Sut → Non, heatmap chizildi",
+       page.locator("[data-testid=flow-total] b").inner_text() == "13" and "Sut → Non" in page.inner_text("body")
+       and blank > 20, f"qizil piksel {blank}")
+    shot(page, "07d_flow")
 
     # Xodimlar
     page.goto(f"{BASE}/users/")

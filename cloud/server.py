@@ -45,7 +45,7 @@ from .db import CLIPS_DIR, DATA_DIR
 from .live import hub
 
 log = logging.getLogger("hushyor.cloud")
-VERSION = "2.0.0"
+VERSION = "2.1.0"
 
 API_VERSION = 1
 ROOT = Path(__file__).resolve().parent
@@ -308,6 +308,7 @@ def _prune(conn) -> None:
     conn.execute(cdb.visits_minute.delete().where(cdb.visits_minute.c.minute < now - METRICS_KEEP_DAYS * 86400))
     conn.execute(cdb.queue_minute.delete().where(cdb.queue_minute.c.minute < now - METRICS_KEEP_DAYS * 86400))
     conn.execute(cdb.queue_alerts.delete().where(cdb.queue_alerts.c.t < now - METRICS_KEEP_DAYS * 86400))
+    conn.execute(cdb.flow_hour.delete().where(cdb.flow_hour.c.hour < now - METRICS_KEEP_DAYS * 86400))
     conn.execute(cdb.sessions.delete().where(cdb.sessions.c.expires_at < now))
     conn.execute(cdb.commands.delete().where(cdb.commands.c.acked_at.isnot(None), cdb.commands.c.acked_at < now - 7 * 86400))
     conn.execute(cdb.health_log.delete().where(cdb.health_log.c.t < now - METRICS_KEEP_DAYS * 86400))
@@ -340,12 +341,15 @@ def _hello(b: dict, body: dict, ip: str) -> dict:
     occ = ({k: float(_num(occ.get(k))) for k in ("inside", "since", "day0", "in", "out")}
            if isinstance(occ, dict) else None)
     qs = _hello_queues(body.get("queues"))
+    fp = _hello_flow_plans(body.get("flow_plans"))
     with cdb.engine().begin() as c:
         vals = {"last_seen": now, "last_ip": ip[:64],
                 "version": str(body.get("version") or "")[:40], "cameras": cams,
                 "pending": int(_num(body.get("pending"))), "clock_skew": skew,
                 "occupancy": ({**occ, "at": now} if occ else None),
                 "queues": ({"at": now, "items": qs} if qs is not None else None)}
+        if fp is not None:
+            vals["flow_plans"] = {"at": now, "items": fp}
         if b.get("token_hash") == "env" and body.get("name"):
             vals["name"] = str(body.get("name"))[:200]      # muhit tokeni bilan ulangan filial nomi edge'dan
         c.execute(cdb.branches.update().where(cdb.branches.c.id == b["id"]).values(**vals))
@@ -364,7 +368,35 @@ def _hello(b: dict, body: dict, ip: str) -> dict:
             "features": list(FEATURES)}
 
 
-FEATURES = ("queues",)
+FEATURES = ("queues", "flow")
+
+
+def _hello_flow_plans(raw) -> list[dict] | None:
+    """2.1.0: do'kon rejalari (o'lchami va bo'limlari, metrda) — bulut heatmap'ini chizish uchun. Reja rasmi yuborilmaydi."""
+    if not isinstance(raw, list):
+        return None
+    out = []
+    for p in raw[:5]:
+        if not isinstance(p, dict):
+            continue
+        secs = []
+        for s_ in (p.get("sections") or [])[:60] if isinstance(p.get("sections"), list) else []:
+            if not isinstance(s_, dict):
+                continue
+            pts = []
+            for q in (s_.get("pts") or [])[:200] if isinstance(s_.get("pts"), list) else []:
+                try:
+                    pts.append([round(min(max(float(q[0]), -10), 1000), 2), round(min(max(float(q[1]), -10), 1000), 2)])
+                except (TypeError, ValueError, IndexError):
+                    continue
+            col = str(s_.get("color") or "")
+            secs.append({"id": int(_num(s_.get("id"))), "name": str(s_.get("name") or "")[:60],
+                         "color": col if re.fullmatch(r"#[0-9a-fA-F]{6}", col) else "#64748b", "pts": pts})
+        out.append({"id": int(_num(p.get("id"))), "name": str(p.get("name") or "")[:60],
+                    "w_m": round(min(max(_num(p.get("w_m")), 0), 1000), 2), "h_m": round(min(max(_num(p.get("h_m")), 0), 1000), 2),
+                    "cell": _num(p.get("cell")) or 0.5, "nx": int(min(max(_num(p.get("nx")), 0), 400)),
+                    "ny": int(min(max(_num(p.get("ny")), 0), 400)), "grid": str(p.get("grid") or "")[:40], "sections": secs})
+    return out
 
 
 def _hello_queues(raw) -> list[dict] | None:
@@ -574,6 +606,30 @@ def _edge_queues(b: dict, items: list[dict]) -> dict:
                 rejected.append({"key": key, "reason": "minute/zone_id noto'g'ri"})
                 continue
             _seen(c, b["device_id"], "queue", key)
+            accepted.append(key)
+    return {"ok": True, "accepted": accepted, "rejected": rejected}
+
+
+@app.post(f"/api/v{API_VERSION}/edge/flow")
+async def edge_flow(request: Request):
+    """2.1.0: oqim va heatmap — soatlik yig'indi (edge app/ai/flow.py: hour_item)."""
+    b = await _branch(request)
+    items = _items(await _json(request))
+    return await run_in_threadpool(_edge_flow, b, items)
+
+
+def _edge_flow(b: dict, items: list[dict]) -> dict:
+    accepted, rejected = [], []
+    with cdb.engine().begin() as c:
+        for it in items:
+            key = str(it.get("key") or "")
+            if len(json.dumps(it, ensure_ascii=False)) > ITEM_LIMIT:
+                rejected.append({"key": key, "reason": "yozuv juda katta"})
+                continue
+            if not cdb.put_flow_hour(c, b["id"], it):
+                rejected.append({"key": key, "reason": "hour/plan_id/grid noto'g'ri"})
+                continue
+            _seen(c, b["device_id"], "flow", key)
             accepted.append(key)
     return {"ok": True, "accepted": accepted, "rejected": rejected}
 
@@ -1053,6 +1109,81 @@ def queues(request: Request, days: int = 14, branch_id: int | None = None):
         al = [dict(r._mapping) for r in conn.execute(sel)]
     return {"ok": True, "branches": branches, "days": out_days, "alerts": al, "rules": notify.QUEUE_RULES,
             "tz_offset": notify.cfg.tz_offset, "day0": today}
+
+
+@app.get(f"/api/v{API_VERSION}/flow")
+def flow(request: Request, days: int = 7, branch_id: int | None = None, plan_id: int | None = None):
+    """2.1.0 Oqim: filial rejasi (bo'limlar), bo'lim tashriflari (davr va bugun soatlar bo'yicha), yo'nalishlar va
+    heatmap (bandlik va o'tganlar; davr bo'yicha yig'indi, faqat joriy to'r kalitidagi soatlar)."""
+    u = _user(request)
+    _scope(u, branch_id)                         # begona filial — 403
+    ids = _scope(u, None)                        # tanlash ro'yxati — foydalanuvchining barcha filiallari
+    days = max(1, min(int(days), 90))
+    today = _local_day0()
+    t0 = today - (days - 1) * 86400
+    brows = [r for r in cdb.rows("SELECT id, name, flow_plans FROM branches WHERE company_id=:c ORDER BY id",
+                                 {"c": u["company_id"]}) if r["id"] in ids]
+    avail = []
+    for r in brows:
+        fp = cdb.json_load(r.get("flow_plans")) or {}
+        for p in fp.get("items") or []:
+            avail.append({"branch_id": r["id"], "branch_name": r["name"], "plan_id": p["id"], "plan_name": p["name"]})
+    with_data = cdb.flow_with_data([r["id"] for r in brows], t0)
+    avail = [a for a in avail if (a["branch_id"], a["plan_id"]) in with_data] + \
+            [a for a in avail if (a["branch_id"], a["plan_id"]) not in with_data]
+    if not avail:
+        return {"ok": True, "plans": [], "plan": None, "days": days, "tz_offset": notify.cfg.tz_offset, "day0": today}
+    sel = next((a for a in avail if (branch_id is None or a["branch_id"] == branch_id) and
+                (plan_id is None or a["plan_id"] == plan_id)), avail[0])
+    br = next(r for r in brows if r["id"] == sel["branch_id"])
+    plan = next(p for p in (cdb.json_load(br.get("flow_plans")) or {}).get("items") or [] if p["id"] == sel["plan_id"])
+    mine = cdb.flow_rows([sel["branch_id"]], t0, plan_id=sel["plan_id"])     # JSON faqat tanlangan reja uchun
+    n = int(plan.get("nx") or 0) * int(plan.get("ny") or 0)
+    occ = [0.0] * n                   # bulut serverida numpy yo'q (requirements-cloud.txt) — oddiy ro'yxat
+    pas = [0.0] * n
+    visits: dict[str, int] = {}
+    today_h = [dict() for _ in range(24)]
+    per_day = [0] * days
+    moves: dict[tuple, int] = {}
+    obs = 0.0
+    for x in mine:
+        d = cdb.json_load(x["data"]) or {}
+        for k, v in (d.get("visits") or {}).items():
+            visits[k] = visits.get(k, 0) + int(v)
+            hi = int((x["hour"] - today) // 3600)
+            if 0 <= hi < 24:
+                today_h[hi][k] = today_h[hi].get(k, 0) + int(v)
+        di = int((x["hour"] - t0) // 86400)
+        if 0 <= di < days:
+            per_day[di] += int(x["visits"] or 0)
+        for a, b_, c in d.get("moves") or []:
+            moves[(a, b_)] = moves.get((a, b_), 0) + int(c)
+        if x["grid"] == plan.get("grid") and n:
+            obs += float(x["obs"] or 0)
+            for k, v in (d.get("occ") or {}).items():
+                i = int(k)
+                if 0 <= i < n:
+                    occ[i] += float(v)
+            for k, v in (d.get("pas") or {}).items():
+                i = int(k)
+                if 0 <= i < n:
+                    pas[i] += float(v)
+
+    def enc(g: list) -> dict:
+        mx = max(g) if g else 0.0
+        q = bytes(min(255, max(0, int(round(v / mx * 255)))) for v in g) if mx > 0 else bytes(len(g))
+        return {"max": round(mx, 2), "total": round(sum(g), 1), "data": base64.b64encode(q).decode()}
+    names = {str(s_["id"]): s_["name"] for s_ in plan.get("sections") or []}
+    tot = sum(visits.values())
+    secs = [{"id": int(k), "name": names.get(k, f"#{k}"), "visits": v, "share": round(v / tot, 4) if tot else 0}
+            for k, v in sorted(visits.items(), key=lambda kv: -kv[1])]
+    mv = [{"from": a, "to": b_, "n": c, "from_name": names.get(str(a), f"#{a}"), "to_name": names.get(str(b_), f"#{b_}")}
+          for (a, b_), c in sorted(moves.items(), key=lambda kv: -kv[1])[:20]]
+    return {"ok": True, "plans": avail, "plan": {**plan, "branch_id": sel["branch_id"], "branch_name": sel["branch_name"]},
+            "days": days, "day0": today, "t0": t0, "tz_offset": notify.cfg.tz_offset, "total": tot, "sections": secs,
+            "moves": mv, "today_hours": today_h, "per_day": per_day, "obs": round(obs, 1),
+            "heat": {"occ": enc(occ), "pas": enc(pas), "nx": plan.get("nx"), "ny": plan.get("ny"),
+                     "cell": plan.get("cell")}}
 
 
 @app.post(f"/api/v{API_VERSION}/branches")

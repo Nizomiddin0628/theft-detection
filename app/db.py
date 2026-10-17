@@ -153,7 +153,7 @@ CREATE TABLE IF NOT EXISTS model_versions (
 -- Bulutga yuborish navbati (store-and-forward): internet bo'lmasa ham yoziladi, yetkazilgach o'chadi
 CREATE TABLE IF NOT EXISTS outbox (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    kind TEXT NOT NULL,           -- event | clip | metrics | health | queue | qalert
+    kind TEXT NOT NULL,           -- event | clip | metrics | health | queue | qalert | flow
     key TEXT NOT NULL,            -- idempotent kalit (serverda takror aniqlanadi), masalan ev:12
     payload TEXT NOT NULL,        -- JSON
     created_at REAL,
@@ -275,6 +275,85 @@ CREATE TABLE IF NOT EXISTS queue_timings (
     zone_name TEXT,
     t0 REAL NOT NULL,
     t1 REAL,
+    note TEXT
+);
+-- Oqim va heatmap (2.1.0, app/ai/flow.py): do'kon rejasi, bo'limlar, kamera kalibrlash
+CREATE TABLE IF NOT EXISTS floor_plans (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT,
+    img TEXT,                     -- data/plans/ dagi rasm fayli
+    w_px INTEGER,
+    h_px INTEGER,
+    m_per_px REAL,                -- masshtab: metr / reja pikseli
+    blank INTEGER DEFAULT 0,      -- rasmsiz reja (eni × bo'yi, katakli rasm o'zi yaratilgan)
+    created_at REAL,
+    updated_at REAL
+);
+CREATE TABLE IF NOT EXISTS plan_sections (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    plan_id INTEGER NOT NULL,
+    name TEXT,
+    color TEXT,
+    points TEXT,                  -- JSON [[x, y], ...] — reja pikselida (masshtab tuzatilsa o'zi to'g'rilanadi)
+    enabled INTEGER DEFAULT 1,
+    created_at REAL
+);
+CREATE TABLE IF NOT EXISTS cam_calib (
+    source_id INTEGER PRIMARY KEY,
+    plan_id INTEGER NOT NULL,
+    pairs TEXT,                   -- JSON [{"img": [u, v] (0..1), "plan": [x, y] (reja pikseli), "check": 0|1}]
+    model TEXT,                   -- JSON: app/ai/homography.Calib (metrda) + m_per_px
+    stats TEXT,                   -- JSON: qoldiq, LOO, tekshiruv xatosi
+    frame_w INTEGER,
+    frame_h INTEGER,
+    enabled INTEGER DEFAULT 1,
+    updated_at REAL
+);
+-- Bo'lim tashriflari: har tashrif (kirgan vaqti), oldingi bo'lim — yo'nalishlar uchun. 90 kun
+CREATE TABLE IF NOT EXISTS section_visits (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    t REAL NOT NULL,
+    plan_id INTEGER,
+    section_id INTEGER,
+    section_name TEXT,
+    source_id INTEGER,
+    track_id INTEGER,
+    from_id INTEGER               -- shu odamning oldingi bo'limi (3 daqiqa ichida) yoki NULL
+);
+CREATE INDEX IF NOT EXISTS idx_svisits_t ON section_visits(t);
+CREATE INDEX IF NOT EXISTS idx_svisits_plan_t ON section_visits(plan_id, t);
+-- Soatlik heatmap (har kamera): siyrak JSON {katak: qiymat}; grid — to'r kaliti (masshtab o'zgarsa aralashmasin)
+CREATE TABLE IF NOT EXISTS flow_hour (
+    hour INTEGER NOT NULL,
+    plan_id INTEGER NOT NULL,
+    source_id INTEGER NOT NULL,
+    grid TEXT,
+    obs REAL DEFAULT 0,           -- kamera kuzatgan soniyalar
+    occ TEXT,                     -- bandlik: odam × soniya
+    pas TEXT,                     -- o'tganlar: odam (soatiga bir marta)
+    vec TEXT,                     -- yurish yo'nalishi: [soni, Σdx, Σdy] (2 m katak)
+    PRIMARY KEY (hour, plan_id, source_id)
+);
+-- Darvoza: "nuqtada turish" — odam polda belgilangan joyda turadi, tizim o'lchaydi
+CREATE TABLE IF NOT EXISTS flow_points (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    t REAL NOT NULL,
+    source_id INTEGER,
+    plan_id INTEGER,
+    x REAL, y REAL,               -- belgilangan joy (m)
+    mx REAL, my REAL,             -- tizim o'lchagani (m, mediana)
+    err REAL,                     -- m
+    n INTEGER,                    -- o'lchovlar soni
+    note TEXT
+);
+-- Darvoza: bo'lim tashriflarini qo'lda sanash
+CREATE TABLE IF NOT EXISTS flow_sessions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    started_at REAL NOT NULL,
+    ended_at REAL,
+    plan_id INTEGER,
+    sections TEXT,                -- JSON [bo'lim id, ...] — kuzatilayotganlar
+    taps TEXT,                    -- JSON [[t, bo'lim id], ...]
     note TEXT
 );
 """

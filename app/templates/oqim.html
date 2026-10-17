@@ -1,0 +1,288 @@
+{% extends "base.html" %}
+{% from "_icons.html" import icon %}
+{% block subtitle %}<div class="muted small">Odamlar do'kon rejasida: bo'lim tashriflari, bo'limdan bo'limga yo'nalishlar va heatmap</div>{% endblock %}
+{% block actions %}
+<a class="btn" href="/oqim/sozlash">{{ icon('sliders') }} Reja va kameralar</a>
+<a class="btn" href="/api/export/flow.csv?days=30">{{ icon('download') }} CSV</a>
+<a class="btn" href="#gate-card">{{ icon('target') }} Aniqlik sinovi</a>
+{% endblock %}
+{% block content %}
+<style>
+  .hwrap { position: relative; background: #f1f5f9; border-radius: 10px; overflow: hidden; border: 1px solid var(--line); touch-action: none; }
+  .hwrap canvas { display: block; width: 100%; height: auto; }
+  .hwrap canvas.pick { cursor: crosshair; }
+  .htool { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 10px; }
+  .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 9px; overflow: hidden; }
+  .seg button { border: 0; background: #fff; padding: 6px 11px; font-size: 13px; cursor: pointer; }
+  .seg button.on { background: var(--brand); color: #fff; }
+  .legend { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); margin-top: 8px; flex-wrap: wrap; }
+  .legend .bar { width: 160px; height: 10px; border-radius: 5px; background: linear-gradient(90deg, rgba(37,99,235,.5), #16a34a, #eab308, #dc2626); }
+  .sbar { height: 8px; border-radius: 4px; background: #e2e8f0; overflow: hidden; min-width: 80px; }
+  .sbar i { display: block; height: 100%; }
+  .stbl td, .stbl th { padding: 7px 8px; font-size: 13px; }
+  .moves .mv { display: flex; align-items: center; gap: 8px; padding: 6px 0; border-bottom: 1px solid #eef2f6; font-size: 13px; }
+  .moves .mv .n { margin-left: auto; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .tapgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
+  .tapgrid button { padding: 22px 8px; font-size: 18px; font-weight: 700; justify-content: center; border-radius: 12px; color: #fff; border: 0; }
+  .tapgrid button small { display: block; font-size: 13px; font-weight: 500; opacity: .9; }
+  .gstat { display: inline-block; padding: 2px 8px; border-radius: 6px; font-size: 12px; font-weight: 700; }
+  .gstat.ok { background: #dcfce7; color: #166534; } .gstat.no { background: #fee2e2; color: #b91c1c; } .gstat.wait { background: #eef2f6; color: #475569; }
+</style>
+<div id="no-plan" class="note warn hidden" style="margin-bottom:16px">{{ icon('info') }}<div><b>Do'kon rejasi hali kiritilmagan.</b>
+  <a href="/oqim/sozlash">Reja va kameralar</a> sahifasida: (1) reja rasmini yuklang yoki eni × bo'yini kiriting, (2) bo'limlarni chizing,
+  (3) har kamerani rejaga bog'lang (kalibrlash: kadrda va rejada bir xil pol nuqtalarini bosish).</div></div>
+<div id="no-cam" class="note warn hidden" style="margin-bottom:16px">{{ icon('info') }}<div><b>Hech bir kamera rejaga bog'lanmagan.</b> <a href="/oqim/sozlash">Reja va kameralar</a> → kamera → <b>Kalibrlash</b>.</div></div>
+<div id="no-hook" class="note danger hidden" style="margin-bottom:16px">{{ icon('alert') }}<div><b>Oqim kamera jarayoniga ulanmagan</b> (sanash bilan bir xil ulanish). Dastur papkasida bir marta:
+  <code>.venv\Scripts\python scripts\apply_counting_hook.py</code>, keyin dasturni qayta ishga tushiring.</div></div>
+
+<div id="main" class="hidden">
+<div class="grid g4">
+  <div class="card kpi"><div class="label">{{ icon('users', 14) }} Bo'lim tashriflari</div><div class="value" id="k-tot">—</div><div class="sub" id="k-prev"></div></div>
+  <div class="card kpi"><div class="label">Eng ko'p tashrif</div><div class="value" id="k-top" style="font-size:20px">—</div><div class="sub" id="k-top-sub"></div></div>
+  <div class="card kpi"><div class="label">Eng ko'p yo'nalish</div><div class="value" id="k-mv" style="font-size:18px">—</div><div class="sub" id="k-mv-sub"></div></div>
+  <div class="card kpi"><div class="label">{{ icon('camera', 14) }} Kameralar</div><div class="value" id="k-cam">—</div><div class="sub" id="k-cam-sub"></div></div>
+</div>
+
+<div class="card" style="margin-top:16px">
+  <div class="card-b">
+    <div class="htool">
+      <select id="planSel" onchange="state.plan=+this.value;pick=null;document.getElementById('btnMeasure').disabled=true;loadAll()" style="width:auto"></select>
+      <div class="seg" id="perSeg"></div>
+      <div class="seg" id="kindSeg"><button data-k="occ" class="on">Bandlik</button><button data-k="pas">O'tganlar</button></div>
+      <label class="switch small"><input type="checkbox" id="tArrows" checked onchange="draw()"> Strelkalar</label>
+      <label class="switch small"><input type="checkbox" id="tSecs" checked onchange="draw()"> Bo'limlar</label>
+      <label class="switch small"><input type="checkbox" id="tLive" checked onchange="draw()"> Jonli</label>
+      <div style="flex:1"></div><span class="muted small" id="hinfo"></span>
+    </div>
+    <div class="hwrap"><canvas id="cv" width="1200" height="800"></canvas></div>
+    <div class="legend"><span>kam</span><span class="bar"></span><span>ko'p</span><span id="hunit"></span>
+      <span style="margin-left:auto">● qizil nuqta — hozir kadrdagi odam · strelka — ko'pchilik yuradigan yo'nalish</span></div>
+  </div>
+</div>
+
+<div class="grid g2" style="margin-top:16px">
+  <div class="card">
+    <div class="card-h"><h2>Bo'limlar</h2></div>
+    <div class="card-b"><div class="table-wrap"><table class="stbl"><thead><tr><th>Bo'lim</th><th>Tashrif</th><th>Ulush</th><th>Oldingi davr</th><th>Kamera ko'radi</th></tr></thead><tbody id="stbl"></tbody></table></div>
+      <div class="muted small" style="margin-top:8px">Tashrif — odam bo'limga kirib, to'xtagan yoki sekin yurgan (polkaga qarab); to'xtamay o'tib ketgan sanalmaydi (u "O'tganlar" heatmap'ida). Bir lahza chiqib qaytgan — o'sha tashrif. Xodimlar hisobga olinmaydi.</div></div>
+  </div>
+  <div class="card">
+    <div class="card-h"><h2>Yo'nalishlar</h2><div class="grow"></div><span class="muted small">bo'limdan → bo'limga (3 daqiqa ichida)</span></div>
+    <div class="card-b"><div class="moves" id="moves"></div>
+      <div class="muted small" style="margin-top:8px">Bitta kamera ichida kuzatiladi: boshqa kameraga o'tgan odamni tanish — keyingi bosqich.</div></div>
+  </div>
+</div>
+<div class="card" style="margin-top:16px">
+  <div class="card-h"><h2 id="ser-h">Tashriflar vaqt bo'yicha</h2></div>
+  <div class="card-b"><div id="ch-ser"></div><div class="legend" id="ser-leg"></div></div>
+</div>
+
+<div class="card" id="gate-card" style="margin-top:16px">
+  <div class="card-h"><h2>Aniqlik sinovi (darvoza)</h2><div class="grow"></div><span id="g-all"></span></div>
+  <div class="card-b">
+    <p class="small muted" style="margin-top:0" id="g-rules"></p>
+    <div class="grid g2">
+      <div>
+        <h3 style="margin-top:0">1. Nuqtada turish</h3>
+        <ol class="small" style="padding-left:18px;margin-top:0">
+          <li>Polga skotch bilan belgi qo'ying va uning rejadagi joyini o'lchang (devordan masofa, ruletka bilan).</li>
+          <li>Kamerani tanlang, <b>"Rejada belgini ko'rsatish"</b> ni bosib, rejada o'sha joyni bosing.</li>
+          <li>Bitta odam belgida tik tursin (boshqalar kadrdan chiqsin), <b>"O'lchash (3 s)"</b> ni bosing.</li>
+          <li>Kamida 5 ta o'lchov, 3 xil joyda (bir-biridan ≥ 1 m), kadrning yaqin va uzoq qismida.</li>
+        </ol>
+        <div class="row" style="gap:8px;flex-wrap:wrap">
+          <select id="ptCam" style="width:auto"></select>
+          <button class="btn sm" id="btnPick" onclick="pickMode()">📍 Rejada belgini ko'rsatish</button>
+          <button class="btn sm primary" id="btnMeasure" onclick="measure()" disabled>O'lchash (3 s)</button>
+        </div>
+        <div class="small" id="ptRes" style="margin-top:8px"></div>
+        <div class="table-wrap" style="margin-top:10px"><table class="stbl"><thead><tr><th>Kamera</th><th>O'lchov</th><th>Joylar</th><th>90% xato</th><th>Holat</th></tr></thead><tbody id="gcams"></tbody></table></div>
+        <details style="margin-top:8px"><summary class="small">Barcha o'lchovlar</summary><div class="table-wrap"><table class="stbl"><thead><tr><th>Vaqt</th><th>Kamera</th><th>Belgi (m)</th><th>O'lchandi (m)</th><th>Xato</th><th></th></tr></thead><tbody id="gpts"></tbody></table></div></details>
+      </div>
+      <div>
+        <h3 style="margin-top:0">2. Bo'lim tashriflarini qo'lda sanash</h3>
+        <p class="small muted" style="margin-top:0">1–3 ta bo'limni tanlang va ularni kuzating (joyida yoki kamera videosi orqali). Bo'limga kirgan har xaridorda shu bo'lim tugmasini bosing — o'tib ketganlarni emas, ichkariga kirib to'xtaganlarni. Kamida 30 daqiqa, 2 marta.</p>
+        <div id="sesSetup"><div id="sesSecs" class="row" style="gap:10px;flex-wrap:wrap"></div>
+          <button class="btn primary sm" style="margin-top:10px" onclick="startSes()">▶ Sinovni boshlash</button></div>
+        <div id="sesRun" class="hidden">
+          <div class="row" style="gap:10px;align-items:center;margin-bottom:10px"><b id="sesTimer" style="font-size:22px;font-variant-numeric:tabular-nums">0:00</b><span class="muted small" id="sesN"></span>
+            <div style="flex:1"></div><button class="btn sm" onclick="undoTap()">↶ Bekor</button><button class="btn sm danger" onclick="stopSes()">■ Tugatish</button></div>
+          <div class="tapgrid" id="tapgrid"></div>
+        </div>
+        <div class="table-wrap" style="margin-top:12px"><table class="stbl"><thead><tr><th>Boshlandi</th><th>Davomi</th><th>Qo'lda / avto</th><th>Aniqlik</th><th>Juftlash</th><th>Holat</th><th></th></tr></thead><tbody id="gses"></tbody></table></div>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script src="/static/plan.js?v={{ version }}"></script>
+<script>
+const cv = document.getElementById("cv"), ctx = cv.getContext("2d");
+const state = { plan: null, period: "today", kind: "occ" };
+let sum = null, heat = null, heatOc = null, img = null, imgUrl = null, live = [], gate = null, pick = null, picking = false, ses = null, sesTimer = null;
+const store = { get(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }, set(k, v) { try { localStorage.setItem(k, v); } catch (e) { /* jim */ } } };
+state.period = store.get("oqim_period") || "today"; state.kind = store.get("oqim_kind") || "occ";
+
+async function loadAll() {
+  const q = state.plan ? `plan_id=${state.plan}&` : "";
+  sum = await H.api(`/api/flow/summary?${q}period=${state.period}`);
+  document.getElementById("no-hook").classList.toggle("hidden", sum.hook_ok !== false);
+  document.getElementById("no-plan").classList.toggle("hidden", !!sum.plan);
+  document.getElementById("main").classList.toggle("hidden", !sum.plan);
+  if (!sum.plan) return;
+  state.plan = sum.plan.id;
+  document.getElementById("planSel").innerHTML = sum.plans.map((p) => `<option value="${p.id}" ${p.id === state.plan ? "selected" : ""}>${H.esc(p.name)}</option>`).join("");
+  document.getElementById("perSeg").innerHTML = sum.periods.map(([k, v]) => `<button data-p="${k}" class="${k === state.period ? "on" : ""}">${v}</button>`).join("");
+  document.getElementById("no-cam").classList.toggle("hidden", sum.plan.cams.some((c) => c.active));
+  if (imgUrl !== sum.plan.img_url) { img = await P.loadImg(sum.plan.img_url); imgUrl = sum.plan.img_url; cv.width = img.naturalWidth; cv.height = img.naturalHeight; }
+  heat = await H.api(`/api/flow/heat?plan_id=${state.plan}&period=${state.period}&kind=${state.kind}`);
+  heatOc = P.heatCanvas(heat);
+  renderKpis(); renderTables(); renderSeries(); draw();
+  loadGate();
+}
+document.getElementById("perSeg").addEventListener("click", (e) => { const b = e.target.closest("button"); if (!b) return; state.period = b.dataset.p; store.set("oqim_period", state.period); loadAll(); });
+document.getElementById("kindSeg").addEventListener("click", (e) => { const b = e.target.closest("button"); if (!b) return; state.kind = b.dataset.k; store.set("oqim_kind", state.kind); setKindUI(); loadAll(); });
+function setKindUI() { document.querySelectorAll("#kindSeg button").forEach((b) => b.classList.toggle("on", b.dataset.k === state.kind)); }
+setKindUI();
+
+function draw() {
+  ctx.clearRect(0, 0, cv.width, cv.height);
+  if (!sum || !sum.plan) return;
+  const mpp = sum.plan.m_per_px;
+  if (img) { ctx.globalAlpha = 0.55; ctx.drawImage(img, 0, 0); ctx.globalAlpha = 1; }
+  if (heat && heat.max > 0) P.heat(ctx, heat, mpp, heatOc);
+  if (document.getElementById("tSecs").checked) {
+    const vis = {}; for (const s of sum.visits.sections) vis[s.id] = s.visits;
+    P.sections(ctx, cv, sum.plan.sections.filter((s) => s.enabled), { fill: 0.04, text: (z) => `${z.name}: ${vis[z.id] || 0}` });
+  }
+  if (document.getElementById("tArrows").checked && heat) P.arrows(ctx, cv, heat.arrows || [], mpp);
+  if (document.getElementById("tLive").checked) for (const p of live) P.dot(ctx, cv, p.px, p.py, p.est ? "#f97316" : "#dc2626", 7);
+  if (pick) P.dot(ctx, cv, pick[0], pick[1], "#7c3aed", 9, "#fff");
+  if (picking) { ctx.fillStyle = "rgba(124,58,237,.08)"; ctx.fillRect(0, 0, cv.width, cv.height); }
+}
+function fmtN(v) { return (v || 0).toLocaleString("uz"); }
+function renderKpis() {
+  const v = sum.visits, top = v.sections.find((s) => s.visits > 0);
+  document.getElementById("k-tot").textContent = fmtN(v.total);
+  const d = v.total - (sum.prev_total || 0);
+  document.getElementById("k-prev").textContent = state.period === "today" ? `kecha shu vaqtgacha: ${fmtN(sum.prev_total)}` : `oldingi davr: ${fmtN(sum.prev_total)} (${d >= 0 ? "+" : ""}${d})`;
+  document.getElementById("k-top").textContent = top ? top.name : "—";
+  document.getElementById("k-top-sub").textContent = top ? `${top.visits} tashrif · ${Math.round(top.share * 100)}%` : "";
+  const mv = v.moves[0];
+  document.getElementById("k-mv").textContent = mv ? `${mv.from_name} → ${mv.to_name}` : "—";
+  document.getElementById("k-mv-sub").textContent = mv ? `${mv.n} kishi` : "";
+  const act = sum.plan.cams.filter((c) => c.active).length;
+  document.getElementById("k-cam").textContent = `${act}`;
+  document.getElementById("k-cam-sub").textContent = `rejaga bog'langan · hozir ishlayapti: ${sum.live_cams.length}`;
+  document.getElementById("hinfo").textContent = heat ? (heat.obs ? `kuzatildi: ${H.fmtDur(heat.obs)}` : "ma'lumot yo'q") : "";
+  document.getElementById("hunit").textContent = heat ? `(${heat.unit}, eng ko'pi ${heat.max})` : "";
+}
+function renderTables() {
+  const v = sum.visits, mx = Math.max(1, ...v.sections.map((s) => s.visits));
+  document.getElementById("stbl").innerHTML = v.sections.map((s) => `<tr><td><span class="ssw" style="display:inline-block;width:10px;height:10px;border-radius:3px;background:${s.color};margin-right:6px"></span><b>${H.esc(s.name)}</b>${s.active ? "" : " <span class='muted small'>(o'chirilgan)</span>"}</td>
+    <td><b>${s.visits}</b></td><td><div class="sbar"><i style="width:${s.visits / mx * 100}%;background:${s.color}"></i></div></td>
+    <td>${s.prev}</td><td>${s.coverage === null ? "—" : (s.coverage === 0 ? "<span style='color:#b42318'>yo'q</span>" : Math.round(s.coverage * 100) + "%")}</td></tr>`).join("")
+    || `<tr><td colspan="5" class="muted">Bo'limlar chizilmagan — <a href="/oqim/sozlash">Reja va kameralar</a>.</td></tr>`;
+  document.getElementById("moves").innerHTML = v.moves.slice(0, 12).map((m) => `<div class="mv">${H.esc(m.from_name)} <span class="muted">→</span> <b>${H.esc(m.to_name)}</b><span class="n">${m.n}</span></div>`).join("")
+    || `<div class="muted small">Hali yo'nalish yo'q.</div>`;
+}
+function renderSeries() {
+  const secs = sum.plan.sections, n = sum.n_slots, slot = sum.slot;
+  const labels = [...Array(n)].map((_, i) => slot === 3600 ? String(i).padStart(2, "0") : new Date((sum.t0 + i * 86400 + 43200) * 1000).toLocaleDateString("uz", { day: "2-digit", month: "2-digit" }));
+  const series = secs.map((s) => ({ name: s.name, color: s.color, values: [...Array(n)].map(() => 0) }));
+  const idx = {}; secs.forEach((s, i) => { idx[s.id] = i; });
+  for (const b of sum.series) { const k = Math.round((b.t - sum.t0) / slot); if (k < 0 || k >= n) continue; for (const [sid, c] of Object.entries(b.by)) if (idx[sid] !== undefined) series[idx[sid]].values[k] += c; }
+  document.getElementById("ser-h").textContent = slot === 3600 ? "Tashriflar soatlar bo'yicha" : "Tashriflar kunlar bo'yicha";
+  H.bars(document.getElementById("ch-ser"), labels, series, { height: 220, maxLabels: slot === 3600 ? 12 : 15 });
+  document.getElementById("ser-leg").innerHTML = secs.map((s) => `<span><span style="display:inline-block;width:10px;height:10px;border-radius:3px;background:${s.color}"></span> ${H.esc(s.name)}</span>`).join("");
+}
+async function pollLive() {
+  try {
+    if (state.plan && !document.hidden) {
+      const r = await fetch(`/api/flow/live?plan_id=${state.plan}`, { headers: { Accept: "application/json" } });
+      if (r.ok) { live = (await r.json()).people; draw(); }
+    }
+  } catch (e) { /* jim */ }
+  setTimeout(pollLive, 1500);
+}
+// ---------------------------------------------------------------- darvoza
+const pct = (v) => (v === null || v === undefined) ? "—" : Math.round(v * 100) + "%";
+function gs(ok, enough) { return ok ? `<span class="gstat ok">o'tdi</span>` : (enough ? `<span class="gstat no">o'tmadi</span>` : `<span class="gstat wait">ma'lumot kam</span>`); }
+async function loadGate() {
+  gate = await H.api("/api/flow/gate");
+  const R = gate.rules;
+  document.getElementById("g-rules").innerHTML = `Reja: <b>belgilangan nuqtalarda xato ≤ ${R.point_max_err} m</b> (har kamerada ≥ ${R.point_min} o'lchov, ≥ ${R.point_spots} joyda, 90% o'lchov shu chegarada) va <b>bo'lim tashriflari qo'lda sanashga mos</b> (oxirgi ${R.visit_sessions} ta ≥ ${R.visit_min_min} daqiqalik sinov: son aniqligi ≥ ${pct(R.visit_acc)}, juftlash ±${R.match_tol} s ≥ ${pct(R.visit_match)}, jami ≥ ${R.visit_min_manual} bosish).`;
+  document.getElementById("g-all").innerHTML = gate.ok ? `<span class="gstat ok">Darvoza o'tdi</span>` : `<span class="gstat wait">Darvoza hali o'tmagan</span>`;
+  const cams = gate.cams.filter((c) => c.plan_id === state.plan);
+  const sel = document.getElementById("ptCam"), cur = sel.value;
+  sel.innerHTML = cams.map((c) => `<option value="${c.source_id}">${H.esc(c.source_name)}</option>`).join("") || `<option value="">kalibrlangan kamera yo'q</option>`;
+  if (cur && cams.some((c) => String(c.source_id) === cur)) sel.value = cur;
+  document.getElementById("gcams").innerHTML = cams.map((c) => `<tr><td>${H.esc(c.source_name)}</td><td>${c.n} / ${R.point_min}</td><td>${c.spots} / ${R.point_spots}</td>
+    <td>${c.p90 === null ? "—" : P.m(c.p90)}</td><td>${gs(c.ok, c.enough)}</td></tr>`).join("") || `<tr><td colspan="5" class="muted">Kamera kalibrlanmagan.</td></tr>`;
+  document.getElementById("gpts").innerHTML = gate.points.map((p) => `<tr><td>${new Date(p.t * 1000).toLocaleString("uz")}</td><td>${H.esc(p.source_name || "")}</td>
+    <td>${p.x.toFixed(2)}, ${p.y.toFixed(2)}</td><td>${p.mx.toFixed(2)}, ${p.my.toFixed(2)}</td><td><b>${P.m(p.err)}</b></td>
+    <td><button class="btn sm ghost" onclick="delPoint(${p.id})">✕</button></td></tr>`).join("") || `<tr><td colspan="6" class="muted">O'lchov yo'q.</td></tr>`;
+  const secs = sum.plan.sections.filter((s) => s.enabled);
+  const running = gate.sessions.find((s) => !s.ended_at);
+  if (document.getElementById("sesSecs").dataset.done !== String(state.plan)) {
+    document.getElementById("sesSecs").innerHTML = secs.map((s) => `<label class="switch small"><input type="checkbox" value="${s.id}"> ${H.esc(s.name)}</label>`).join("") || `<span class="muted small">Bo'lim yo'q.</span>`;
+    document.getElementById("sesSecs").dataset.done = String(state.plan);
+  }
+  if (running && (!ses || ses.id !== running.id)) { ses = running; showRun(); }
+  document.getElementById("gses").innerHTML = gate.sessions.map((s) => `<tr><td>${new Date(s.started_at * 1000).toLocaleString("uz")}</td><td>${H.fmtDur(s.duration)}${s.ended_at ? "" : " ⏺"}</td>
+    <td>${s.manual} / ${s.auto}</td><td>${pct(s.accuracy)}</td><td>${pct(s.match_rate)}</td><td>${s.ended_at ? (s.gate_ok ? `<span class="gstat ok">mos</span>` : (s.duration < R.visit_min_min * 60 ? `<span class="gstat wait">qisqa</span>` : `<span class="gstat no">mos emas</span>`)) : ""}</td>
+    <td>${s.ended_at ? `<button class="btn sm ghost" onclick="delSes(${s.id})">✕</button>` : ""}</td></tr>`).join("") || `<tr><td colspan="7" class="muted">Sinov yo'q.</td></tr>`;
+}
+function pickMode() { picking = true; cv.classList.add("pick"); document.getElementById("ptRes").textContent = "Rejada polga qo'yilgan belgining joyini bosing."; cv.scrollIntoView({ behavior: "smooth", block: "center" }); draw(); }
+cv.addEventListener("pointerdown", (e) => {
+  if (!picking) return;
+  pick = P.evPt(cv, e); picking = false; cv.classList.remove("pick");
+  document.getElementById("btnMeasure").disabled = !document.getElementById("ptCam").value;
+  const m = sum.plan.m_per_px;
+  document.getElementById("ptRes").innerHTML = `Belgi: <b>${(pick[0] * m).toFixed(2)}, ${(pick[1] * m).toFixed(2)} m</b>. Odam belgida tursin → <b>O'lchash</b>.`;
+  document.getElementById("gate-card").scrollIntoView({ behavior: "smooth" });
+  draw();
+});
+async function measure() {
+  const sid = document.getElementById("ptCam").value;
+  if (!pick || !sid) return;
+  const b = document.getElementById("btnMeasure"); b.disabled = true; b.textContent = "O'lchanmoqda…";
+  try {
+    const r = await H.post("/api/flow/points", { source_id: +sid, px: pick[0], py: pick[1] });
+    document.getElementById("ptRes").innerHTML = `Xato: <b style="color:${r.err <= 0.5 ? "#15803d" : "#b42318"}">${P.m(r.err)}</b> (${r.n} ta o'lchov). ${r.warnings.map(H.esc).join(" ")}`;
+    await loadGate();
+  } catch (e) { /* xabar ko'rsatildi */ } finally { b.disabled = false; b.textContent = "O'lchash (3 s)"; }
+}
+async function delPoint(id) { if (!confirm("O'lchov o'chirilsinmi?")) return; await H.post(`/api/flow/points/${id}/delete`); loadGate(); }
+async function startSes() {
+  const secs = [...document.querySelectorAll("#sesSecs input:checked")].map((x) => +x.value);
+  if (!secs.length) { H.toast("Kamida bitta bo'limni tanlang", "alert"); return; }
+  const r = await H.post("/api/flow/sessions", { plan_id: state.plan, sections: secs });
+  if (r && r.ok) { ses = r.session; showRun(); loadGate(); }
+}
+function showRun() {
+  document.getElementById("sesSetup").classList.add("hidden");
+  document.getElementById("sesRun").classList.remove("hidden");
+  const byId = {}; for (const s of sum.plan.sections) byId[s.id] = s;
+  document.getElementById("tapgrid").innerHTML = ses.section_ids.map((id) => `<button class="btn" style="background:${(byId[id] || {}).color || "#2563eb"}" onclick="tap(${id})">+1<small>${H.esc((byId[id] || {}).name || "#" + id)} · <span id="tc-${id}">${(ses.sections.find((x) => x.id === id) || {}).manual || 0}</span></small></button>`).join("");
+  clearInterval(sesTimer);
+  sesTimer = setInterval(() => { const d = Math.max(0, Date.now() / 1000 - ses.started_at); document.getElementById("sesTimer").textContent = `${Math.floor(d / 60)}:${String(Math.floor(d % 60)).padStart(2, "0")}`; }, 500);
+}
+function showCounts(r) { for (const id of ses.section_ids) { const el = document.getElementById("tc-" + id); if (el) el.textContent = r.counts[String(id)] || 0; } document.getElementById("sesN").textContent = `jami ${r.n}`; }
+async function tap(id) { const r = await H.post(`/api/flow/sessions/${ses.id}/tap`, { section_id: id }); if (r) { showCounts(r); if (navigator.vibrate) navigator.vibrate(30); } }
+async function undoTap() { const r = await H.post(`/api/flow/sessions/${ses.id}/undo`); if (r) showCounts(r); }
+async function stopSes() {
+  if (!confirm("Sinov tugatilsinmi?")) return;
+  await H.post(`/api/flow/sessions/${ses.id}/stop`);
+  clearInterval(sesTimer); ses = null;
+  document.getElementById("sesSetup").classList.remove("hidden"); document.getElementById("sesRun").classList.add("hidden");
+  loadGate();
+}
+async function delSes(id) { if (!confirm("Sinov o'chirilsinmi?")) return; await H.post(`/api/flow/sessions/${id}/delete`); loadGate(); }
+window.addEventListener("resize", draw);
+loadAll().then(pollLive);
+setInterval(() => { if (!document.hidden && !ses && !picking) loadAll(); }, 60000);
+</script>
+{% endblock %}

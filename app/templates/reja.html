@@ -1,0 +1,311 @@
+{% extends "base.html" %}
+{% from "_icons.html" import icon %}
+{% block subtitle %}<div class="muted small"><a href="/oqim">← Oqim</a> · Do'kon rejasi, bo'limlar va kameralarni rejaga bog'lash (kalibrlash)</div>{% endblock %}
+{% block content %}
+<style>
+  .pwrap { position: relative; background: #f1f5f9; border-radius: 10px; overflow: hidden; touch-action: none; border: 1px solid var(--line); }
+  .pwrap canvas { display: block; width: 100%; height: auto; }
+  .pwrap canvas.draw { cursor: crosshair; }
+  .ptool { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 10px; }
+  .phint { font-size: 12.5px; color: var(--muted); min-height: 18px; margin-top: 8px; }
+  .slist .si { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 9px; margin-bottom: 6px; cursor: pointer; }
+  .slist .si.sel { border-color: var(--brand); box-shadow: 0 0 0 2px rgba(37, 99, 235, .15); }
+  .slist .si.off { opacity: .55; }
+  .ssw { width: 12px; height: 12px; border-radius: 3px; flex: none; }
+  .colors { display: flex; gap: 6px; flex-wrap: wrap; }
+  .colors button { width: 22px; height: 22px; border-radius: 6px; border: 2px solid transparent; padding: 0; cursor: pointer; }
+  .colors button.on { border-color: #0f172a; }
+  .cams td, .cams th { padding: 7px 8px; font-size: 13px; }
+  .scale-box { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .scale-box input { width: 110px; }
+</style>
+
+<div id="no-plan" class="card card-b hidden" style="max-width:860px">
+  <h2 style="margin-top:0">1. Do'kon rejasi</h2>
+  <p class="muted">Reja — do'konning yuqoridan ko'rinishi. Uni ikki usulda kiritish mumkin:</p>
+  <div class="grid g2">
+    <div>
+      <h3>Chizma yoki rasm bor</h3>
+      <p class="small muted">Qurilish chizmasi, qo'lda chizilgan reja (telefon bilan rasmga olingan) yoki Excel/Paint'da chizilgan — PNG yoki JPG. Keyin rejada ikki nuqtani (masalan, devorning ikki uchi) bosib, oradagi masofani metrda yozasiz.</p>
+      <div class="field"><label class="f">Nomi</label><input type="text" id="upName" maxlength="60" value="Do'kon rejasi"></div>
+      <div class="field"><input type="file" id="upFile" accept="image/png,image/jpeg"></div>
+      <button class="btn primary" onclick="upload()">{{ icon('upload', 14) }} Yuklash</button>
+    </div>
+    <div>
+      <h3>Rasm yo'q</h3>
+      <p class="small muted">Do'kon eni va bo'yini (ruletka bilan) o'lchang — tizim 1 metrlik katakli bo'sh reja yaratadi. Polkalar o'rnini bo'limlar bilan chizasiz.</p>
+      <div class="row" style="gap:10px">
+        <div class="field" style="flex:1"><label class="f">Eni (m)</label><input type="number" id="blW" min="2" max="150" step="0.1" value="20"></div>
+        <div class="field" style="flex:1"><label class="f">Bo'yi (m)</label><input type="number" id="blH" min="2" max="150" step="0.1" value="15"></div>
+      </div>
+      <button class="btn" onclick="blank()">{{ icon('plus', 14) }} Bo'sh reja yaratish</button>
+    </div>
+  </div>
+</div>
+
+<div id="main" class="hidden">
+<div class="grid g3">
+  <div class="card span2">
+    <div class="card-b">
+      <div class="ptool">
+        <select id="planSel" onchange="pickPlan(+this.value)" style="width:auto"></select>
+        <button class="btn primary sm" id="btnDraw" onclick="startDraw()">{{ icon('plus', 14) }} Bo'lim chizish</button>
+        <button class="btn sm hidden" id="btnFinish" onclick="finishDraw()">✓ Tugatish (Enter)</button>
+        <button class="btn sm ghost hidden" id="btnCancel" onclick="cancelMode()">Bekor (Esc)</button>
+        <button class="btn sm" id="btnScale" onclick="startScale()">📏 Masshtab</button>
+        <div style="flex:1"></div>
+        <span class="muted small" id="dims"></span>
+      </div>
+      <div class="scale-box hidden" id="scaleBox" style="margin-bottom:10px">
+        <span class="small">Ikki nuqta orasidagi haqiqiy masofa:</span>
+        <input type="number" id="scaleM" min="0.2" step="0.01" placeholder="metr">
+        <button class="btn primary sm" onclick="saveScale()">Saqlash</button>
+        <button class="btn sm ghost" onclick="cancelMode()">Bekor</button>
+      </div>
+      <div class="pwrap"><canvas id="cv" width="1200" height="800"></canvas></div>
+      <div class="phint" id="hint"></div>
+    </div>
+  </div>
+  <div>
+    <div class="card">
+      <div class="card-h"><h2>Bo'limlar</h2><div class="grow"></div><span class="muted small" id="scount"></span></div>
+      <div class="card-b">
+        <div class="slist" id="slist"></div>
+        <div id="editor" class="hidden" style="margin-top:12px;border-top:1px solid var(--line);padding-top:12px">
+          <div class="field"><label class="f">Nomi</label><input type="text" id="sName" maxlength="60" oninput="dirty()"></div>
+          <div class="field"><label class="f">Rangi</label><div class="colors" id="sColors"></div></div>
+          <div class="field"><label class="switch"><input type="checkbox" id="sOn" onchange="dirty()"> Yoqilgan</label></div>
+          <div class="hint" id="sInfo"></div>
+          <div class="row" style="margin-top:8px">
+            <button class="btn primary" id="btnSave" onclick="saveSel()" disabled>{{ icon('check', 14) }} Saqlash</button>
+            <button class="btn danger" onclick="delSel()">O'chirish</button>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card" style="margin-top:16px">
+      <div class="card-h"><h2>Reja</h2></div>
+      <div class="card-b">
+        <div class="field"><label class="f">Nomi</label><div class="row" style="gap:8px"><input type="text" id="pName" maxlength="60"><button class="btn sm" onclick="renamePlan()">Saqlash</button></div></div>
+        <div class="small muted" id="pInfo"></div>
+        <div class="row" style="margin-top:10px;gap:8px;flex-wrap:wrap">
+          <button class="btn sm" onclick="document.getElementById('no-plan').classList.toggle('hidden')">{{ icon('plus', 14) }} Yana reja</button>
+          <button class="btn sm danger" onclick="delPlan()">Rejani o'chirish</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="card" style="margin-top:16px">
+  <div class="card-h"><h2>2. Kameralarni rejaga bog'lash</h2></div>
+  <div class="card-b">
+    <p class="small muted" style="margin-top:0">Har kamera uchun: kadrdagi <b>pol sathidagi</b> nuqtani bosasiz (plitka burchagi, polka oyog'i, eshik ostonasi burchagi), keyin rejadagi o'sha joyni. Kamida 6 ta, yaxshisi 8–12 ta juft — kadrning hamma qismidan. Keng burchakli kamerada (chetlarda chiziqlar egilgan) ko'proq nuqta qo'ying.</p>
+    <div class="table-wrap"><table class="cams"><thead><tr><th>Kamera</th><th>Reja</th><th>Nuqtalar</th><th>LOO xato</th><th>Holat</th><th></th></tr></thead><tbody id="cams"></tbody></table></div>
+  </div>
+</div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script src="/static/plan.js?v={{ version }}"></script>
+<script>
+const SOURCES = {{ sources | tojson }};
+const cv = document.getElementById("cv"), ctx = cv.getContext("2d");
+let plans = [], plan = null, img = null, palette = [], sel = null, mode = null, drawing = null, hover = null, drag = null, isDirty = false, scalePts = [];
+
+async function load(keepPlan, keepSec) {
+  const r = await H.api("/api/flow/plans");
+  plans = r.plans; palette = r.palette;
+  document.getElementById("no-plan").classList.toggle("hidden", plans.length > 0);
+  document.getElementById("main").classList.toggle("hidden", !plans.length);
+  if (!plans.length) return;
+  const ps = document.getElementById("planSel");
+  ps.innerHTML = plans.map((p) => `<option value="${p.id}">${H.esc(p.name)}</option>`).join("");
+  const pid = keepPlan && plans.find((p) => p.id === keepPlan) ? keepPlan : plans[0].id;
+  ps.value = pid;
+  await pickPlan(pid, keepSec);
+}
+async function pickPlan(pid, keepSec) {
+  const p = plans.find((x) => x.id === pid);
+  const changed = !plan || plan.id !== pid || plan.img_url !== p.img_url;
+  plan = p;
+  if (changed) { img = await P.loadImg(p.img_url); cv.width = img.naturalWidth; cv.height = img.naturalHeight; }
+  sel = keepSec ? plan.sections.find((s) => s.id === keepSec) || null : null;
+  isDirty = false;
+  document.getElementById("pName").value = plan.name;
+  document.getElementById("dims").textContent = `${plan.w_m} × ${plan.h_m} m`;
+  document.getElementById("pInfo").innerHTML = `O'lcham: <b>${plan.w_m} × ${plan.h_m} m</b> · 1 m = ${(1 / plan.m_per_px).toFixed(1)} piksel` +
+    (plan.blank ? " · rasmsiz reja" : `<br>${plan.cams.length ? "" : "Masshtab to'g'riligini tekshiring: <b>📏 Masshtab</b> → rejada uzunligi ma'lum ikki nuqta."}`);
+  renderList(); fillEditor(); renderCams(); setHint(); draw();
+}
+function draw() {
+  ctx.clearRect(0, 0, cv.width, cv.height);
+  if (img) ctx.drawImage(img, 0, 0);
+  if (!plan) return;
+  P.sections(ctx, cv, plan.sections.map((s) => s === sel ? { ...s, name: document.getElementById("sName").value, color: selColor || s.color, enabled: document.getElementById("sOn").checked ? 1 : 0 } : s), { sel });
+  const s = P.k(cv);
+  if (drawing) {
+    const col = palette[plan.sections.length % palette.length];
+    P.path(ctx, drawing.concat(hover ? [hover] : []), false); ctx.lineWidth = 2 * s; ctx.strokeStyle = col; ctx.stroke();
+    drawing.forEach((p, i) => P.dot(ctx, cv, p[0], p[1], i === 0 ? col : "#fff", i === 0 ? 6 : 4, col));
+  }
+  if (mode === "scale") {
+    const pts = scalePts.concat(hover && scalePts.length === 1 ? [hover] : []);
+    if (pts.length === 2) { ctx.lineWidth = 3 * s; ctx.strokeStyle = "#dc2626"; P.path(ctx, pts, false); ctx.stroke();
+      const d = Math.hypot(pts[1][0] - pts[0][0], pts[1][1] - pts[0][1]);
+      P.num(ctx, cv, (pts[0][0] + pts[1][0]) / 2, (pts[0][1] + pts[1][1]) / 2, `${(d * plan.m_per_px).toFixed(2)} m (hozirgi masshtab)`, "#fff"); }
+    pts.forEach((p) => P.dot(ctx, cv, p[0], p[1], "#dc2626", 5));
+  }
+}
+let selColor = null;
+function setHint(msg) {
+  document.getElementById("hint").textContent = msg || (mode === "scale"
+    ? `Masshtab: uzunligi ma'lum ikki nuqtani bosing (${scalePts.length}/2) — masalan, devorning ikki burchagi. Keyin masofani metrda yozing.`
+    : drawing ? `Bo'lim burchaklarini bosing (${drawing.length} ta). Yopish: birinchi nuqta, ikki marta bosish yoki Enter. Backspace — oxirgi nuqta.`
+    : "Bo'limni tanlash uchun ustiga bosing; burchakni sudrab o'zgartiring, Alt+bosish — burchakni o'chirish.");
+}
+function toggleUI(on) {
+  document.getElementById("btnDraw").classList.toggle("hidden", on);
+  document.getElementById("btnScale").classList.toggle("hidden", on);
+  document.getElementById("btnFinish").classList.toggle("hidden", !(on && mode === "draw"));
+  document.getElementById("btnCancel").classList.toggle("hidden", !on);
+  document.getElementById("scaleBox").classList.toggle("hidden", !(mode === "scale" && scalePts.length === 2));
+  cv.classList.toggle("draw", on);
+}
+function startDraw() { discardThen(() => { select(null); mode = "draw"; drawing = []; toggleUI(true); setHint(); draw(); }); }
+function startScale() { discardThen(() => { select(null); mode = "scale"; scalePts = []; toggleUI(true); setHint(); draw(); }); }
+function cancelMode() { mode = null; drawing = null; scalePts = []; toggleUI(false); setHint(); draw(); }
+async function finishDraw() {
+  if (!drawing || drawing.length < 3) { H.toast("Kamida 3 ta burchak kerak", "alert"); return; }
+  const n = plan.sections.length + 1;
+  const body = { points: drawing, name: `Bo'lim ${n}`, color: palette[(n - 1) % palette.length], enabled: 1 };
+  cancelMode();
+  const r = await H.post(`/api/flow/plans/${plan.id}/sections`, body);
+  if (r && r.ok) { H.toast("Bo'lim saqlandi — nomini yozing", "ok"); await load(plan.id, r.section.id); document.getElementById("sName").select(); }
+}
+async function saveScale() {
+  const meters = parseFloat(document.getElementById("scaleM").value.replace(",", "."));
+  if (!(meters > 0)) { H.toast("Masofani metrda kiriting", "alert"); return; }
+  const r = await H.post(`/api/flow/plans/${plan.id}`, { scale: { p1: scalePts[0], p2: scalePts[1], meters } });
+  if (r && r.ok) { H.toast(`Masshtab saqlandi: reja ${r.plan.w_m} × ${r.plan.h_m} m`, "ok"); cancelMode(); await load(plan.id); }
+}
+cv.addEventListener("pointerdown", (e) => {
+  if (!plan) return;
+  const pt = P.evPt(cv, e), s = P.k(cv);
+  if (mode === "scale") {
+    if (scalePts.length >= 2) scalePts = [];
+    scalePts.push(pt); toggleUI(true); setHint(); draw();
+    if (scalePts.length === 2) document.getElementById("scaleM").focus();
+    return;
+  }
+  if (mode === "draw") {
+    if (drawing.length >= 3 && Math.hypot(pt[0] - drawing[0][0], pt[1] - drawing[0][1]) < 14 * s) return finishDraw();
+    drawing.push(pt); setHint(); draw(); return;
+  }
+  if (sel) {
+    const i = sel.points.findIndex((p) => Math.hypot(p[0] - pt[0], p[1] - pt[1]) < 12 * s);
+    if (i >= 0) {
+      if (e.altKey || e.button === 2) { if (sel.points.length > 3) { sel.points.splice(i, 1); dirty(); draw(); } return; }
+      drag = i; cv.setPointerCapture(e.pointerId); return;
+    }
+  }
+  const hit = [...plan.sections].reverse().find((z) => P.inside(pt, z.points));
+  if (hit !== sel) discardThen(() => select(hit || null), hit);
+});
+cv.addEventListener("pointermove", (e) => {
+  const pt = P.evPt(cv, e);
+  if (drag !== null && sel) { sel.points[drag] = pt; dirty(); draw(); }
+  else if (mode) { hover = pt; draw(); }
+});
+cv.addEventListener("pointerup", () => { drag = null; });
+cv.addEventListener("contextmenu", (e) => e.preventDefault());
+cv.addEventListener("dblclick", () => { if (mode === "draw" && drawing.length >= 3) finishDraw(); });
+document.addEventListener("keydown", (e) => {
+  if (!mode || ["INPUT", "TEXTAREA"].includes(document.activeElement.tagName)) return;
+  if (e.key === "Enter" && mode === "draw") finishDraw();
+  else if (e.key === "Escape") cancelMode();
+  else if (e.key === "Backspace" && mode === "draw") { e.preventDefault(); drawing.pop(); setHint(); draw(); }
+});
+async function discardThen(fn, target) {
+  if (!isDirty) return fn();
+  if (!confirm("Saqlanmagan o'zgarishlar bor. Bekor qilinsinmi?")) return;
+  const id = target ? target.id : null;
+  await load(plan.id);
+  const t = id ? plan.sections.find((z) => z.id === id) : null;
+  if (target === undefined) fn(); else select(t || null);
+}
+function select(z) { sel = z; selColor = z ? z.color : null; isDirty = false; renderList(); fillEditor(); draw(); }
+function dirty() { isDirty = true; document.getElementById("btnSave").disabled = false; draw(); }
+function fillEditor() {
+  document.getElementById("editor").classList.toggle("hidden", !sel);
+  if (!sel) return;
+  document.getElementById("sName").value = sel.name;
+  document.getElementById("sOn").checked = !!sel.enabled;
+  selColor = sel.color;
+  renderColors();
+  const cov = sel.coverage === null || sel.coverage === undefined ? "kamera kalibrlanmagan" :
+    (sel.coverage > 0 ? `kameralar ko'radi: ${Math.round(sel.coverage * 100)}%` + (sel.owner ? ` (hisoblovchi: ${H.esc((SOURCES.find((s) => s.id === sel.owner) || {}).name || "#" + sel.owner)})` : "") : "hech bir kamera ko'rmaydi");
+  document.getElementById("sInfo").innerHTML = `Yuzasi: ${sel.area_m2} m² · ${cov}`;
+  document.getElementById("btnSave").disabled = true;
+}
+function renderColors() {
+  document.getElementById("sColors").innerHTML = palette.map((c) => `<button type="button" class="${c === selColor ? "on" : ""}" style="background:${c}" onclick="selColor='${c}';renderColors();dirty()"></button>`).join("");
+}
+async function saveSel() {
+  if (!sel) return;
+  const r = await H.post(`/api/flow/plans/${plan.id}/sections`, { id: sel.id, name: document.getElementById("sName").value,
+    color: selColor, enabled: document.getElementById("sOn").checked ? 1 : 0, points: sel.points });
+  if (r && r.ok) { H.toast("Saqlandi", "ok"); await load(plan.id, sel.id); }
+}
+async function delSel() {
+  if (!sel || !confirm(`"${sel.name}" bo'limi o'chirilsinmi? (Eski tashriflar hisobotda qoladi)`)) return;
+  const r = await H.post(`/api/flow/sections/${sel.id}/delete`);
+  if (r && r.ok) { H.toast("O'chirildi", "ok"); await load(plan.id); }
+}
+function renderList() {
+  document.getElementById("scount").textContent = plan.sections.length ? `${plan.sections.length} ta` : "";
+  document.getElementById("slist").innerHTML = plan.sections.length ? plan.sections.map((z, i) => `
+    <div class="si ${z === sel ? "sel" : ""} ${z.enabled ? "" : "off"}" onclick="pick(${i})">
+      <span class="ssw" style="background:${z.color}"></span>
+      <div style="flex:1;min-width:0"><b>${H.esc(z.name)}</b><div class="muted small">${z.area_m2} m²${z.coverage === 0 ? " · <span style='color:#b42318'>kamera ko'rmaydi</span>" : (z.coverage ? ` · ko'rinadi ${Math.round(z.coverage * 100)}%` : "")}${z.enabled ? "" : " · o'chiq"}</div></div>
+    </div>`).join("") : `<div class="muted small">Hali bo'lim yo'q. <b>"Bo'lim chizish"</b> ni bosib, rejada bo'lim burchaklarini belgilang (masalan, "Sut mahsulotlari" polkalari oldidagi yo'lak bilan birga — odam turadigan joy).</div>`;
+}
+function pick(i) { const z = plan.sections[i]; if (z === sel) return; discardThen(() => select(z), z); }
+function renderCams() {
+  const by = {}; for (const p of plans) for (const c of p.cams) by[c.source_id] = { ...c, plan: p };
+  document.getElementById("cams").innerHTML = SOURCES.map((s) => {
+    const c = by[s.id], st = c ? c.stats || {} : null;
+    const err = st && st.loo_rms !== null && st.loo_rms !== undefined ? st.loo_rms : (st ? st.check_rms : null);
+    const tone = err === null || err === undefined ? "" : (err <= 0.3 ? "color:#15803d" : err <= 0.5 ? "color:#a16207" : "color:#b42318");
+    return `<tr><td><b>${H.esc(s.name)}</b></td><td>${c ? H.esc(c.plan.name) : "—"}</td>
+      <td>${st ? `${st.n || 0}${st.n_check ? ` + ${st.n_check} tekshiruv` : ""}` : "—"}</td>
+      <td style="${tone}">${err === null || err === undefined ? "—" : P.m(err)}</td>
+      <td>${c ? (c.active ? "<span class='badge tasdiqlangan'>bog'langan</span>" : "<span class='badge'>o'chiq</span>") : "<span class='muted'>bog'lanmagan</span>"}</td>
+      <td><a class="btn sm ${c ? "" : "primary"}" href="/oqim/kamera/${s.id}">${c ? "Tahrirlash" : "Kalibrlash"}</a></td></tr>`;
+  }).join("") || `<tr><td colspan="6" class="muted">Kamera yo'q — avval <a href="/sources">Kameralar</a> bo'limida qo'shing.</td></tr>`;
+}
+async function upload() {
+  const f = document.getElementById("upFile").files[0];
+  if (!f) { H.toast("Rasm faylini tanlang", "alert"); return; }
+  const fd = new FormData(); fd.append("file", f); fd.append("name", document.getElementById("upName").value);
+  const r = await H.api("/api/flow/plans", { method: "POST", body: fd });
+  if (r && r.ok) { H.toast("Reja yuklandi. Endi masshtabni bering: 📏 Masshtab", "ok", 8000); await load(r.plan.id); startScale(); }
+}
+async function blank() {
+  const r = await H.post("/api/flow/plans", { name: document.getElementById("upName").value || "Do'kon rejasi",
+    w_m: document.getElementById("blW").value, h_m: document.getElementById("blH").value });
+  if (r && r.ok) { H.toast("Reja yaratildi", "ok"); await load(r.plan.id); }
+}
+async function renamePlan() {
+  const r = await H.post(`/api/flow/plans/${plan.id}`, { name: document.getElementById("pName").value });
+  if (r && r.ok) { H.toast("Saqlandi", "ok"); await load(plan.id); }
+}
+async function delPlan() {
+  if (!confirm(`"${plan.name}" rejasi, uning bo'limlari va kameralar kalibrlashi o'chirilsinmi?`)) return;
+  const r = await H.post(`/api/flow/plans/${plan.id}/delete`);
+  if (r && r.ok) { H.toast("O'chirildi", "ok"); plan = null; await load(); }
+}
+window.addEventListener("resize", draw);
+load();
+</script>
+{% endblock %}

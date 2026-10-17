@@ -146,6 +146,27 @@ def fmt_time(ts: float | None) -> str:
     return time.strftime("%d.%m.%Y %H:%M:%S", time.gmtime(float(ts) + cfg.tz_offset * 3600))
 
 
+def flow_today_text(b: dict, day0: float) -> str:
+    """2.1.0: filialning bugungi eng ko'p tashrif qilingan 3 bo'limi (edge soatlik oqim yig'indisi)."""
+    try:
+        rows = cdb.flow_rows([b["id"]], day0)
+    except Exception:  # noqa: BLE001
+        return ""
+    plans = {p["id"]: p for p in ((cdb.json_load(b.get("flow_plans")) or {}).get("items") or [])}
+    tot: dict = {}
+    for r in rows:
+        if r["hour"] < day0 - 1:
+            continue
+        names = {str(s_["id"]): s_["name"] for s_ in (plans.get(r["plan_id"]) or {}).get("sections") or []}
+        for k, v in ((cdb.json_load(r["data"]) or {}).get("visits") or {}).items():
+            nm = names.get(k, f"#{k}")
+            tot[nm] = tot.get(nm, 0) + int(v)
+    if not tot:
+        return ""
+    top = sorted(tot.items(), key=lambda kv: -kv[1])[:3]
+    return "bo'limlar: " + ", ".join(f"{esc(k)} {v}" for k, v in top)
+
+
 def fmt_dur(sec: float) -> str:
     sec = max(0, int(sec))
     if sec >= 3600:
@@ -1118,6 +1139,9 @@ class TelegramPoller(threading.Thread):
                         f"{cdb.inside_now(b.get('occupancy'), ain, aout)}") \
                     if vis or cdb.occupancy_fresh(b.get("occupancy")) else ""
                 lines.append(f"{esc(b['name'])}: {tot} ta hodisa, tekshirilmagan {new}{vtxt}")
+                ftxt = flow_today_text(b, day0)              # 2.1.0: eng ko'p tashrif qilingan bo'limlar
+                if ftxt:
+                    lines.append("   " + ftxt)
             self.reply(chat_id, "\n".join(lines))
         elif cmd == "/navbat":
             # 2.0.0: filiallar kassalaridagi navbat (edge hello bilan har daqiqada yuboradi)
@@ -1143,8 +1167,8 @@ class TelegramPoller(threading.Thread):
                 lines.append("Kassa navbati zonasi chizilgan filial yo'q.")
             self.reply(chat_id, "\n".join(lines))
         else:
-            self.reply(chat_id, "Buyruqlar: /holat — do'konlar holati, /bugun — bugungi hodisalar, /navbat — kassalardagi "
-                                "navbat.\nHodisa xabaridagi ✅/❌ tugmalari bilan tekshiring.")
+            self.reply(chat_id, "Buyruqlar: /holat — do'konlar holati, /bugun — bugungi hodisalar (va bo'limlar), /navbat — "
+                                "kassalardagi navbat.\nHodisa xabaridagi ✅/❌ tugmalari bilan tekshiring.")
 
     def on_callback(self, cb: dict) -> None:
         def answer(t: str) -> None:

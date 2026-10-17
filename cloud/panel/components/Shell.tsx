@@ -6,7 +6,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 
 import { api, KIND_UZ, ROLE_UZ, type Me } from "@/lib/api";
 import { beep, emitLive, getPref, unlockAudio, type LiveMsg } from "@/lib/live";
-import { IconBell, IconCart, IconChart, IconDoor, IconExit, IconList, IconPeople, IconShield, IconStore, IconWall } from "./Icons";
+import { IconBell, IconCart, IconChart, IconDoor, IconExit, IconList, IconMap, IconPeople, IconShield, IconStore, IconWall } from "./Icons";
 
 interface Toast {
   id: number;
@@ -38,6 +38,7 @@ const NAV = [
   { href: "/branches/", label: "Filiallar", short: "Filiallar", icon: IconStore },
   { href: "/visits/", label: "Tashriflar", short: "Tashrif", icon: IconDoor },
   { href: "/queues/", label: "Navbat", short: "Navbat", icon: IconCart },
+  { href: "/flow/", label: "Oqim", short: "Oqim", icon: IconMap },
   { href: "/metrics/", label: "Ko'rsatkichlar", short: "Grafiklar", icon: IconChart },
   { href: "/users/", label: "Xodimlar", short: "Xodimlar", icon: IconPeople, owner: true },
   { href: "/settings/", label: "Sozlamalar", short: "Sozlama", icon: IconBell },

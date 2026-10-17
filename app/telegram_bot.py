@@ -58,6 +58,7 @@ HELP = (
     "/oxirgi — oxirgi 5 ta hodisa\n"
     "/tekshirilmagan — javob kutayotgan hodisalar\n"
     "/navbat — kassalardagi navbat hozir (navbat signallarini o'chirish/yoqish ham shu yerda)\n"
+    "/oqim — bugun qaysi bo'limlarga ko'p kirildi va yo'nalishlar\n"
     "/stop — xabarlarni to'xtatish\n"
     "/yordam — shu yordam\n\n"
     "⚠️ Bot hech kimni ayblamaydi: u faqat \"tekshirib ko'ring\" deydi. Qaror har doim odamniki."
@@ -291,6 +292,7 @@ class TelegramBot:
         {"command": "oxirgi", "description": "Oxirgi 5 ta hodisa"},
         {"command": "tekshirilmagan", "description": "Javob kutayotgan hodisalar"},
         {"command": "navbat", "description": "Kassalardagi navbat"},
+        {"command": "oqim", "description": "Bugungi bo'lim tashriflari"},
         {"command": "stop", "description": "Xabarlarni to'xtatish"},
         {"command": "yordam", "description": "Yordam"},
     ]
@@ -467,6 +469,10 @@ class TelegramBot:
             from .ai import queues
 
             self._reply(chat_id, queues.status_text(), self._queue_markup(chat_id))
+        elif cmd == "/oqim":
+            from .ai import flow
+
+            self._reply(chat_id, flow.status_text())
         else:
             self._reply(chat_id, "Buyruqni tushunmadim. /yordam ni bosing.")
 

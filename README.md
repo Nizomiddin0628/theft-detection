@@ -8,6 +8,54 @@ klipini avtomatik kesib, **Telegram botga** sabablari bilan yuboradi. Qo'riqchi 
 
 ---
 
+## 2.1.0 — 5-bosqich: oqim va heatmap (do'kon rejasi)
+
+* **Yangi bo'lim: Oqim** (panel menyusida). Sozlash — **Oqim → Reja va kameralar**:
+  1. **Reja**: do'kon chizmasini (PNG/JPG) yuklash yoki rasmsiz "eni × bo'yi" (metrda, 1 m katakli). Masshtab —
+     rejada uzunligi ma'lum ikki nuqta + masofa. Rejadagi hamma narsa reja pikselida saqlanadi: masshtab keyin
+     tuzatilsa, bo'limlar va kalibrlash o'zi to'g'rilanadi (eski heatmap yangisi bilan aralashmaydi).
+  2. **Bo'limlar**: reja ustida ko'pburchak ("Sut", "Non"), rang, yoqish/o'chirish.
+  3. **Kamerani rejaga bog'lash (kalibrlash)**: kadr va reja yonma-yon — kadrda pol nuqtasini, rejada o'sha joyni
+     bosasiz (lupa bilan). Natija darhol: har nuqtaning LOO xatosi (shu nuqtasiz model uni qanchalik topadi), kadr
+     ustida 1 metrlik to'r (pol plitkalariga mos tushishi kerak), rejada kamera qamrovi va model topgan joylar,
+     "noto'g'ri bosilgan" gumonli nuqta, nuqtalar bir chiziqda/kadrning kichik qismida degan ogohlantirishlar.
+     "Tekshiruv nuqtasi" — moslashda ishtirok etmaydi, xatoni halol ko'rsatadi. Saqlangach rejada jonli odamlar.
+* **Model** (`app/ai/homography.py`): pol tekisligi gomografiyasi + linza egriligi (bo'linma modeli, k1 — 6+
+  nuqtada, k2 — 10+ nuqtada; LOO xatosi bo'yicha, "oddiyroq model afzal" qoidasi bilan). Ufqqa yaqin va kadrda 1 m
+  18 pikseldan kam joy (u yerda 2–3 px xato metrlab xato beradi) rejaga tushirilmaydi.
+* **Hisob** (`app/ai/flow.py`; worker.py ga yangi ulanish kerak emas — 1.9.0 sanash ulanishi orqali):
+  * odam oyog'i rejaga o'tkaziladi; oyoqlari polka orqasida ko'rinmasa — skelet bo'yicha taxmin (son + 1,7 × gavda);
+    xodimlar hisobga olinmaydi;
+  * **bo'lim tashrifi** — bo'limga kirib, to'xtagan yoki sekin yurgan (jami ≥ 2 s, shundan ≥ 1 s 0,45 m/s dan sekin,
+    yoki bo'limda ≥ 8 s). To'xtamay o'tib ketgan, chegarada titragan, burchakni kesib o'tgan — tashrif emas;
+    15 s ichida qaytgan — o'sha tashrif. Vaqti — kirgan payt. Bo'limdagi vaqt (dwell) hisoblanmaydi (14.10 qaror);
+  * **yo'nalishlar** — shu odamning oldingi bo'limi (3 daqiqa ichida): "Sut → Non" (bitta kamera ichida);
+  * **heatmap** (0,5 m katak): "bandlik" (odam·s/m²), "o'tganlar" (soatiga bir odam bir marta), yurish yo'nalishi
+    strelkalari (2 m katak);
+  * **bir nechta kamera**: har katak va har bo'limni uni kadrda eng yirik (1 m ko'proq piksel) ko'radigan kamera
+    hisoblaydi — bitta odam ikki marta sanalmaydi;
+  * to'silishda ID almashsa (1,5 s, 1 m ichida) — o'sha odam (tashrif ikki marta sanalmaydi).
+* **Oqim sahifasi**: reja ustida heatmap (bandlik/o'tganlar, bugun/kecha/7/30 kun), bo'lim nomlari va tashriflar,
+  strelkalar, jonli nuqtalar, bo'limlar jadvali (oldingi davr bilan), yo'nalishlar, soat/kun grafigi, CSV.
+  Telegram'da **/oqim**.
+* **Aniqlik darvozasi** (reja: *belgilangan nuqtalarda xato ≤ 0,5 m; bo'lim tashriflari qo'lda tekshiruvga mos*):
+  * **Nuqtada turish** — polga belgi, joyi rejada; odam belgida turadi, tizim 3 s o'lchaydi (detektor + kalibrlash
+    xatosi birga). Har kamerada ≥ 5 o'lchov, ≥ 3 joyda; 90% o'lchovda xato ≤ 0,5 m.
+  * **Qo'lda sanash** — 1–3 bo'limni kuzatib, kirgan har xaridorda "+1" (telefonda katta tugmalar). Oxirgi 2 ta
+    ≥ 30 daqiqalik sinovda aniqlik ≥ 90%, juftlash (±5 s) ≥ 85%, jami ≥ 30 bosish.
+  * Buyruq qatoridan: `python tests\flow_gate.py` (bazani faqat o'qiydi). Mezonlar: `app/flow_eval.py`.
+* **Bulut**: hello'da rejalar va bo'limlar (rasmsiz, metrda), soatlik yig'indi (`POST /edge/flow`; faqat bulut
+  `features: ["flow"]` deganidan keyin), `GET /api/v1/flow`, panelda yangi **Oqim** sahifasi (reja, heatmap,
+  bo'limlar, yo'nalishlar), bulut botida `/bugun` — eng ko'p tashrif qilingan bo'limlar. docs/SYNC_API.md.
+* **O'lchovlarim (rostini aytsam)** — Linux, 2 yadro; sintetik pinhole kamera (balandlik 2,7–3,6 m, 75–105°),
+  bosish xatosi ~2,5 px, rejada 5 sm:
+  * egriliksiz linza, 8 nuqta: 8 sahnadan 8 tasida 90% joyda xato ≤ 0,13 m; o'rtacha egrilik, 12 nuqta: ≤ 0,36 m;
+  * kuchli "bochka" (2,8 mm linza) — 12–16 nuqtada ham sahnalarning ~65–70% ida ≤ 0,5 m: bunday kamerada ko'proq
+    nuqta va "nuqtada turish" sinovi albatta kerak;
+  * haqiqiy video (`samples/sanash_namuna.mp4`, keng burchakli, taxminiy kalibrlash): 7 kishi, yurish tezligi
+    mediana 1,06 m/s (sakrashsiz), to'xtamay o'tganlar — 0 tashrif, oqim har AI qadamiga ~0,2 ms qo'shadi.
+  * Bu do'koningizdagi natija emas. Darvoza faqat Oqim sahifasidagi sinovlar bilan o'tadi.
+
 ## 2.0.0 — 4-bosqich: kassa navbati va kassir qoidalari
 
 * **Ikki yangi zona** (*Kameralar → Zonalar*):
@@ -583,6 +631,10 @@ python -m tests.test_queues               # 2.0.0 kassa navbati: o'lchash, ID uz
 python -m tests.test_queues_cloud         # 2.0.0 bulutda navbat: hello, signallar, 5-qoida, doira (CLOUD_TEST_PG_URL bilan PostgreSQL ham)
 python -m tests.test_queue_video          # 2.0.0 haqiqiy videoda navbat (samples/navbat_namuna.mp4, navbat_guruh.mp4)
 python tests/queue_gate.py                # 2.0.0 navbat darvozasi (namunalar va sekundomer)
+python -m tests.test_flow                 # 2.1.0 oqim: gomografiya, bo'lim tashriflari, yo'nalishlar, heatmap, API, darvoza
+python -m tests.test_flow_cloud           # 2.1.0 bulutda oqim: hello, soatlik yig'indi, /flow, edge → bulut (PostgreSQL ham)
+python -m tests.test_flow_video           # 2.1.0 haqiqiy videoda oqim (samples/sanash_namuna.mp4, taxminiy kalibrlash)
+python tests/flow_gate.py                 # 2.1.0 oqim darvozasi (nuqtada turish va qo'lda sanash)
 ```
 
 ---

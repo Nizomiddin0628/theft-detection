@@ -136,6 +136,30 @@ Filiallar: `live` (hello), `today` (o'tdi, o'rtacha/eng uzoq kutish, eng uzun na
 uzunlik), `hours_len`, `hours_served`; `days` — kunlar bo'yicha; `alerts` — oxirgi 50 ta (filial doirasida; tarmoq
 signali faqat egaga). Bulut boti: `/navbat`.
 
+## 2.1.0 — oqim va heatmap
+
+**Imkoniyat.** 2.1.0 bulut hello javobida `"features": ["queues", "flow"]`. Edge `flow` yozuvlarini faqat shundan
+keyin outbox'ga qo'yadi (eski bulut bilan navbat to'xtamaydi).
+
+**Hello.** Do'kon rejasi bo'lsa: `"flow_plans": [{"id", "name", "w_m", "h_m", "cell", "nx", "ny", "grid",
+"sections": [{"id", "name", "color", "pts": [[x, y], ...]}]}]` — metrda (x o'ngga, y pastga; rejaning chap yuqori
+burchagidan). Reja rasmi yuborilmaydi. Bulut `branches.flow_plans = {"at", "items"}` (≤ 5 reja, ≤ 60 bo'lim).
+
+### `POST /api/v1/edge/flow` — soatlik yig'indi (har reja)
+
+`{"items": [{"key": "fh:<reja>:<soat>", "plan_id", "hour" (unix, soat boshi), "grid": "40x24@0.5", "nx", "ny",
+"cell", "obs" (kamera-soniya), "visits": {"<bo'lim id>": n}, "moves": [[dan, ga, n], ...],
+"occ": {"<katak>": odam·soniya}, "pas": {"<katak>": o'tgan odamlar}}]}`. Katak = `y·nx + x`. Edge joriy soatni har
+daqiqada to'liq qayta yuboradi; bulut `(branch_id, plan_id, hour)` bo'yicha almashtiradi, faqat yangisi kattaroq
+bo'lsa (`visits` va `obs` kamaymaydi — kechikib kelgan eski nusxa ustiga yozilmaydi). Soat boshi bo'lmagan `hour`,
+noto'g'ri `grid` — rad etiladi (`rejected`), navbat davom etadi. Edge bitta soatda ko'pi bilan 5000 katak yuboradi.
+
+### `GET /api/v1/flow?days=7&branch_id=&plan_id=` (panel)
+
+Filial rejasi, bo'limlar bo'yicha tashriflar (davr), yo'nalishlar (eng ko'p 20), bugun soatlar bo'yicha, kunlar bo'yicha,
+heatmap (`occ`, `pas`: `{"max", "total", "data": base64 uint8 (ny × nx, 0..255)}`) — faqat joriy `grid` dagi soatlar
+(reja masshtabi o'zgarsa eski kataklar aralashmaydi). Rol doirasi boshqa API'lar kabi.
+
 ## `POST /api/v1/edge/health` — kamera holati
 
 ```json

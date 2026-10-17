@@ -29,7 +29,7 @@ from .ai.manager import archive_feedback, delete_event_files, get_manager
 from .config import (ADMIN_PASSWORD, ADMIN_USER, APP_NAME, APP_VERSION, BASE_DIR, CLIPS_DIR, DATA_DIR,
                      EVAL_DIR, HOST, MODELS_DIR, PUBLIC_URL, SECRET_KEY, SENSITIVITY_PRESETS, UPLOADS_DIR, env)
 from .logutil import MEMORY_LOG, get_logger, setup_logging
-from . import evaluation, queue_web, visits
+from . import evaluation, flow_web, queue_web, visits
 from .ai import zones as zones_mod
 from .telegram_bot import KIND_UZ, get_bot, latency_stats, susp_info
 
@@ -54,6 +54,7 @@ app = FastAPI(title=APP_NAME, version=APP_VERSION, docs_url=None, redoc_url=None
 app.mount("/static", StaticFiles(directory=str(APP_DIR / "static")), name="static")
 app.include_router(visits.router)        # 1.9.0: odamlarni sanash — /api/counts/*, /api/export/counts.csv
 app.include_router(queue_web.router)     # 2.0.0: kassa navbati — /api/queues/*, /api/export/queues.csv
+app.include_router(flow_web.router)      # 2.1.0: oqim va heatmap — /api/flow/*, /media/plans/*, /api/export/flow.csv
 
 PUBLIC_PATHS = ("/login", "/static", "/favicon.ico", "/healthz")
 VIDEO_EXT = {".mp4", ".avi", ".mov", ".mkv", ".webm", ".m4v", ".mpg", ".mpeg", ".wmv", ".flv", ".3gp", ".ts"}
@@ -69,6 +70,7 @@ NAV = [
     ("reports", "/reports", "Hisobotlar", "chart"),
     ("visits", "/visits", "Tashriflar", "users"),
     ("queues", "/navbat", "Navbat", "cart"),
+    ("flow", "/oqim", "Oqim", "map"),
     ("eval", "/eval", "Aniqlik sinovi", "target"),
     ("settings", "/settings", "Sozlamalar", "sliders"),
     ("system", "/system", "Tizim holati", "activity"),
@@ -478,6 +480,25 @@ def visits_page(request: Request):
 @app.get("/navbat", response_class=HTMLResponse)
 def queues_page(request: Request):
     return page(request, "navbat.html", "queues", "Navbat")
+
+
+@app.get("/oqim", response_class=HTMLResponse)
+def flow_page(request: Request):
+    return page(request, "oqim.html", "flow", "Oqim va heatmap")
+
+
+@app.get("/oqim/sozlash", response_class=HTMLResponse)
+def flow_setup_page(request: Request):
+    srcs = db.rows("SELECT id, name, kind FROM sources ORDER BY id")
+    return page(request, "reja.html", "flow", "Reja va kameralar", sources=srcs)
+
+
+@app.get("/oqim/kamera/{source_id}", response_class=HTMLResponse)
+def flow_calib_page(request: Request, source_id: int):
+    src = db.row("SELECT * FROM sources WHERE id=?", (source_id,))
+    if not src:
+        raise HTTPException(404, "Manba topilmadi")
+    return page(request, "kalibr.html", "flow", f"Kalibrlash — {src['name']}", src=src)
 
 
 @app.get("/settings", response_class=HTMLResponse)

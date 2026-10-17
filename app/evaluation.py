@@ -185,7 +185,18 @@ def analyze(path: str, zone_source_id: int | None = None, stop_evt: threading.Ev
         queue = {"waits": [{"zone_id": w["zone_id"], "t_in": round(w["t_in"], 2), "t_out": round(w["t_out"], 2),
                             "wait": w["wait"], "ids": w["ids"]} for w in qm.waits],
                  "trace": [{"t": round(float(t_), 2), "zone_id": z, "length": n, "raw": r} for t_, z, n, r in qm.trace]}
-    return {"alerts": alerts, "crossings": crossings, "queue": queue, "duration": round(idx / fps, 2),
+    fm = getattr(counter, "flow", None) if counter is not None else None    # 2.1.0: kamera rejaga kalibrlangan bo'lsa
+    flow_res = None
+    if fm is not None:
+        flow_res = {"visits": [{"t": round(float(v.t), 2), "section_id": v.section_id, "section": v.section_name,
+                                "track_id": v.track_id, "from_id": v.from_id} for v in fm.visits],
+                    "occ": round(sum(sum(a.occ.values()) for a in fm.local.values()), 1),
+                    "pas": sum(sum(a.pas.values()) for a in fm.local.values()),
+                    "obs": round(sum(a.obs for a in fm.local.values()), 1),
+                    "trace": [{"t": round(float(t_), 2), "tid": tid, "x": round(x, 3), "y": round(y, 3)}
+                              for t_, tid, x, y in fm.trace],
+                    "update_ms": round(fm.cpu_sec * 1000 / max(fm.n_updates, 1), 3)}
+    return {"alerts": alerts, "crossings": crossings, "queue": queue, "flow": flow_res, "duration": round(idx / fps, 2),
             "steps": dict(proc.counts), "seconds": round(time.time() - t_cpu, 1), "model_set": eng.model_set}
 
 

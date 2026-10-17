@@ -140,6 +140,14 @@ def enqueue_queue_alert(a: dict) -> None:
             coalesce=False)
 
 
+def enqueue_flow_hour(item: dict) -> None:
+    """2.1.0: soatlik oqim yig'indisi (bo'limlar, yo'nalishlar, heatmap) — bulut "flow" ni e'lon qilgan bo'lsa.
+    Soat davomida qayta yuboriladi (coalesce: yuborilmagan eskisi ustiga yoziladi)."""
+    if not item or not cloud_supports("flow"):
+        return
+    enqueue("flow", f"fh:{item['plan_id']}:{item['hour']}", {"device_id": device_id(), **item})
+
+
 def forget_event(event_id: int) -> None:
     """Hodisa lokal bazadan o'chirilganda uning navbatdagi qatorlari ham olib tashlanadi
     (aks holda klip qatori "fayl yo'q" bilan qizil "rad etilgan" bo'lib qolardi)."""
@@ -289,6 +297,14 @@ class SyncWorker(threading.Thread):
                                                          "cashier", "state", "live")} for x in queues.board()]
         except Exception:  # noqa: BLE001
             log.exception("Navbat holatini olib bo'lmadi")
+        try:
+            from .ai import flow                 # 2.1.0: do'kon rejasi va bo'limlar (bulut heatmap'i uchun)
+
+            plans = flow.layout().plans
+            if plans or cloud_supports("flow"):     # bo'sh ro'yxat ham: reja o'chirilsa bulutda ham o'chsin
+                payload["flow_plans"] = [flow.plan_public(p) for p in plans.values()][:5]
+        except Exception:  # noqa: BLE001
+            log.exception("Reja ma'lumotini olib bo'lmadi")
         t0 = time.time()
         payload["time"] = t0
         code, body = self._post(f"/api/v{API_VERSION}/edge/hello", payload, timeout=15)
@@ -458,7 +474,7 @@ class SyncWorker(threading.Thread):
         if kind == "clip":
             return self._send_clip(batch[0], items[0])
         path = {"event": "events", "metrics": "metrics", "health": "health", "queue": "queues",
-                "qalert": "queue_alerts"}.get(kind)
+                "qalert": "queue_alerts", "flow": "flow"}.get(kind)
         if path is None:
             self._fail(ids, f"noma'lum tur: {kind}", terminal=True)
             return True

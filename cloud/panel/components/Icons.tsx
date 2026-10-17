@@ -120,3 +120,10 @@ export const IconCart = (p: P) => (
     <path d="M2 3h3l2.7 12.4a2 2 0 0 0 2 1.6h8.6a2 2 0 0 0 2-1.6L22 7H6.2" />
   </svg>
 );
+
+export const IconMap = (p: P) => (
+  <svg {...base} {...p}>
+    <path d="M9 4 3 6v14l6-2 6 2 6-2V4l-6 2-6-2z" />
+    <path d="M9 4v14M15 6v14" />
+  </svg>
+);

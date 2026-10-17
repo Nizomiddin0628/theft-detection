@@ -14,6 +14,7 @@ import hashlib
 import hmac
 import json
 import os
+import re
 import secrets
 import time
 from pathlib import Path
@@ -95,6 +96,7 @@ branches = Table(                                          # filial = do'kon = b
     Column("offline_since", Float),                       # aloqa uzilgan (oxirgi hello) vaqti; None — onlayn
     Column("occupancy", JSON),                            # 1.9.0: hello dagi sanash holati {inside, since, day0, in, out}
     Column("queues", JSON),                               # 2.0.0: hello dagi kassalar holati {at, items: [...]}
+    Column("flow_plans", JSON),                           # 2.1.0: hello dagi do'kon rejalari {at, items: [...]}
 )
 events = Table(
     "events", meta,
@@ -167,6 +169,16 @@ queue_alerts = Table(        # 2.0.0: navbat qoidalari signallari (edge: 1-4; bu
     Column("data", JSON),
     Column("received_at", Float),
     Index("ix_qalerts_company_t", "company_id", "t"),
+)
+flow_hour = Table(           # 2.1.0: oqim va heatmap — edge soatlik yig'indisi (reja bo'yicha, barcha kameralar birga)
+    "flow_hour", meta,
+    Column("branch_id", Integer, ForeignKey("branches.id"), primary_key=True),
+    Column("plan_id", Integer, primary_key=True),             # edge'dagi reja id
+    Column("hour", BigInteger, primary_key=True),
+    Column("grid", String(40)),                               # to'r kaliti (nx×ny@katak) — masshtab o'zgarsa aralashmasin
+    Column("visits", Integer, nullable=False, default=0),     # jami bo'lim tashriflari (SQL yig'indisi uchun)
+    Column("obs", Float, nullable=False, default=0),          # kuzatilgan kamera-soniyalar
+    Column("data", JSON),                                     # {"visits": {bo'lim: n}, "moves": [[a, b, n]], "occ", "pas"}
 )
 health_log = Table(
     "health_log", meta,
@@ -287,7 +299,7 @@ audit_log = Table(                                         # kim, qachon, nima q
 
 # Mavjud bazalarga (1.6.0) qo'shiladigan ustunlar: create_all eski jadvalni o'zgartirmaydi
 EXTRA_COLUMNS = {
-    "branches": {"offline_since": "FLOAT", "occupancy": "JSON", "queues": "JSON"},
+    "branches": {"offline_since": "FLOAT", "occupancy": "JSON", "queues": "JSON", "flow_plans": "JSON"},
     "events": {"received_at": "FLOAT"},
 }
 
@@ -574,6 +586,87 @@ def put_queue_minute(conn, branch_id: int, item: dict) -> bool:
            where=text("excluded.t_obs >= queue_minute.t_obs AND excluded.served >= queue_minute.served "
                       "AND excluded.wait_n >= queue_minute.wait_n"), conn=conn)
     return True
+
+
+FLOW_GRID_RE = re.compile(r"^\d{1,4}x\d{1,4}@[0-9.]{1,6}$")
+FLOW_MAX_CELLS = 400 * 400
+
+
+def _sparse(d, nmax: int, integer: bool) -> dict:
+    out = {}
+    if not isinstance(d, dict):
+        return out
+    for k, v in list(d.items())[:20000]:
+        try:
+            i = int(k)
+        except (TypeError, ValueError):
+            continue
+        if 0 <= i < nmax:
+            x = _fnum(v, 1e9)
+            if x > 0:
+                out[str(i)] = int(x) if integer else round(x, 1)
+    return out
+
+
+def put_flow_hour(conn, branch_id: int, item: dict) -> bool:
+    """Edge soatlik oqim yig'indisi (soat davomida to'liq qayta yuboriladi — almashtiriladi, eskisi yangisini buzmaydi)."""
+    try:
+        hour, pid = int(item.get("hour")), int(item.get("plan_id"))
+        nx, ny = int(item.get("nx")), int(item.get("ny"))
+    except (TypeError, ValueError):
+        return False
+    grid = str(item.get("grid") or "")
+    if hour % 3600 or not FLOW_GRID_RE.match(grid) or not (0 < nx * ny <= FLOW_MAX_CELLS):
+        return False
+    n = nx * ny
+    vis = {}
+    for k, v in (item.get("visits") or {}).items() if isinstance(item.get("visits"), dict) else []:
+        try:
+            vis[str(int(k))] = int(min(max(_fnum(v), 0), 1e6))
+        except (TypeError, ValueError):
+            continue
+    moves = []
+    for m in (item.get("moves") or [])[:500] if isinstance(item.get("moves"), list) else []:
+        try:
+            a, b, c = int(m[0]), int(m[1]), int(m[2])
+        except (TypeError, ValueError, IndexError):
+            continue
+        if c > 0:
+            moves.append([a, b, min(c, 10**6)])
+    data = {"visits": vis, "moves": moves, "occ": _sparse(item.get("occ"), n, False),
+            "pas": _sparse(item.get("pas"), n, True), "nx": nx, "ny": ny, "cell": _fnum(item.get("cell"), 10) or 0.5}
+    vals = {"branch_id": branch_id, "plan_id": pid, "hour": hour, "grid": grid, "visits": sum(vis.values()),
+            "obs": round(_fnum(item.get("obs"), 1e7), 1), "data": data}
+    upsert(flow_hour, vals, ["branch_id", "plan_id", "hour"], ["grid", "visits", "obs", "data"],
+           # Reja masshtabi o'zgargan bo'lsa (yangi to'r) — almashtiriladi, aks holda faqat kattarog'i (eski nusxa kechikib
+           # kelsa yangisini buzmasin)
+           where=text("excluded.grid <> flow_hour.grid OR (excluded.visits >= flow_hour.visits "
+                      "AND excluded.obs >= flow_hour.obs)"), conn=conn)
+    return True
+
+
+def flow_rows(branch_ids: list[int], t0: float, t1: float | None = None, plan_id: int | None = None) -> list[dict]:
+    if not branch_ids:
+        return []
+    f = flow_hour.c
+    cond = [f.branch_id.in_([int(b) for b in branch_ids]), f.hour >= int(t0) - 3599]
+    if t1 is not None:
+        cond.append(f.hour < int(t1))
+    if plan_id is not None:
+        cond.append(f.plan_id == int(plan_id))
+    with engine().connect() as c:
+        return [dict(r._mapping) for r in c.execute(select(flow_hour).where(*cond))]
+
+
+def flow_with_data(branch_ids: list[int], t0: float) -> set[tuple[int, int]]:
+    """Davrda ma'lumoti bor (filial, reja) juftlari — JSON o'qilmaydi."""
+    if not branch_ids:
+        return set()
+    f = flow_hour.c
+    sel = (select(f.branch_id, f.plan_id).where(f.branch_id.in_([int(b) for b in branch_ids]), f.hour >= int(t0) - 3599)
+           .distinct())
+    with engine().connect() as c:
+        return {(int(r.branch_id), int(r.plan_id)) for r in c.execute(sel)}
 
 
 def queue_agg(branch_ids: list[int], t0: float, off: int = 0, slot: int = 86400) -> list[dict]:

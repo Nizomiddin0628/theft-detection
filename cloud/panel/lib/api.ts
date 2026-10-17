@@ -66,6 +66,47 @@ export interface Visits {
   day0: number;
 }
 
+// 2.1.0: oqim va heatmap (edge reja va bo'limlar → hello; soatlik yig'indi → flow_hour)
+export interface FlowSection {
+  id: number;
+  name: string;
+  color: string;
+  pts: [number, number][];
+}
+export interface FlowPlan {
+  id: number;
+  name: string;
+  w_m: number;
+  h_m: number;
+  cell: number;
+  nx: number;
+  ny: number;
+  grid: string;
+  sections: FlowSection[];
+  branch_id: number;
+  branch_name: string;
+}
+export interface FlowHeat {
+  max: number;
+  total: number;
+  data: string;
+}
+export interface Flow {
+  plans: { branch_id: number; branch_name: string; plan_id: number; plan_name: string }[];
+  plan: FlowPlan | null;
+  days: number;
+  day0: number;
+  t0: number;
+  tz_offset: number;
+  total: number;
+  sections: { id: number; name: string; visits: number; share: number }[];
+  moves: { from: number; to: number; n: number; from_name: string; to_name: string }[];
+  today_hours: Record<string, number>[];
+  per_day: number[];
+  obs: number;
+  heat: { occ: FlowHeat; pas: FlowHeat; nx: number; ny: number; cell: number };
+}
+
 // 2.0.0: kassa navbati (edge navbat zonasi → hello holati, daqiqalik yig'indi, qoida signallari)
 export type QueueState = "navbat" | "band" | "bosh" | "yopiq" | "kassir_yoq" | "nomalum";
 export interface QueueLive {

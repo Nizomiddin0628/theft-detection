@@ -128,6 +128,12 @@ class MetricsSampler(threading.Thread):
             queues.on_minute(minute)
         except Exception:  # noqa: BLE001
             log.exception("Navbat daqiqasida xato")
+        try:
+            from .ai import flow              # 2.1.0: oqim va heatmap — soatlik yig'indi, bulut navbati
+
+            flow.on_minute(minute)
+        except Exception:  # noqa: BLE001
+            log.exception("Oqim daqiqasida xato")
         if time.time() - self.last_prune > 3600:
             self.last_prune = time.time()
             db.execute("DELETE FROM metrics_minute WHERE minute < ?", (time.time() - KEEP_DAYS * 86400,))

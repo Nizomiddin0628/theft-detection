@@ -32,7 +32,7 @@
     </ol>
 
     <h2>Zonalar</h2>
-    <p><a href="/sources">Kameralar</a> → "Zonalar" tugmasi: kamera rasmi ustida soha chizing va turini tanlang. <b>Polka</b> — qo'l shu yerga kirsa "mahsulot olinyapti" (aniqroq va tezroq topadi); <b>Kassa</b> — to'lov paytidagi sumkaga solish signal bermaydi; <b>Kirish/chiqish</b> — shubhali odam eshikka kelsa yana xabar beradi; <b>Sanash chizig'i</b> — eshikdan kirgan/chiqqanlarni sanaydi (<a href="#sanash">pastda</a>); <b>Kassa navbati</b> va <b>Kassir joyi</b> — navbat va kutish vaqti (<a href="#navbat">pastda</a>); <b>Xodimlar joyi</b> — u yerda turgan xodimga signal berilmaydi; <b>E'tiborsiz</b> — televizor, oyna, deraza. Har zonaga sezgirlik berish mumkin (masalan, qimmat mahsulot polkasi — "Yuqori").</p>
+    <p><a href="/sources">Kameralar</a> → "Zonalar" tugmasi: kamera rasmi ustida soha chizing va turini tanlang. <b>Polka</b> — qo'l shu yerga kirsa "mahsulot olinyapti" (aniqroq va tezroq topadi); <b>Kassa</b> — to'lov paytidagi sumkaga solish signal bermaydi; <b>Kirish/chiqish</b> — shubhali odam eshikka kelsa yana xabar beradi; <b>Sanash chizig'i</b> — eshikdan kirgan/chiqqanlarni sanaydi (<a href="#sanash">pastda</a>); <b>Kassa navbati</b> va <b>Kassir joyi</b> — navbat va kutish vaqti (<a href="#navbat">pastda</a>); heatmap va bo'limlar uchun zona emas, kamerani do'kon rejasiga bog'lash kerak (<a href="#oqim">pastda</a>); <b>Xodimlar joyi</b> — u yerda turgan xodimga signal berilmaydi; <b>E'tiborsiz</b> — televizor, oyna, deraza. Har zonaga sezgirlik berish mumkin (masalan, qimmat mahsulot polkasi — "Yuqori").</p>
 
     <h2 id="sanash">Odamlarni sanash (Tashriflar)</h2>
     <ol>
@@ -54,6 +54,16 @@
       <li><b>Aniqlikni tekshirish.</b> Navbat → <b>Aniqlik sinovi</b>: gavjum soatda telefonda "Namuna olish" — kadrdagi navbatni sanab kiriting (kamida 50 ta, 15 tasida navbatda ≥ 2 kishi); "Sekundomer" — odam navbatga turganda va to'lab chiqqanda bosing (kamida 10 kishi). Darvoza: soni ±1 ichida ≥ 90%, kutish xatosi ≤ 20%.</li>
     </ol>
     <p class="muted">Navbat o'lchashda rasm saqlanmaydi (faqat aniqlik sinovida siz olgan namuna kadrlari, oxirgi 1000 tasi). Ikki kassa bir kamerada bo'lsa, har navbat eng yaqin "Kassir joyi" bilan juftlanadi.</p>
+
+    <h2 id="oqim">Oqim va heatmap (do'kon rejasi)</h2>
+    <ol>
+      <li><b>Reja.</b> <a href="/oqim/sozlash">Oqim → Reja va kameralar</a>: do'kon chizmasini (PNG/JPG, telefon bilan olingan rasm ham bo'ladi) yuklang va <b>📏 Masshtab</b> — rejada uzunligi ma'lum ikki nuqtani bosib, masofani metrda yozing. Chizma bo'lmasa — eni va bo'yini ruletka bilan o'lchab, "Bo'sh reja yaratish".</li>
+      <li><b>Bo'limlar.</b> "Bo'lim chizish" — reja ustida bo'lim (masalan, "Sut mahsulotlari") burchaklarini bosing. Bo'lim polka oldidagi, xaridor turadigan yo'lakni qamrasin; qo'shni bo'limlar orasida 0,5–1 m bo'shliq qoldiring.</li>
+      <li><b>Kamerani bog'lash (kalibrlash).</b> Kamera qatoridagi "Kalibrlash": kadrda <b>pol sathidagi</b> aniq nuqtani (plitka burchagi, polka oyog'i, eshik ostonasi burchagi) bosing, keyin rejada o'sha joyni. 8–12 juft, kadrning hamma qismidan. Kadr ustida 1 metrlik to'r chiziladi — u pol plitkalariga mos tushsa, kalibrlash to'g'ri. Xatosi katta (qizil) nuqtani tuzating yoki o'chiring.</li>
+      <li><b>Natija</b> (<a href="/oqim">Oqim</a>): heatmap — "Bandlik" (odamlar qayerda ko'p bo'lgan) va "O'tganlar" (qayerdan ko'p o'tilgan), yurish yo'nalishi strelkalari, bo'lim tashriflari (bo'limga kirib, to'xtagan/sekinlagan xaridor; o'tib ketgan — tashrif emas), bo'limdan bo'limga yo'nalishlar, jonli nuqtalar. Bir nechta kamera bir joyni ko'rsa — uni yaqinroqdan ko'radigan kamera hisoblaydi (ikki marta sanalmaydi). Xodimlar hisobga olinmaydi. Telegram'da <b>/oqim</b>.</li>
+      <li><b>Aniqlikni tekshirish</b> (Oqim → Aniqlik sinovi): (a) <b>Nuqtada turish</b> — polga skotch bilan belgi qo'ying, uning rejadagi joyini o'lchang, odam belgida tursin — tizim 3 s o'lchaydi (har kamerada 5 ta o'lchov, 3 xil joyda; darvoza: 90% o'lchovda xato ≤ 0,5 m). (b) <b>Qo'lda sanash</b> — 1–3 bo'limni 30 daqiqa kuzatib, kirgan har xaridorda "+1" (2 marta; darvoza: aniqlik ≥ 90%, juftlash ≥ 85%). Buyruq qatoridan: <code>python tests\flow_gate.py</code>.</li>
+    </ol>
+    <p class="muted">Cheklovlar: kamera chetida (keng burchakli linza) va uzoqda aniqlik pasayadi — u yerdagi odamlar rejaga tushirilmaydi yoki ko'proq kalibrlash nuqtasi kerak. Oyoqlari polka orqasida ko'rinmagan odamning joyi skelet bo'yicha taxmin qilinadi. Kameradan kameraga o'tgan odamni tanish (yo'nalishlar kameralar orasida) — keyingi bosqich. Bo'limda qancha vaqt turgani hisoblanmaydi.</p>
 
     <h2>Aniqlikni oshirish bo'yicha maslahatlar</h2>
     <ul>

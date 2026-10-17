@@ -173,6 +173,8 @@ class LineCounter:
         self._err_t = 0.0
         self.queue = None                                  # 2.0.0: kassa navbati (app/ai/queues.py) — zonasi bo'lsa
         self._qerr_t = 0.0
+        self.flow = None                                   # 2.1.0: oqim va heatmap (app/ai/flow.py) — kalibrlangan bo'lsa
+        self._ferr_t = 0.0
 
     def _new_chain(self) -> int:
         self._chain += 1
@@ -182,7 +184,7 @@ class LineCounter:
                work_hours: str | None = None) -> list[Crossing]:
         """Har AI qadamida. Xato bo'lsa ham kamera tahlili to'xtamaydi (xato jurnalga, daqiqada bir marta).
         2.0.0: shu yerda kassa navbati ham o'lchanadi (worker.py ga yangi ulanish kerak emas); navbatdagi xato sanashga,
-        sanashdagi xato navbatga ta'sir qilmaydi."""
+        sanashdagi xato navbatga ta'sir qilmaydi. 2.1.0: oqim va heatmap ham shu yerda (app/ai/flow.py)."""
         try:
             out = self._update(tracked, t, w, h, zoneset, status, work_hours)
         except Exception:  # noqa: BLE001
@@ -202,6 +204,20 @@ class LineCounter:
                 if time.time() - self._qerr_t > 60:
                     self._qerr_t = time.time()
                     log.exception("Navbat o'lchash xatosi (%s) — kamera tahlili davom etadi", self.source_name)
+        # 2.1.0: oqim va heatmap — kamera do'kon rejasiga kalibrlangan bo'lsa (xatosi sanash va navbatga ta'sir qilmaydi)
+        try:
+            if self.flow is None and self.source_id:
+                from . import flow
+
+                if flow.has_calib(self.source_id):
+                    self.flow = flow.FlowMonitor(self.source_id, self.source_name, persist=self.persist)
+            if self.flow is not None:
+                self.flow.source_name = self.source_name
+                self.flow.update(tracked, t, w, h, zoneset, status, persist=self.persist)
+        except Exception:  # noqa: BLE001
+            if time.time() - self._ferr_t > 60:
+                self._ferr_t = time.time()
+                log.exception("Oqim o'lchash xatosi (%s) — kamera tahlili davom etadi", self.source_name)
         return out
 
     def _update(self, tracked: list, t: float, w: int, h: int, zoneset, status: dict | None,
