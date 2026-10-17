@@ -60,8 +60,10 @@
     <div class="rule-row"><label class="switch"><input type="checkbox" id="s-safety_fire"> <span><b>Olov (tajriba)</b></span></label>
       <div class="small muted grow">Olov rangidagi miltillovchi joy ≥ <input type="number" id="s-safety_fire_sec" min="3" max="120" style="width:60px"> s.
         <b>Tajriba:</b> qizil/to'q sariq kiyim, lampa, ekran ham signal berishi mumkin; tutun aniqlanmaydi — yong'in signalizatsiyasining o'rnini bosmaydi.</div></div>
+    <div class="rule-row"><label class="switch"><input type="checkbox" id="s-safety_fight"> <span><b>Janjal (tajriba)</b></span></label>
+      <div class="small muted grow">Ikki odam yonma-yon va biri ikkinchisiga qarab qo'lini keskin harakatlantiradi (4 s ichida ≥ 4 "zarba"). <b>Tajriba:</b> haqiqiy janjal videolarida o'lchanmagan; o'yin, sport mashqi, qo'l silkitib bahslashish ham signal berishi mumkin.</div></div>
     <div class="row" style="gap:10px;margin-top:12px;align-items:center;flex-wrap:wrap">
-      <span class="small muted">Takror signal (tungi kirish, gavjumlik, olov) — bitta kamerada har</span>
+      <span class="small muted">Takror signal (tungi kirish, gavjumlik, olov, janjal) — bitta kamerada har</span>
       <input type="number" id="s-safety_cooldown_min" min="1" max="720" style="width:70px"><span class="small muted">daqiqada bir.</span>
       <div class="grow"></div><button class="btn primary" id="save">Saqlash</button></div>
   </div>
@@ -127,9 +129,9 @@
 const p2 = (n) => String(n).padStart(2, "0");
 const fmtT = (t) => { if (!t) return "—"; const d = new Date(t * 1000), now = new Date(); const hm = `${p2(d.getHours())}:${p2(d.getMinutes())}`; return d.toDateString() === now.toDateString() ? hm : `${p2(d.getDate())}.${p2(d.getMonth() + 1)} ${hm}`; };
 const pct = (v) => v === null || v === undefined ? "—" : (v * 100).toFixed(0) + "%";
-const ICON = { fall: "🆘", lying: "🛌", night: "🌙", crowd: "👥", blocked: "🚪", fire: "🔥" };
+const ICON = { fall: "🆘", lying: "🛌", night: "🌙", crowd: "👥", blocked: "🚪", fire: "🔥", fight: "🥊" };
 const STAT = { yangi: "🟡", tasdiqlangan: "✅", rad_etilgan: "❌" };
-const FLAGS = ["safety_fall", "safety_lying", "safety_night", "safety_crowd", "safety_blocked", "safety_fire"];
+const FLAGS = ["safety_fall", "safety_lying", "safety_night", "safety_crowd", "safety_blocked", "safety_fire", "safety_fight"];
 const NUMS = ["safety_lying_sec", "safety_night_grace_min", "safety_crowd_inside", "safety_crowd_cam", "safety_crowd_sec", "safety_blocked_frac", "safety_blocked_min", "safety_fire_sec", "safety_cooldown_min"];
 let S = null, loaded = false;
 const $ = (id) => document.getElementById(id);

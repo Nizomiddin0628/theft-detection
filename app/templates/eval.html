@@ -108,6 +108,15 @@
     <tbody id="runs"></tbody>
   </table></div>
 </div>
+<div class="card" style="margin-top:16px" id="live-gate">
+  <div class="card-h"><h2>Jonli kameralarda xato signal (7-bosqich darvozasi)</h2><div class="grow"></div><span id="lg-state"></span></div>
+  <div class="card-b">
+    <p class="small muted" id="lg-crit"></p>
+    <div class="table-wrap"><table class="small"><thead><tr><th>Kamera</th><th>Ishladi</th><th>❌ xato</th><th>✅ to'g'ri</th><th>Javobsiz</th><th>Kuniga ❌</th><th></th></tr></thead><tbody id="lg-cams"></tbody></table></div>
+    <div class="hint">Har o'g'irlik signaliga ✅ yoki ❌ javob bering (Telegram yoki panel). Xavfsizlik signallari hisobga olinmaydi. Buyruq qatoridan: <code>python tests\theft_gate.py</code>.</div>
+  </div>
+</div>
+
 <div class="card card-b prose" style="margin-top:16px">
   <h2>Qanday baholanadi</h2>
   <ul>
@@ -308,6 +317,15 @@ async function poll() {
     loadRuns();
   }
 }
+async function loadLiveGate() {
+  const g = await H.api("/api/eval/live_gate");
+  document.getElementById("lg-crit").innerHTML = `Darvoza: har kamerada <b>xato signal ≤ ${g.max_day} / kun</b> (kamida ${g.min_days} kun ishlagan, javobsiz signallar ≤ ${Math.round(g.max_unreviewed * 100)}%).`;
+  const st = g.state;
+  document.getElementById("lg-state").innerHTML = st === "otdi" ? `<span class="badge on">✅ O'tdi</span>` : (st === "otmadi" ? `<span class="badge tasdiqlangan">❌ O'tmadi</span>` : `<span class="badge info">⏳ Ma'lumot yetarli emas</span>`);
+  document.getElementById("lg-cams").innerHTML = g.cams.map((c) => `<tr><td>${H.esc(c.name)}</td><td>${c.days} kun</td><td>${c.rejected}</td><td>${c.confirmed}</td>
+    <td>${c.unreviewed}${c.unreviewed ? ` (${Math.round(c.unreviewed_share * 100)}%)` : ""}</td><td>${c.rate === null ? "—" : c.rate}</td><td>${c.failed ? "❌" : (c.enough ? (c.ok ? "✅" : "❌") : "⏳")}</td></tr>`).join("") || `<tr><td colspan="7" class="muted">Hali jonli kamera ma'lumoti yo'q</td></tr>`;
+}
+loadLiveGate();
 loadVideos(); loadRuns(); poll();
 setInterval(() => { if (videos.some((v) => v.play_status === "tayyorlanmoqda")) loadVideos(cur && cur.id); }, 4000);
 </script>

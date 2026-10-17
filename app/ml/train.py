@@ -110,9 +110,50 @@ def _metrics(y_true: np.ndarray, prob: np.ndarray, thr: float = 0.5) -> dict:
     return m
 
 
-def train(n_synthetic: int = 3000, poselift_dir: str | None = None, use_feedback: bool = True,
-          seed: int | None = None, log_fn: Callable[[str], None] | None = None, activate: bool = True) -> dict:
+def _make_clf(seed: int):
     from sklearn.ensemble import HistGradientBoostingClassifier
+
+    return HistGradientBoostingClassifier(max_iter=250, learning_rate=0.08, max_leaf_nodes=31,
+                                          l2_regularization=1.0, class_weight="balanced", random_state=seed)
+
+
+def oof_feedback(X: np.ndarray, y: np.ndarray, g: np.ndarray, src: np.ndarray, seed: int,
+                 say: Callable[[str], None] | None = None, k_max: int = 5) -> dict[int, float]:
+    """2.3.0: qo'riqchi javoblari uchun "ko'rmagan" ehtimollar (out-of-fold): hodisalar k guruhga bo'linadi, har guruh
+    uni ko'rmagan model bilan baholanadi (sintetik va boshqa guruhlar bilan o'qitilgan). Champion/challenger
+    solishtiruvi shu ehtimollar bilan — model o'zi o'rgangan hodisada o'zini baholamasin."""
+    fb = src == "feedback"
+    groups = sorted(set(g[fb].tolist()))
+    if len(groups) < 10 or len(set(y[fb].tolist())) < 2:
+        return {}
+    rng = np.random.default_rng(seed)
+    order = list(groups)
+    rng.shuffle(order)
+    k = min(k_max, len(order))
+    folds = [set(order[i::k]) for i in range(k)]
+    out: dict[int, float] = {}
+    for i, fold in enumerate(folds):
+        test = fb & np.isin(g, list(fold))
+        train_m = ~test
+        if len(set(y[train_m].tolist())) < 2:
+            continue
+        clf = _make_clf(seed + i)
+        clf.fit(X[train_m], y[train_m])
+        prob = clf.predict_proba(X[test])[:, 1]
+        for gg, pp in zip(g[test].tolist(), prob.tolist()):
+            ev = int(str(gg)[2:]) if str(gg).startswith("ev") else None
+            if ev is not None and ev not in out:
+                out[ev] = round(float(pp), 4)
+        if say:
+            say(f"  Ko'rmagan baholash: {i + 1}/{k} guruh")
+    return out
+
+
+def train(n_synthetic: int = 3000, poselift_dir: str | None = None, use_feedback: bool = True,
+          seed: int | None = None, log_fn: Callable[[str], None] | None = None, activate: bool = True,
+          challenger: bool = False) -> dict:
+    """challenger=True (2.3.0): model faollashtirilmaydi — "soyada" ishlaydi (app/ml/champion.py), qo'riqchi javoblari
+    uchun ko'rmagan ehtimollar (oof) hisoblanadi."""
     from sklearn.model_selection import GroupShuffleSplit
     import joblib
 
@@ -158,8 +199,7 @@ def train(n_synthetic: int = 3000, poselift_dir: str | None = None, use_feedback
 
     gss = GroupShuffleSplit(n_splits=1, test_size=0.25, random_state=seed)
     tr, te = next(gss.split(X, y, g))
-    clf = HistGradientBoostingClassifier(max_iter=250, learning_rate=0.08, max_leaf_nodes=31,
-                                         l2_regularization=1.0, class_weight="balanced", random_state=seed)
+    clf = _make_clf(seed)
     say("Model o'qitilmoqda (Gradient Boosting)...")
     t0 = time.time()
     clf.fit(X[tr], y[tr])
@@ -181,20 +221,39 @@ def train(n_synthetic: int = 3000, poselift_dir: str | None = None, use_feedback
             per_beh[b] = float(((prob[mb] >= 0.5).astype(int) == y[te][mb]).mean())
         metrics["per_behavior_accuracy"] = per_beh
 
+    oof: dict[int, float] = {}
+    if challenger:
+        say("Qo'riqchi javoblari uchun ko'rmagan baholash (champion/challenger solishtiruvi)...")
+        oof = oof_feedback(X, y, g, src, seed, say)
+        if oof:
+            say(f"  {len(oof)} ta hodisa baholandi")
+        else:
+            say("  Javoblar kam (kerak ≥ 10 ta hodisa, ikkala turdan) — solishtiruv keyin soyada (jonli) bo'ladi")
     # Yakuniy modelni barcha ma'lumotda qayta o'qitish
     clf.fit(X, y)
     stamp = time.strftime("%Y%m%d_%H%M%S")
     path = MODELS_DIR / f"behavior_{stamp}.joblib"
     joblib.dump({"model": clf, "features": feature_names(), "window": WINDOW, "version": stamp,
-                 "metrics": metrics, "data": desc}, path)
+                 "metrics": metrics, "data": desc, "oof": oof}, path)
     om = metrics["overall"]
     say(f"Sinov natijasi: aniqlik {om['accuracy']:.1%}, precision {om['precision']:.1%}, "
         f"recall {om['recall']:.1%}, F1 {om['f1']:.1%}")
-    vid = db.execute("INSERT INTO model_versions(created_at, path, metrics, n_samples, n_pos, data_desc, active) "
-                     "VALUES(?,?,?,?,?,?,0)",
+    vid = db.execute("INSERT INTO model_versions(created_at, path, metrics, n_samples, n_pos, data_desc, active, role, oof) "
+                     "VALUES(?,?,?,?,?,?,0,?,?)",
                      (time.time(), path.name, json.dumps(metrics), int(len(y)), int(y.sum()),
-                      json.dumps(desc, ensure_ascii=False)))
-    if activate:
+                      json.dumps(desc, ensure_ascii=False), "challenger" if challenger else "champion",
+                      json.dumps(oof)))
+    if challenger:
+        from .champion import drop as drop_challenger
+
+        drop_challenger("eskirgan")               # oldingi challenger (bo'lsa) — yangisi o'rnini egallaydi
+        BehaviorModel.set_challenger(path)
+        say(f"Challenger (soya) model: {path.name} — hozircha signal va ballga ta'sir qilmaydi. AI model sahifasida "
+            f"champion bilan solishtiring va yaxshi bo'lsa faollashtiring")
+    elif activate:
+        from .champion import drop as drop_challenger
+
+        drop_challenger("eskirgan")               # champion almashdi — eski soya solishtiruvi endi to'g'ri emas
         db.execute("UPDATE model_versions SET active=0")
         db.execute("UPDATE model_versions SET active=1 WHERE id=?", (vid,))
         BehaviorModel.set_active(path)
@@ -208,12 +267,14 @@ def main():
     ap.add_argument("--poselift", type=str, default=None, help="PoseLift papkasi (.pkl va .npy fayllar)")
     ap.add_argument("--no-feedback", action="store_true", help="qo'riqchi javoblarini ishlatmaslik")
     ap.add_argument("--seed", type=int, default=7)
+    ap.add_argument("--challenger", action="store_true",
+                    help="champion'ni almashtirmasdan challenger (soya) sifatida saqlash (2.3.0)")
     a = ap.parse_args()
     from ..logutil import setup_logging
 
     setup_logging()
     db.init_db()
-    res = train(a.synthetic, a.poselift, not a.no_feedback, seed=a.seed)
+    res = train(a.synthetic, a.poselift, not a.no_feedback, seed=a.seed, challenger=a.challenger)
     print(json.dumps(res["metrics"], indent=2, ensure_ascii=False))
 
 

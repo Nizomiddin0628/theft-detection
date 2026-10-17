@@ -89,6 +89,12 @@ train_state = {"running": False, "logs": [], "result": None, "error": None, "sta
 def _startup() -> None:
     setup_logging()
     db.init_db()
+    try:
+        from .ml.model import migrate_pointer
+
+        migrate_pointer()                 # 2.3.0: tanlangan model ko'rsatkichi git faylidan data/ ga
+    except Exception as e:  # noqa: BLE001
+        log.warning("Model ko'rsatkichini ko'chirib bo'lmadi: %s", e)
     # Dastur to'xtaganda chala qolgan baholash va video tayyorlash
     db.execute("UPDATE eval_runs SET status='toxtatildi' WHERE status IN ('ishlanmoqda', 'navbatda')")
     for v in db.rows("SELECT id, path FROM eval_videos WHERE play_status='tayyorlanmoqda'"):
@@ -839,6 +845,37 @@ def api_eval_stop():
     return {"ok": True}
 
 
+def theft_live_cams() -> tuple[list[dict], float]:
+    """2.3.0: jonli kameralar bo'yicha o'g'irlik signallari va ishlagan daqiqalar (bir oynada)."""
+    from . import theft_eval
+    from .config import FEEDBACK_DIR
+
+    t0 = theft_eval.window(db.get_setting("retention_days", "30"), time.time())
+    mins = {r["source_id"]: r for r in db.rows(
+        "SELECT source_id, MAX(source_name) AS name, COUNT(*) AS minutes FROM metrics_minute WHERE source_id>0 "
+        "AND up_pct>=0.5 AND minute>=? GROUP BY source_id", (t0,))}
+    ev: dict = {}
+    for r in db.rows(f"SELECT source_id, status, COUNT(*) AS n FROM events WHERE job_id IS NULL AND source_id IS NOT NULL "
+                     f"AND {NOT_SAFETY} AND created_at>=? GROUP BY source_id, status", (t0,)):
+        e = ev.setdefault(r["source_id"], {"rejected": 0, "confirmed": 0, "unreviewed": 0})
+        e[{"rad_etilgan": "rejected", "tasdiqlangan": "confirmed"}.get(r["status"], "unreviewed")] += r["n"]
+    names = {r["id"]: r["name"] for r in db.rows("SELECT id, name FROM sources")}
+    live_ids = {r["id"] for r in db.rows("SELECT id FROM events")}
+    theft_eval.add_archived(ev, FEEDBACK_DIR, t0, live_ids, {v: k for k, v in names.items()}, SAFETY_KINDS)
+    cams = [{"source_id": sid, "name": names.get(sid) or (mins.get(sid) or {}).get("name") or f"#{sid}",
+             "minutes": (mins.get(sid) or {}).get("minutes", 0),
+             **ev.get(sid, {"rejected": 0, "confirmed": 0, "unreviewed": 0})} for sid in sorted(set(mins) | set(ev))]
+    return cams, t0
+
+
+@app.get("/api/eval/live_gate")
+def api_eval_live_gate():
+    from . import theft_eval
+
+    cams, t0 = theft_live_cams()
+    return {**theft_eval.gate(cams), "since": t0}
+
+
 @app.get("/api/eval/status")
 def api_eval_status():
     r = evaluation.get_runner()
@@ -1207,6 +1244,20 @@ def api_event(event_id: int):
     return event_public(ev)
 
 
+@app.get("/api/events/{event_id}/evidence.zip")
+def api_event_evidence(event_id: int):
+    """2.3.0: dalil paketi — klip, rasmlar, PDF hisobot, SHA-256 (app/evidence.py)."""
+    from . import evidence
+
+    try:
+        data, name = evidence.build(event_id)
+    except KeyError:
+        raise HTTPException(404, "Hodisa topilmadi")
+    log.info("Dalil paketi yuklab olindi: hodisa #%d", event_id)
+    return Response(data, media_type="application/zip",
+                    headers={"Content-Disposition": f'attachment; filename="{name}"', "Cache-Control": "no-store"})
+
+
 @app.post("/api/events/{event_id}/review")
 async def api_review(request: Request, event_id: int):
     d = await body_data(request)
@@ -1344,7 +1395,13 @@ def api_model():
 
     versions = db.rows("SELECT * FROM model_versions ORDER BY id DESC")
     active_path = BehaviorModel.active_path()
+    ch_path = BehaviorModel.challenger_path()
     for v in versions:
+        try:
+            v["oof_n"] = len(json.loads(v.pop("oof", None) or "{}"))
+        except ValueError:
+            v["oof_n"] = 0
+        v["is_challenger"] = ch_path is not None and v["path"] == ch_path.name
         v["metrics"] = json.loads(v["metrics"] or "{}")
         v["data_desc"] = json.loads(v["data_desc"] or "{}")
         v["created_str"] = time.strftime("%d.%m.%Y %H:%M", time.localtime(v["created_at"]))
@@ -1530,6 +1587,8 @@ async def api_train(request: Request):
     n_syn = int(d.get("synthetic") or 3000)
     pl = (d.get("poselift") or "").strip() or None
     use_fb = str(d.get("feedback", "1")) in ("1", "on", "true")
+    # 2.3.0: panel sukut bo'yicha challenger (soya) model o'qitadi — champion darhol almashmaydi
+    as_ch = str(d.get("challenger", "0")) in ("1", "on", "true")
     if pl and not Path(pl).exists():
         raise HTTPException(400, "PoseLift papkasi topilmadi")
     train_state.update(running=True, logs=[], result=None, error=None, started=time.time())
@@ -1539,7 +1598,8 @@ async def api_train(request: Request):
 
         try:
             res = train(n_synthetic=max(0, min(n_syn, 20000)), poselift_dir=pl, use_feedback=use_fb,
-                        log_fn=lambda m: train_state["logs"].append(f"{time.strftime('%H:%M:%S')}  {m}"))
+                        log_fn=lambda m: train_state["logs"].append(f"{time.strftime('%H:%M:%S')}  {m}"),
+                        challenger=as_ch, activate=not as_ch)
             train_state["result"] = {"metrics": res["metrics"], "path": Path(res["path"]).name}
         except Exception as e:
             train_state["error"] = str(e)
@@ -1557,6 +1617,34 @@ def api_train_status():
     return train_state
 
 
+@app.get("/api/model/champion")
+def api_model_champion():
+    """2.3.0: champion / challenger solishtiruvi (app/ml/champion.py)."""
+    from .ml import champion
+
+    return champion.compare()
+
+
+@app.post("/api/model/challenger/promote")
+def api_challenger_promote():
+    from .ml import champion
+
+    if train_state["running"]:
+        raise HTTPException(409, "O'qitish ketmoqda — tugashini kuting")
+    try:
+        return {"ok": True, **champion.promote()}
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+
+@app.post("/api/model/challenger/drop")
+def api_challenger_drop():
+    from .ml import champion
+
+    champion.drop()
+    return {"ok": True}
+
+
 @app.post("/api/model/{version_id}/activate")
 def api_model_activate(version_id: int):
     from .ml.model import BehaviorModel
@@ -1564,9 +1652,20 @@ def api_model_activate(version_id: int):
     v = db.row("SELECT * FROM model_versions WHERE id=?", (version_id,))
     if not v or not (MODELS_DIR / v["path"]).exists():
         raise HTTPException(404, "Model fayli topilmadi")
+    prev = BehaviorModel.active_path()
     db.execute("UPDATE model_versions SET active=0")
     db.execute("UPDATE model_versions SET active=1 WHERE id=?", (version_id,))
     BehaviorModel.set_active(MODELS_DIR / v["path"])
+    if prev is not None and prev.name == v["path"]:
+        return {"ok": True}                       # champion o'zgarmadi — challenger soyasi davom etadi
+    ch = BehaviorModel.challenger_path()
+    if ch is not None and ch.name == v["path"]:
+        BehaviorModel.set_challenger(None)        # challenger qo'lda faollashtirildi — endi u champion
+        db.execute("UPDATE model_versions SET role='champion', promoted_at=? WHERE id=?", (time.time(), version_id))
+    elif ch is not None:
+        from .ml import champion
+
+        champion.drop("eskirgan")                 # champion almashdi — soya solishtiruvi eski champion bilan edi
     return {"ok": True}
 
 

@@ -100,6 +100,22 @@ Sukut bo'yicha o'chiq. Kichraytirilgan kadrda olov rangi (R > 190, G > 100, R �
 ≥ 10 s (namunalarning ≥ 70%). **Tutun aniqlanmaydi** — oddiy usul bilan ishonchli qilib bo'lmaydi. Qizil/to'q sariq
 kiyim, lampa, ekran signal berishi mumkin. Yong'in signalizatsiyasining o'rnini bosmaydi.
 
+## Janjal (2.3.0, tajriba)
+
+Sukut bo'yicha o'chiq (`safety_fight`). Ikki odam yonma-yon (ramkalar orasidagi oraliq ≤ 0,6 × bo'y, bo'ylari 0,6–1,6
+nisbatda — bir chuqurlikda, tik ustma-ust tushish ≥ 50%) va birining bilagi gavdaga nisbatan ≥ 4 gavda uzunligi / s
+tezlikda ikkinchisiga qarab harakatlanib, uning ramkasiga yetadi — "zarba". Tezlik kamida 0,2 s oraliqda o'lchanadi
+(8, 15 yoki 30 kadr/s — natija bir xil, nuqtalar titrashi zarba bo'lib ko'rinmaydi). Bitta cho'zilish bir necha kadrda
+ko'rinsa ham — bitta zarba: keyingisi qo'l orqaga tortilgandan keyin sanaladi. Zarba beruvchining o'zi (son)
+≤ 2 gavda / s siljisin (yonidan yurib o'tganda qo'l silkinishi hisoblanmaydi). **Bitta juftlikda** 4 s ichida ≥ 4 zarba
+— signal (zalning ikki chetidagi ikki juftlik zarbalari qo'shilmaydi); takror `safety_cooldown_min` da bir.
+
+Sintetik skeletlarda (4–30 kadr/s, titrash bilan): zarba (1–2 Hz) — topiladi; 3 zarba, gaplashib qo'l silkitish (30 s,
+kuchli titrash bilan ham), qo'l berib ko'rishish, yonidan yurib o'tish, uzoqda havoga zarba, ikki alohida juftlikda
+2 tadan zarba — signal yo'q; do'kon namunalarida (navbatda yonma-yon turganlar bilan) 0 signal. **Haqiqiy
+janjal videolarida o'lchanmagan** (ochiq, litsenziyasi mos dataset topilmadi). O'yin, sport mashqi, qo'l silkitib
+bahslashish ham signal berishi mumkin. Itarish va ushlashib olish (zarbasiz) aniqlanmaydi.
+
 ## Kritik SMS
 
 Sozlamalar (bazada): `sms_enabled`, `sms_provider` (eskiz | http), `sms_phones`, `sms_kinds`, `sms_max_per_hour`.

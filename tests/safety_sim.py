@@ -138,3 +138,84 @@ SCENARIOS = {
                                          (10, const(LYING)), (3, morph(LYING, SIT_FLOOR)), (2, morph(SIT_FLOOR, STAND)),
                                          (3, const(STAND))], None),
 }
+
+
+# ----------------------------------------------------------------------------- janjal (2.3.0)
+def two_people(fn_a, fn_b, dur: float, fps: float = 8.0, xa: float = 520.0, xb: float = 760.0, hpx: float = 400.0,
+               floor_y: float = 640.0, noise: float = 0.0, seed: int = 0, move_a=None, move_b=None) -> list:
+    """Ikki odam: fn_x(t) -> tana nuqtalari (bo'y birligida, x — o'ng tomon ikkinchi odamga qarab). B odam ko'zgu
+    aksida (A ga qaragan). move_x(t) -> markaz siljishi (piksel)."""
+    rng = np.random.default_rng(seed)
+    out = []
+    n = int(round(dur * fps))
+    for i in range(n):
+        t = i / fps
+        ps = []
+        for tid, fn, x0, mv, mirror in ((1, fn_a, xa, move_a, False), (2, fn_b, xb, move_b, True)):
+            body = fn(t).copy()
+            if mirror:
+                body[:, 0] = -body[:, 0]
+            cx = x0 + (mv(t) if mv else 0.0)
+            k, b = to_image(body, cx, floor_y, hpx, rng=rng, noise=noise)
+            ps.append(Pp(tid, b, k))
+        out.append((t, ps))
+    return out
+
+
+def punching(freq: float = 2.0, reach: float = 0.55):
+    """O'ng qo'l bilan oldinga (+x) zarba: bilak yelkadan ikkinchi odamning boshi tomon va qaytib."""
+    def fn(t):
+        b = STAND.copy()
+        ph = 0.5 - 0.5 * np.cos(2 * np.pi * freq * t)             # 0..1..0
+        b[10] = (0.15 + reach * ph, 0.55 + 0.30 * ph)              # o'ng bilak
+        b[8] = (0.14 + 0.5 * reach * ph, 0.63 + 0.15 * ph)         # o'ng tirsak
+        return b
+    return fn
+
+
+def gesturing(freq: float = 1.0, amp: float = 0.1):
+    """Gaplashib qo'l silkitish: bilak kichik doira bo'ylab."""
+    def fn(t):
+        b = STAND.copy()
+        a = 2 * np.pi * freq * t
+        b[10] = (0.22 + amp * np.cos(a), 0.62 + amp * np.sin(a))
+        b[8] = (0.16, 0.66)
+        return b
+    return fn
+
+
+def handshake():
+    def fn(t):
+        b = STAND.copy()
+        ext = min(1.0, t / 1.0)
+        b[10] = (0.15 + 0.30 * ext, 0.55 + 0.03 * np.sin(2 * np.pi * 2 * t) * (t > 1.0))
+        b[8] = (0.14 + 0.15 * ext, 0.62)
+        return b
+    return fn
+
+
+def standing(t):
+    return STAND
+
+
+def people(specs: list[tuple], dur: float, fps: float = 8.0, hpx: float = 400.0, floor_y: float = 640.0,
+           noise: float = 0.0, seed: int = 0) -> list:
+    """Bir necha odam: specs = [(trek, fn(t), markaz x, ko'zgu (chapga qaragan), move(t) | None)]."""
+    rng = np.random.default_rng(seed)
+    out = []
+    for i in range(int(round(dur * fps))):
+        t = i / fps
+        ps = []
+        for tid, fn, x0, mirror, mv in specs:
+            body = fn(t).copy()
+            if mirror:
+                body[:, 0] = -body[:, 0]
+            k, b = to_image(body, x0 + (mv(t) if mv else 0.0), floor_y, hpx, rng=rng, noise=noise)
+            ps.append(Pp(tid, b, k))
+        out.append((t, ps))
+    return out
+
+
+def burst(fn, t0: float, t1: float):
+    """fn faqat [t0, t1) oralig'ida, qolgan vaqt — tik turish."""
+    return lambda t: fn(t) if t0 <= t < t1 else STAND

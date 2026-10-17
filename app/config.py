@@ -147,6 +147,7 @@ DEFAULT_SETTINGS = {
     "safety_crowd": "1",           # gavjumlik (chegara berilsa)
     "safety_blocked": "1",         # favqulodda chiqish to'silgan (zona chizilsa)
     "safety_fire": "0",            # olov (tajriba) — sukut bo'yicha o'chiq
+    "safety_fight": "0",           # 2.3.0: janjal (tajriba) — sukut bo'yicha o'chiq
     "safety_fall_sens": "normal",  # normal | high
     "safety_lying_sec": "20",
     "safety_night_hours": "",      # o'z jadvali "22:30-07:30" (bo'sh — ish vaqtidan tashqari)
@@ -174,4 +175,4 @@ SETTINGS_MIGRATIONS = {
 SETTINGS_VERSION = max(SETTINGS_MIGRATIONS)
 
 APP_NAME = "Hushyor AI"
-APP_VERSION = "2.2.0"
+APP_VERSION = "2.3.0"

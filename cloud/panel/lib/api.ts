@@ -364,10 +364,11 @@ export const KIND_UZ: Record<string, string> = {
   crowd: "Gavjumlik",
   blocked: "Chiqish to'silgan",
   fire: "Olov (tajriba)",
+  fight: "Janjal (tajriba)", // 2.3.0
 };
 
 /** 2.2.0: xavfsizlik signali — ball yo'q, "ayblov emas" yozuvi kerak emas, yordam/chora kerak */
-export const SAFETY_KINDS = ["fall", "lying", "night", "crowd", "blocked", "fire"];
+export const SAFETY_KINDS = ["fall", "lying", "night", "crowd", "blocked", "fire", "fight"];
 export const isSafety = (kind: string | null | undefined) => SAFETY_KINDS.includes(String(kind || ""));
 
 export const STATUS_UZ: Record<Status, string> = {

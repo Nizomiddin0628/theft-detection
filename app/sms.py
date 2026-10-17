@@ -26,7 +26,7 @@ from .logutil import get_logger
 log = get_logger("sms")
 
 KIND_ASCII = {"fall": "YIQILISH", "lying": "ODAM YOTIBDI", "night": "TUNGI KIRISH", "crowd": "GAVJUMLIK",
-              "blocked": "CHIQISH TO'SILGAN", "fire": "OLOV (tajriba)"}
+              "blocked": "CHIQISH TO'SILGAN", "fire": "OLOV (tajriba)", "fight": "JANJAL (tajriba)"}
 PROVIDERS = ("eskiz", "http")
 MAX_LEN = 160
 TIMEOUT = 15.0

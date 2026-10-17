@@ -42,11 +42,12 @@ KIND_UZ = {"pocket": "Cho'ntakka solish", "torso": "Kiyim ichiga yashirish", "ba
            "offscreen": "Qo'l kadrdan yashirildi", "exit": "Chiqish tomon ketmoqda",
            # 2.2.0: xavfsizlik va salomatlik (edge: app/ai/safety.py — bulutda numpy/cv2 yo'q, shuning uchun nusxa)
            "fall": "Yiqilish", "lying": "Odam yotibdi", "night": "Tungi kirish", "crowd": "Gavjumlik",
-           "blocked": "Chiqish to'silgan", "fire": "Olov (tajriba)"}
-SAFETY_KINDS = ("fall", "lying", "night", "crowd", "blocked", "fire")
+           "blocked": "Chiqish to'silgan", "fire": "Olov (tajriba)", "fight": "Janjal (tajriba)"}
+SAFETY_KINDS = ("fall", "lying", "night", "crowd", "blocked", "fire", "fight")
 SAFETY_HEAD = {"fall": "🆘 Yiqilish — yordam kerak bo'lishi mumkin", "lying": "🆘 Odam yotibdi — yordam kerak bo'lishi mumkin",
                "night": "🌙 Tungi kirish — ish vaqtidan tashqari odam", "crowd": "👥 Gavjumlik — odam soni me'yordan oshdi",
-               "blocked": "🚪 Favqulodda chiqish to'silgan", "fire": "🔥 Olov belgisi (tajriba) — darhol tekshiring"}
+               "blocked": "🚪 Favqulodda chiqish to'silgan", "fire": "🔥 Olov belgisi (tajriba) — darhol tekshiring",
+               "fight": "🥊 Janjal bo'lishi mumkin (tajriba) — darhol tekshiring"}
 STATUS_UZ = {"tasdiqlangan": "✅ TASDIQLANDI", "rad_etilgan": "❌ XATO SIGNAL", "yangi": "↩️ Qaror bekor qilindi"}
 RETRY = (5, 20, 60, 300, 900)            # soniya: har xatodan keyingi kutish; 6-urinish ham xato bo'lsa — failed
 NOTIFY_MAX_AGE = 600                     # bundan eski hodisa (navbatdan kelgan, backfill) uchun xabar yuborilmaydi

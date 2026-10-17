@@ -74,9 +74,17 @@
       <li><b>Gavjumlik</b> — do'konda "hozir ichkarida" yoki bitta kadrdagi odamlar soni chegaradan ≥ 60 s oshsa (chegara berilsa).</li>
       <li><b>Chiqish to'silgan</b> — "Favqulodda chiqish" zonasini chizing, zona bo'sh paytda "Bo'sh holatini eslab qolish". Keyin u yer ≥ 10 daqiqa (ish vaqtida, zonada odam yo'q paytda) quti yoki arava bilan to'silsa — signal. Mebel yoki kamera joyi o'zgarsa — qayta eslab qoling.</li>
       <li><b>Olov (tajriba, sukut bo'yicha o'chiq)</b> — olov rangidagi miltillovchi joy ≥ 10 s. Qizil/to'q sariq kiyim, lampa, ekran ham signal berishi mumkin; <b>tutun aniqlanmaydi</b> — yong'in signalizatsiyasining o'rnini bosmaydi.</li>
+      <li><b>Janjal (tajriba, sukut bo'yicha o'chiq)</b> — ikki odam yonma-yon va biri ikkinchisiga qarab qo'lini keskin harakatlantiradi (bitta juftlikda 4 s ichida ≥ 4 "zarba"). Haqiqiy janjal videolarida o'lchanmagan: o'yin yoki sport mashqi ham signal berishi mumkin.</li>
       <li><b>Kritik SMS</b> — tanlangan turlar telefonlarga SMS bilan ham (Eskiz.uz yoki boshqa HTTP shlyuz). Login va parol faqat <code>.env</code> da. Eskiz har SMS matnini moderatsiya qiladi: avval kabinetda shablonni tasdiqlating.</li>
     </ul>
     <p><b>Darvoza:</b> yiqilish recall ≥ 85% (do'konda, yumshoq gilam ustida sahnalashtirilgan kamida 20 ta yiqilish — turli joy va yo'nalishda) va xato signal ≤ 1 / kamera / hafta (har signalga ✅/❌ javob bering). Buyruq qatoridan: <code>python tests\safety_gate.py</code>.</p>
+
+    <h2 id="v2">AI modelni yaxshilash va dalil paketi (2.3.0)</h2>
+    <ul>
+      <li><b>Champion / challenger:</b> 1–2 hafta har signalga ✅/❌ bering, keyin <a href="/model">AI model</a> sahifasida "Challenger sifatida" o'qiting. Yangi model avval "soyada" ishlaydi — signal va ballga ta'sir qilmaydi. Sahifa sizning javoblaringizda solishtiradi: qancha xato signal kamayardi, haqiqiy signal yo'qolmaydimi. Yaxshi bo'lsa — "Challenger'ni faollashtirish", bo'lmasa — "Bekor qilish". Oldingi modelga har doim qaytish mumkin.</li>
+      <li><b>Dalil paketi:</b> hodisa sahifasida "Dalil paketi (ZIP + PDF)" — klip, rasmlar, PDF hisobot va har faylning SHA-256 xeshi (fayl o'zgarmaganini isbotlash uchun). Faqat qonun doirasida, vakolatli shaxslarga bering.</li>
+      <li><b>Darvoza:</b> <a href="/eval">Aniqlik sinovi</a> sahifasida "Jonli kameralarda xato signal" — har kamerada kuniga ≤ 3 ta xato signal (kamida 7 kun, javobsizlar ≤ 10%).</li>
+    </ul>
 
     <h2>Aniqlikni oshirish bo'yicha maslahatlar</h2>
     <ul>

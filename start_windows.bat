@@ -52,6 +52,13 @@ if not "%REQHASH%"=="%OLDHASH%" (
   > ".venv\.installed" echo %REQHASH%
 )
 
-echo [3/3] Dastur ishga tushmoqda... Brauzer o'zi ochiladi: http://localhost:8000
+rem 2.3.0: manzil .env dagi PORT bo'yicha (sukut 8000) - brauzerni run.py o'zi ochadi
+rem Port: dastur kabi - avval tizim muhiti, keyin .env dagi BIRINCHI "PORT=" qatori (qo'shtirnoq va bo'shliqsiz)
+set "HPORT=%PORT%"
+if not defined PORT if exist ".env" for /f "usebackq tokens=1,* delims==" %%a in (`findstr /r /i /b /c:"[ ]*PORT[ ]*=" .env`) do if not defined HPORT set "HPORT=%%b"
+if defined HPORT set "HPORT=%HPORT:"=%"
+if defined HPORT set "HPORT=%HPORT: =%"
+if not defined HPORT set "HPORT=8000"
+echo [3/3] Dastur ishga tushmoqda... Brauzer o'zi ochiladi: http://localhost:%HPORT%
 ".venv\Scripts\python.exe" run.py
 pause

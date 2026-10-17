@@ -209,6 +209,11 @@ class Manager:
             "breakdown": alert["breakdown"],
             "track_id": alert["track_id"],
             "ml_prob": alert.get("ml_prob"),
+            "ml_ch": alert.get("ml_ch"),             # 2.3.0: challenger (soya) model ehtimoli
+            "ml_ch_ver": alert.get("ml_ch_ver"),
+            "thr": alert.get("thr"),                 # 2.3.0: signal paytidagi haqiqiy chegara
+            "ml_w": alert.get("ml_w"),               # 2.3.0: signal paytidagi ML og'irligi (ML o'chiq — NULL)
+            "score_raw": alert.get("score_raw"),
             "susp_start": alert.get("susp_start"),
             "susp_end": alert.get("susp_end", alert.get("t")),
             # Jonli kamerada alert["t"] — kadr olingan devor vaqti; video faylda — hodisa yaratilgan vaqt
@@ -429,17 +434,19 @@ class Manager:
 def archive_feedback(ev: dict) -> None:
     """Tekshirilgan (tasdiqlangan / rad etilgan) hodisaning skelet izi va javobini arxivga yozadi.
 
-    Hodisa o'chirilsa ham, bu ma'lumot modelni qayta o'qitishda ishlatiladi.
+    Hodisa o'chirilsa ham, bu ma'lumot modelni qayta o'qitishda ishlatiladi. 2.3.0: javob berilmagan (yangi) hodisa ham
+    yoziladi — jonli darvoza uni "javobsiz" deb sanaydi (o'qitish faqat ✅/❌ larni oladi).
     """
-    if ev.get("status") not in ("tasdiqlangan", "rad_etilgan") or not ev.get("pose_path"):
+    if ev.get("status") not in ("tasdiqlangan", "rad_etilgan", "yangi"):
         return
-    src = POSES_DIR / ev["pose_path"]
-    if not src.exists():
-        return
+    src = POSES_DIR / ev["pose_path"] if ev.get("pose_path") else None
     try:
-        data = json.loads(src.read_text(encoding="utf-8"))
+        # 2.3.0: skelet izi bo'lmasa ham javob yoziladi — jonli xato darvozasi o'chirilgan ❌ larni ham sanasin
+        # (o'qitish uchun izsiz yozuv yaroqsiz — feedback_windows uni o'tkazib yuboradi)
+        data = json.loads(src.read_text(encoding="utf-8")) if src is not None and src.exists() else {}
         data.update({"event_id": ev["id"], "status": ev["status"], "kind": ev.get("kind"),
                      "score": ev.get("score"), "source_name": ev.get("source_name"),
+                     "source_id": ev.get("source_id"), "job_id": ev.get("job_id"),
                      "created_at": ev.get("created_at"), "archived_at": time.time()})
         FEEDBACK_DIR.mkdir(parents=True, exist_ok=True)
         (FEEDBACK_DIR / f"ev{int(ev['id']):05d}.json").write_text(json.dumps(data), encoding="utf-8")

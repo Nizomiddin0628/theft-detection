@@ -8,6 +8,36 @@ klipini avtomatik kesib, **Telegram botga** sabablari bilan yuboradi. Qo'riqchi 
 
 ---
 
+## 2.3.0 — 7-bosqich: o'g'irlik v2 (qayta o'qitish, champion/challenger), janjal, dalil paketi
+
+* **Champion / challenger** (AI model sahifasi): yangi xulq modeli endi sukut bo'yicha **challenger** sifatida o'qitiladi
+  — faol model (champion) darhol almashmaydi. Challenger "soyada" ishlaydi: har signal paytida uning ehtimoli ham
+  hodisaga yoziladi (`ml_ch`), lekin ball va signalga ta'sir qilmaydi. Solishtiruv faqat siz ✅/❌ bergan o'g'irlik
+  hodisalarida: "challenger bo'lganda ball qancha bo'lardi" qayta hisoblanadi (o'sha signaldagi haqiqiy chegara bilan —
+  zona/polka hisobga olinadi) — qancha ❌ chiqmay qolardi va qancha ✅ yo'qolardi, AUC. Ikki manba: **soya**
+  (challenger yaratilgandan keyingi jonli hodisalar) — tavsiya faqat shundan; **ko'rmagan baholash** (o'qitishda har
+  javob uni ko'rmagan model bilan baholanadi) — faqat ma'lumot. Tavsiya: ≥ 20 javob (har turdan ≥ 5), ✅ yo'qolmasin,
+  ❌ kamaysin. "Faollashtirish" / "Bekor qilish" tugmalari; oldingi modelga qaytish —
+  versiyalar jadvalidan. Cheklov: champion o'tkazib yuborgan o'g'irliklar bu yerda ko'rinmaydi (Aniqlik sinovi kerak).
+* Faol model ko'rsatkichi endi `data/behavior_active.json` da (dastur bilan kelgan `models/behavior_active.json`
+  o'zgarmaydi) — model almashtirgandan keyin ham git ishchi daraxti toza qoladi va yangilash skripti to'xtamaydi.
+  2.2.0 da boshqa model tanlagan bo'lsangiz — yangilash skripti tanlovni `data/` ga ko'chiradi.
+* **Janjal (tajriba, sukut bo'yicha o'chiq)** — Xavfsizlik sahifasida yoqiladi: ikki odam yonma-yon va biri ikkinchisiga
+  qarab qo'lini keskin harakatlantiradi (bitta juftlikda 4 s ichida ≥ 4 "zarba"; 8/15/30 kadr/s da bir xil). Haqiqiy
+  janjal videolarida o'lchanmagan — docs/SAFETY.md.
+* **Dalil paketi** — hodisa sahifasida "Dalil paketi (ZIP + PDF)": klip, rasm, odam qirqimi (asl fayllar), PDF hisobot
+  (do'kon, kamera, vaqt, turi, ball, sabablar, ball tarkibi, kim qachon tekshirdi, izoh, rasmlar, har faylning SHA-256
+  xeshi), `manifest.json` va `TEKSHIRISH.txt` (`certutil -hashfile klip.mp4 SHA256`). Yangi kutubxona kerak emas.
+* **Darvoza** (reja: *xato ≤ 3 / kamera / kun*): Aniqlik sinovi sahifasida "Jonli kameralarda xato signal" — har
+  kamerada ❌ o'g'irlik signallari / ishlagan kun (≥ 7 kun, javobsizlar ≤ 10%; xavfsizlik signallari kirmaydi;
+  o'chirilgan ❌ hodisalar ham sanaladi).
+  `python tests\theft_gate.py`. Mezonlar: `app/theft_eval.py`. Batafsil: **docs/THEFT_V2.md**.
+* `start_windows.bat` brauzer manzilini `.env` dagi `PORT` bo'yicha yozadi (avval doim 8000 deb yozardi).
+* Buyruq qatori: `python -m app.ml.train --challenger` (champion'ni almashtirmasdan o'qitish).
+* **O'lchovlarim (rostini aytsam)** — sintetik skelet va soxta javoblarda: ko'rmagan baholash har javobni qoplaydi,
+  solishtiruv va faollashtirish mantiqi sinovdan o'tgan; janjal — sintetik zarba topiladi, 7 xil oddiy harakatda va
+  do'kon namunalarida 0 signal. Haqiqiy natija — sizning javoblaringiz bilan (AI model sahifasi) va do'kondagi darvoza.
+
 ## 2.2.0 — 6-bosqich: xavfsizlik va salomatlik
 
 * **Yangi bo'lim: Xavfsizlik** (panel menyusida, Telegram'da **/xavfsizlik**). Signallar o'g'irlik signallari bilan bir

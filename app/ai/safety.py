@@ -41,19 +41,29 @@ from ..logutil import get_logger
 
 log = get_logger("safety")
 
-SAFETY_KINDS = ("fall", "lying", "night", "crowd", "blocked", "fire")
+SAFETY_KINDS = ("fall", "lying", "night", "crowd", "blocked", "fire", "fight")
 KIND_LABELS = {"fall": "Yiqilish", "lying": "Odam yotibdi", "night": "Tungi kirish", "crowd": "Gavjumlik",
-               "blocked": "Chiqish to'silgan", "fire": "Olov (tajriba)"}
+               "blocked": "Chiqish to'silgan", "fire": "Olov (tajriba)", "fight": "Janjal (tajriba)"}
 # Telegram / bulut sarlavhasi (o'g'irlikdagi "Shubhali harakat — tekshirib ko'ring" o'rniga)
 HEADLINES = {"fall": "🆘 Yiqilish — yordam kerak bo'lishi mumkin",
              "lying": "🆘 Odam yotibdi — yordam kerak bo'lishi mumkin",
              "night": "🌙 Tungi kirish — ish vaqtidan tashqari odam",
              "crowd": "👥 Gavjumlik — odam soni me'yordan oshdi",
              "blocked": "🚪 Favqulodda chiqish to'silgan",
-             "fire": "🔥 Olov belgisi (tajriba) — darhol tekshiring"}
-CRITICAL = ("fall", "lying", "night", "fire", "blocked")   # SMS uchun tanlash mumkin bo'lgan turlar
+             "fire": "🔥 Olov belgisi (tajriba) — darhol tekshiring",
+             "fight": "🥊 Janjal bo'lishi mumkin (tajriba) — darhol tekshiring"}
+CRITICAL = ("fall", "lying", "night", "fire", "blocked", "fight")   # SMS uchun tanlash mumkin bo'lgan turlar
 EXIT_KIND = "favqulodda"
-BACKGROUND_KINDS = ("fall", "lying", "crowd", "fire")
+BACKGROUND_KINDS = ("fall", "lying", "crowd", "fire", "fight")
+
+# --- janjal (2.3.0, tajriba): ikki odam yonma-yon, birining qo'li ikkinchisiga qarab keskin "zarba" harakatlari
+FIGHT_SPEED = 4.0        # bilak tezligi (gavda uzunligi / soniya) — zarba (gaplashib qo'l silkitish ≈ 1–2)
+FIGHT_TOWARD = 0.6       # harakat yo'nalishining ikkinchi odamga qarab ulushi (kosinus)
+FIGHT_WINDOW = 4.0       # shuncha soniya ichida
+FIGHT_STRIKES = 4        # ... kamida shuncha zarba, 3 xil kadrda
+FIGHT_GAP = 0.6          # ikki ramka orasidagi gorizontal oraliq ≤ shuncha × ramka balandligi
+FIGHT_BODY = 2.0         # "zarba" beruvchining o'zi shundan sekin siljisin (gavda / s) — yonidan yurib o'tganda qo'l
+                         # silkinishi zarba hisoblanmasin
 
 # --- yiqilish va yotish (o'lchovlar: docs/SAFETY.md; YOLO11n-pose, ambianic videolari)
 KP_CONF = 0.35
@@ -94,7 +104,7 @@ DEFAULTS = {k: v for k, v in DEFAULT_SETTINGS.items() if k.startswith("safety_")
 RANGES = {"safety_lying_sec": (10, 600), "safety_night_grace_min": (0, 180), "safety_crowd_inside": (0, 5000),
           "safety_crowd_cam": (0, 200), "safety_crowd_sec": (10, 3600), "safety_blocked_min": (1, 240),
           "safety_blocked_frac": (0.1, 0.9), "safety_fire_sec": (3, 120), "safety_cooldown_min": (1, 720)}
-FLAGS = ("safety_fall", "safety_lying", "safety_night", "safety_crowd", "safety_blocked", "safety_fire")
+FLAGS = ("safety_fall", "safety_lying", "safety_night", "safety_crowd", "safety_blocked", "safety_fire", "safety_fight")
 
 
 def is_safety(kind) -> bool:
@@ -684,6 +694,125 @@ def fire_mask(frame: np.ndarray, ignore: np.ndarray | None = None) -> np.ndarray
     return m
 
 
+# ============================================================================= janjal (tajriba)
+def _torso(k: np.ndarray, box) -> float:
+    sh, hp = _pt(k, (5, 6)), _pt(k, (11, 12))
+    if sh is not None and hp is not None:
+        d = float(np.linalg.norm(sh - hp))
+        if d > 5:
+            return d
+    return 0.3 * float(box[3] - box[1])
+
+
+class FightDetector:
+    """Ikki odam yonma-yon (ramkalar orasidagi oraliq ≤ 0,6 × bo'y, bo'ylari o'xshash — bir chuqurlikda) va kamida
+    biri ikkinchisiga qarab bilagini keskin (≥ 4 gavda uzunligi / s) harakatlantiradi — "zarba". Bitta juftlikda
+    4 s ichida ≥ 4 zarba — signal. Zarba = qo'l ikkinchi odamga qarab keskin cho'zilib, uning ramkasiga yetdi; keyingi
+    zarba qo'l orqaga qaytgandan keyingina sanaladi (bitta cho'zilish ko'p kadrda ko'rinsa ham — bitta zarba).
+    Tezlik kamida 0,2 s oraliqda o'lchanadi — kadr tezligi (8/15/30 fps) va nuqtalar titrashi natijani o'zgartirmasin.
+    Gaplashib qo'l silkitish, qo'l berib ko'rishish, quchoqlashish — sekin, signal emas.
+    TAJRIBA: haqiqiy janjal videolarida o'lchanmagan (ochiq, litsenziyasi to'g'ri dataset topilmadi) — sukut bo'yicha
+    o'chiq; o'yin-kulgi (bolalar) va sport mashqi ham signal berishi mumkin."""
+
+    BASE = 0.2                      # tezlik o'lchanadigan eng qisqa oraliq (s)
+    MAX_DT = 0.6
+
+    def __init__(self):
+        self.hist: dict[int, deque] = {}                    # trek -> [(t, bilaklar (2,2), gavda, markaz)]
+        self.strikes: dict[tuple, deque] = {}               # (a, b) juftlik -> [(t, hujumchi, ramka birlashmasi)]
+        self.armed: dict[tuple, bool] = {}                  # (hujumchi, nishon, qo'l) -> keyingi zarba sanaladimi
+
+    def _ref(self, tid: int, t: float):
+        """Kamida BASE soniya oldingi eng yangi holat."""
+        for s in reversed(self.hist.get(tid, ())):
+            if t - s[0] >= self.BASE - 1e-6:
+                return s if t - s[0] <= self.MAX_DT else None
+        return None
+
+    def update(self, tracked: list, t: float) -> list[dict]:
+        cur = {}
+        for p in tracked:
+            k = np.asarray(p.kpts, dtype=np.float32)
+            wr = np.array([k[9, :2] if k[9, 2] >= KP_CONF else [np.nan, np.nan],
+                           k[10, :2] if k[10, 2] >= KP_CONF else [np.nan, np.nan]], dtype=np.float32)
+            b = np.asarray(p.box, dtype=np.float32)
+            hip = _pt(k, (11, 12))                 # gavda joyi — son (ramka markazi zarba bilan birga suriladi)
+            body = hip if hip is not None else np.array([(b[0] + b[2]) / 2, b[3]], dtype=np.float32)
+            cur[int(p.track_id)] = (t, wr, _torso(k, p.box), b, np.asarray(body, dtype=np.float32))
+        ps = list(cur.items())
+        for ta, (_, wa, ra, ba, pa) in ps:
+            ref = self._ref(ta, t)
+            if ref is None:
+                continue
+            dt = t - ref[0]
+            if float(np.linalg.norm(pa - ref[3])) / max(ra, 1.0) / dt > FIGHT_BODY:
+                continue                       # o'zi yurib/yugurib ketmoqda — qo'l silkinishi
+            for tb, (_, _, _, bb, _) in ps:
+                if tb == ta or not self._near(ba, bb):
+                    continue
+                cb = np.array([(bb[0] + bb[2]) / 2, (bb[1] + bb[3]) / 2], dtype=np.float32)
+                ca = np.array([(ba[0] + ba[2]) / 2, (ba[1] + ba[3]) / 2], dtype=np.float32)
+                to = cb - ca                       # hujumchidan nishonga yo'nalish (qo'l nishondan o'tib ketsa ham)
+                m = 0.05 * float(bb[3] - bb[1])
+                for side in range(2):
+                    p0, p1 = ref[1][side], wa[side]
+                    if not (np.isfinite(p0).all() and np.isfinite(p1).all()):
+                        continue
+                    v = (p1 - p0) - (pa - ref[3])      # bilakning gavdaga nisbatan harakati (yurish ayiriladi)
+                    sp = float(np.linalg.norm(v)) / max(ra, 1.0) / dt
+                    cos = float(np.dot(v, to) / (np.linalg.norm(v) * np.linalg.norm(to) + 1e-6))
+                    key = (ta, tb, side)
+                    if cos <= -0.3 and sp >= 0.5 * FIGHT_SPEED:
+                        self.armed[key] = True         # qo'l orqaga tortildi — keyingi zarbaga tayyor
+                        continue
+                    if sp < FIGHT_SPEED or cos < FIGHT_TOWARD or not self.armed.get(key, True):
+                        continue
+                    reach = bb[0] - m <= p1[0] <= bb[2] + m and bb[1] - m <= p1[1] <= bb[3] + m
+                    if not reach:
+                        continue
+                    self.armed[key] = False
+                    u = np.array([min(ba[0], bb[0]), min(ba[1], bb[1]), max(ba[2], bb[2]), max(ba[3], bb[3])])
+                    self.strikes.setdefault((min(ta, tb), max(ta, tb)), deque(maxlen=50)).append((t, ta, u))
+        for tid, st in cur.items():
+            h = self.hist.setdefault(tid, deque(maxlen=64))
+            h.append((st[0], st[1], st[2], st[4]))
+            while h and t - h[0][0] > self.MAX_DT + self.BASE:
+                h.popleft()
+        for tid in [k for k in self.hist if k not in cur and t - self.hist[k][-1][0] > 5.0]:
+            del self.hist[tid]
+            for key in [k for k in self.armed if tid in k[:2]]:
+                del self.armed[key]
+        out = []
+        for pair in list(self.strikes):
+            dq = self.strikes[pair]
+            while dq and t - dq[0][0] > FIGHT_WINDOW:
+                dq.popleft()
+            if not dq:
+                del self.strikes[pair]
+                continue
+            if len(dq) >= FIGHT_STRIKES and len({round(x[0], 3) for x in dq}) >= 3:
+                st = list(dq)
+                del self.strikes[pair]
+                u = np.array([min(x[2][0] for x in st), min(x[2][1] for x in st), max(x[2][2] for x in st),
+                              max(x[2][3] for x in st)])
+                reasons = [f"Ikki odam yonma-yon, {len(st)} ta keskin qo'l harakati (zarba) "
+                           f"{st[-1][0] - st[0][0]:.1f} s ichida",
+                           "TAJRIBA: o'yin, sport mashqi yoki qo'l silkitib bahslashish ham shunday ko'rinishi mumkin — "
+                           "videoni ko'ring", "Janjal bo'lsa — darhol aralashing yoki qo'riqchini chaqiring"]
+                out.append(_alert("fight", st[-1][1], t, u, reasons, susp_start=st[0][0], susp_end=t))
+                break                                  # bitta kamera — bitta signal (SafetyMonitor kutish vaqti)
+        return out
+
+    @staticmethod
+    def _near(a, b) -> bool:
+        ha, hb = float(a[3] - a[1]), float(b[3] - b[1])
+        if ha <= 0 or hb <= 0 or not 0.6 <= ha / hb <= 1.6:
+            return False
+        gap = max(0.0, float(max(a[0], b[0]) - min(a[2], b[2])))
+        vo = float(min(a[3], b[3]) - max(a[1], b[1])) / min(ha, hb)
+        return gap <= FIGHT_GAP * max(ha, hb) and vo >= 0.5
+
+
 # ============================================================================= kamera monitori
 class SafetyMonitor:
     """Bitta kamera uchun barcha xavfsizlik qoidalari. Processor.step() har qadamda chaqiradi (jim kadrda ham)."""
@@ -693,6 +822,7 @@ class SafetyMonitor:
         self.source_name = source_name
         self.background = background
         self.falls = FallDetector()
+        self.fights = FightDetector()
         self.last: dict[str, float] = {}               # tur -> oxirgi signal vaqti
         self.night_first: float | None = None
         self.night_seen: float = -1e9
@@ -742,6 +872,11 @@ class SafetyMonitor:
                 out += self._night(tracked, t, s)
             if _on(s, "safety_crowd") and _num(s, "safety_crowd_cam") > 0:
                 out += self._crowd(tracked, t, s)
+            if _on(s, "safety_fight") and len(tracked) >= 2:
+                for a in self.fights.update(tracked, t):
+                    if self._cool("fight", t, s):
+                        self.last["fight"] = t
+                        out.append(a)
         else:
             out += self.falls.flush(t)
         if frame is not None and not self.background and _on(s, "safety_blocked") and zones and zones.of(EXIT_KIND):

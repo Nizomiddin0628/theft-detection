@@ -109,6 +109,7 @@ class TrackMem:
     last_alert_t: float = -1e9
     head_x: deque = field(default_factory=lambda: deque(maxlen=60))
     ml_prob: float | None = None
+    ml_ch: float | None = None        # 2.3.0: challenger (soya) model ehtimoli — ballga qo'shilmaydi
     ml_t: float = -1e9
     risk: float = 0.0
     last_seen: float = 0.0
@@ -161,6 +162,7 @@ class Analyzer:
         self.tracks: dict[int, TrackMem] = {}
         self.source_name = source_name
         self.recent_alerts: deque = deque(maxlen=20)   # (t, box) — takroriy signalni aniqlash uchun
+        self.ch_ver: str | None = None                 # 2.3.0: challenger model fayli (bo'lsa)
 
     # ------------------------------------------------------------------
     def _params(self) -> dict:
@@ -214,6 +216,8 @@ class Analyzer:
         items = [o for o in objects if o.kind == "item"]
         bags = [o for o in objects if o.kind == "bag"]
         ml = BehaviorModel.get() if base["use_ml"] else None
+        ch = BehaviorModel.get_challenger() if ml is not None else None     # 2.3.0: soya model
+        self.ch_ver = ch.path.name if ch is not None else None
         all_boxes = [pp.box for pp in persons]
 
         for pi, person in enumerate(persons):
@@ -471,6 +475,7 @@ class Analyzer:
             # ML ehtimolligi (sekundiga ~2 marta)
             if ml is not None and t - mem.ml_t >= 0.5 and len(mem.hist) >= 6:
                 mem.ml_prob = ml.predict(list(mem.hist))
+                mem.ml_ch = ch.predict(list(mem.hist)) if ch is not None else None
                 mem.ml_t = t
 
             if candidates:
@@ -513,6 +518,11 @@ class Analyzer:
                         "track_id": tid, "t": t, "score": score, "level": level, "kind": zone,
                         "kind_label": KIND_LABELS[zone], "side": side, "reasons": reasons,
                         "breakdown": bd, "ml_prob": mem.ml_prob, "box": person.box.tolist(),
+                        "ml_ch": mem.ml_ch, "ml_ch_ver": self.ch_ver,
+                        # 2.3.0: champion/challenger solishtiruvi uchun — shu signaldagi haqiqiy chegara (zona, polka
+                        # bilan), ML og'irligi va kesilmagan ball
+                        "thr": float(thr), "ml_w": float(p["ml_weight"]) if ml is not None else None,
+                        "score_raw": float(pts),
                         "susp_start": float(susp_start), "susp_end": float(t),
                         "pose_seq": [[float(a), kk.tolist(), bb.tolist()] for a, kk, bb in list(mem.hist)],
                     })
@@ -588,6 +598,7 @@ class Analyzer:
             "track_id": person.track_id, "t": t, "score": float(min(100.0, score)), "level": level,
             "kind": "exit", "kind_label": KIND_LABELS["exit"], "side": None, "reasons": reasons,
             "breakdown": bd, "ml_prob": mem.ml_prob, "box": person.box.tolist(),
+            # "Chiqish" signali ballida ML bevosita yo'q (avvalgi signal bali) — challenger solishtiruviga kirmaydi
             "susp_start": float(t - 3.0),     # eshik tomon yurib kelgan oxirgi soniyalar
             "susp_end": float(t), "pose_seq": [],   # yurish — o'qitish uchun ishlatilmaydi
         }

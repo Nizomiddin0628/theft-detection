@@ -436,6 +436,11 @@ EXTRA_COLUMNS = {
         "claimed_by": "TEXT",   # "Ko'ryapman" bosgan qo'riqchi
         "claimed_at": "REAL",
         "clip_error": "INTEGER DEFAULT 0",   # 1 — klip yaratib bo'lmadi (Telegram'da "tayyorlanmoqda" qolmasin)
+        "ml_ch": "REAL",        # 2.3.0: challenger (soya) model ehtimoli — ballga ta'sir qilmaydi, solishtiruv uchun
+        "ml_ch_ver": "TEXT",    # 2.3.0: qaysi challenger (fayl nomi)
+        "thr": "REAL",          # 2.3.0: signal paytidagi haqiqiy chegara (zona/polka bilan) — solishtiruv uchun
+        "ml_w": "REAL",         # 2.3.0: signal paytidagi ML og'irligi (NULL — ML o'chiq edi)
+        "score_raw": "REAL",    # 2.3.0: 100 ga kesilmagan ball
     },
     "subscribers": {
         "kb_cleared": "INTEGER DEFAULT 0",   # eski botdan qolgan pastki tugmalar tozalanganmi
@@ -449,6 +454,11 @@ EXTRA_COLUMNS = {
     },
     "outbox": {
         "failed": "INTEGER DEFAULT 0",        # 1.5.0 ishlab chiqish nusxalari uchun (jadval shu versiyada paydo bo'ldi)
+    },
+    "model_versions": {
+        "role": "TEXT",                       # 2.3.0: champion | challenger (soya model)
+        "oof": "TEXT",                        # 2.3.0: {hodisa id: ko'rmagan ehtimol} — solishtiruv uchun
+        "promoted_at": "REAL",                # 2.3.0: challenger faollashtirilgan vaqt
     },
 }
 

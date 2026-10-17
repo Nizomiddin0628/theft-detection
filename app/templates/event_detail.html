@@ -28,6 +28,7 @@
           {% if ev.clip_url and ev.susp_offset is not none %}<button class="btn primary" onclick="toSusp()">{{ icon('eye', 16) }} Shubhali lahzaga o'tish</button>{% endif %}
           {% if ev.clip_url %}<a class="btn" href="{{ ev.clip_url }}" download>{{ icon('download', 16) }} Klipni yuklab olish</a>{% endif %}
           <button class="btn" onclick="resend(this)">{{ icon('send', 16) }} Telegramga qayta yuborish</button>
+          <a class="btn" href="/api/events/{{ ev.id }}/evidence.zip" title="Klip, rasmlar, PDF hisobot va SHA-256 xeshlar">{{ icon('download', 16) }} Dalil paketi (ZIP + PDF)</a>
           <div style="flex:1"></div>
           <button class="btn ghost" style="color:#b42318" onclick="delEv()">{{ icon('trash', 16) }} O'chirish</button>
         </div>

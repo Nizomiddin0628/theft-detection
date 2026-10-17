@@ -41,9 +41,21 @@
         <div class="field"><label class="f">PoseLift dataseti papkasi (ixtiyoriy)</label><input type="text" name="poselift" placeholder="C:\data\PoseLift">
           <div class="hint">Haqiqiy do'kon o'g'irliklari skeletlari (153 video). <a href="https://github.com/TeCSAR-UNCC/PoseLift" target="_blank" rel="noopener">Yuklab olish</a></div></div>
         <div class="field"><label class="switch"><input type="checkbox" name="feedback" checked> Qo'riqchi javoblarini qo'shish</label></div>
+        <div class="field"><label class="switch"><input type="checkbox" name="challenger" checked> Challenger sifatida (soyada sinash — faol model darhol almashmaydi)</label>
+          <div class="hint">Tavsiya etiladi: yangi model avval jonli signallarda "soyada" ishlaydi, pastda champion bilan solishtirasiz.</div></div>
         <button class="btn primary" style="width:100%;justify-content:center" id="trainbtn">{{ icon('cpu', 16) }} O'qitishni boshlash</button>
       </form>
     </div>
+  </div>
+</div>
+
+<div class="card" style="margin-top:16px" id="cc-card">
+  <div class="card-h"><h2>Champion / challenger</h2><span class="muted small">yangi model faol modeldan yaxshimi — sizning ✅/❌ javoblaringizda</span><div class="grow"></div><span id="cc-badge" class="badge">—</span></div>
+  <div class="card-b">
+    <div id="cc-body" class="small"><div class="muted">Yuklanmoqda…</div></div>
+    <div class="row" style="gap:8px;margin-top:12px"><button class="btn primary" id="cc-promote" disabled>{{ icon('check', 14) }} Challenger'ni faollashtirish</button>
+      <button class="btn ghost" id="cc-drop" disabled>Challenger'ni bekor qilish</button></div>
+    <p class="hint" style="margin-top:10px">Har javob berilgan o'g'irlik hodisasi uchun "challenger bo'lganda ball qancha bo'lardi" qayta hisoblanadi (o'sha signaldagi haqiqiy chegara bilan — zona/polka hisobga olinadi; eski hodisalarda — hozirgi {{ settings.threshold }}). Ikki manba: <b>soya</b> — challenger yaratilgandan keyingi jonli hodisalar (tavsiya faqat shundan); <b>ko'rmagan baholash</b> — challenger o'qitilganda har hodisa uni ko'rmagan model bilan baholanadi (faqat ma'lumot: yangi modelga yon bosadi). Yangi challenger o'qitilsa yoki champion almashsa, eski challenger "eskirgan" bo'ladi. Cheklov: champion o'tkazib yuborgan o'g'irliklar bu yerda ko'rinmaydi — ularni <a href="/eval">Aniqlik sinovi</a> ko'rsatadi. Oldingi modelga qaytish — pastdagi "Model versiyalari" jadvalidan.</p>
   </div>
 </div>
 
@@ -118,14 +130,48 @@ async function load() {
     const d = Object.entries(v.data_desc || {}).map(([k, x]) => `${k}: ${x}`).join(", ");
     return `<tr><td>${v.id}</td><td>${v.created_str}</td><td class="small">${H.esc(d)}</td><td class="num">${v.n_samples} (${v.n_pos} shubhali)</td>
       <td class="num">${fmt(m.accuracy)}</td><td class="num">${fmt(m.precision)}</td><td class="num">${fmt(m.recall)}</td><td class="num">${fmt(m.f1)}</td><td class="num">${fmt(m.roc_auc)}</td>
-      <td style="text-align:right">${v.is_active ? `<span class="badge on">faol</span>` : (v.exists ? `<button class="btn sm" onclick="activate(${v.id})">Faollashtirish</button>` : `<span class="muted small">fayl yo'q</span>`)}</td></tr>`;
+      <td style="text-align:right">${v.is_challenger ? `<span class="badge info">challenger</span> ` : ""}${v.is_active ? `<span class="badge on">faol</span>` : (v.exists ? `<button class="btn sm" onclick="activate(${v.id})">Faollashtirish</button>` : `<span class="muted small">fayl yo'q</span>`)}</td></tr>`;
   }).join("") : `<tr><td colspan="10" class="muted">Bu kompyuterda hali o'qitilmagan (dastur bilan kelgan boshlang'ich model ishlatilmoqda)</td></tr>`;
 }
+function simRow(name, x) {
+  if (!x || !x.n) return `<tr><td>${name}</td><td colspan="6" class="muted">hali ma'lumot yo'q</td></tr>`;
+  const a = (v) => v === null || v === undefined ? "—" : v.toFixed(2);
+  return `<tr><td>${name}</td><td class="num">${x.n} (✅ ${x.pos} · ❌ ${x.neg})${x.approx ? `<div class="hint">${x.approx} tasi taxminiy (eski, chegara yozilmagan)</div>` : ""}</td><td class="num">${x.champ_fp} → <b>${x.fp}</b></td>
+    <td class="num">${x.champ_tp} → <b>${x.tp}</b>${x.lost_tp.length ? ` <span style="color:#b42318">(−${x.lost_tp.length})</span>` : ""}</td>
+    <td class="num">${a(x.auc_champ)} → <b>${a(x.auc_ch)}</b></td></tr>`;
+}
+async function loadCC() {
+  const r = await H.api("/api/model/champion");
+  const b = document.getElementById("cc-badge"), body = document.getElementById("cc-body");
+  document.getElementById("cc-promote").disabled = !r.challenger;
+  document.getElementById("cc-drop").disabled = !r.challenger;
+  if (!r.challenger) {
+    b.textContent = "challenger yo'q"; b.className = "badge";
+    body.innerHTML = `Champion (faol): <b>${H.esc(r.champion || "—")}</b>. Challenger yo'q — yuqorida "Challenger sifatida" belgisi bilan o'qiting (avval 1–2 hafta ✅/❌ javob to'plang).`;
+    return;
+  }
+  const v = r.verdict || {};
+  b.textContent = v.better ? "challenger yaxshiroq" : (v.enough ? "champion qolsin" : "ma'lumot kam");
+  b.className = "badge " + (v.better ? "on" : (v.enough ? "tasdiqlangan" : "info"));
+  body.innerHTML = `<div>Champion: <b>${H.esc(r.champion || "—")}</b> · Challenger: <b>${H.esc(r.challenger)}</b> (soyada)</div>
+    <div class="table-wrap" style="margin-top:8px"><table class="small"><thead><tr><th>Manba</th><th>Javoblar</th><th>❌ signal</th><th>✅ signal</th><th>AUC</th></tr></thead>
+    <tbody>${simRow("Ko'rmagan baholash", r.cv)}${simRow("Soya (jonli)", r.shadow)}</tbody></table></div>
+    <div class="note ${v.better ? "ok" : (v.enough ? "warn" : "")}" style="margin-top:8px"><div>${H.esc(v.text || "")}${v.source ? ` <span class="muted">(${H.esc(v.source)})</span>` : ""}</div></div>`;
+}
+document.getElementById("cc-promote").onclick = async () => {
+  if (!confirm("Challenger faol modelga aylansinmi? (Oldingi model versiyalar ro'yxatida qoladi)")) return;
+  await H.post("/api/model/challenger/promote"); H.toast("Challenger faollashtirildi", "ok"); load(); loadCC();
+};
+document.getElementById("cc-drop").onclick = async () => {
+  if (!confirm("Challenger bekor qilinsinmi?")) return;
+  await H.post("/api/model/challenger/drop"); H.toast("Challenger bekor qilindi"); load(); loadCC();
+};
 async function activate(id) { await H.post(`/api/model/${id}/activate`); H.toast("Model faollashtirildi", "ok"); load(); }
 document.getElementById("trainf").onsubmit = async (e) => {
   e.preventDefault();
   const f = new FormData(e.target);
-  await H.post("/api/model/train", { synthetic: f.get("synthetic"), poselift: f.get("poselift"), feedback: f.get("feedback") ? "1" : "0" });
+  await H.post("/api/model/train", { synthetic: f.get("synthetic"), poselift: f.get("poselift"), feedback: f.get("feedback") ? "1" : "0",
+                                     challenger: f.get("challenger") ? "1" : "0" });
   H.toast("O'qitish boshlandi", "ok");
   poll();
 };
@@ -138,7 +184,7 @@ async function poll() {
   document.getElementById("trainbtn").disabled = s.running;
   if (s.logs.length) { const c = document.getElementById("tlog"); c.textContent = s.logs.join("\n"); c.scrollTop = c.scrollHeight; }
   clearTimeout(pt);
-  if (s.running) pt = setTimeout(poll, 1000); else if (s.result) load();
+  if (s.running) pt = setTimeout(poll, 1000); else if (s.result) { load(); loadCC(); }
 }
 // ---- ko'rish modellari
 let vbusy = false;
@@ -183,6 +229,6 @@ document.getElementById("vfile").addEventListener("change", async (e) => {
   if (res.ok) H.toast(`Model tayyor: ${H.esc(j.model)}`, "ok"); else H.toast("⚠️ " + H.esc(j.detail || "Xato"), "alert");
   e.target.value = ""; loadV();
 });
-load(); poll(); loadV();
+load(); poll(); loadV(); loadCC();
 </script>
 {% endblock %}
