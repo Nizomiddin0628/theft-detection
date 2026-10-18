@@ -669,8 +669,9 @@ def flow_with_data(branch_ids: list[int], t0: float) -> set[tuple[int, int]]:
         return {(int(r.branch_id), int(r.plan_id)) for r in c.execute(sel)}
 
 
-def queue_agg(branch_ids: list[int], t0: float, off: int = 0, slot: int = 86400) -> list[dict]:
-    """Navbat yig'indisi SQL'da: filial × mahalliy kun (slot=86400) yoki soat (3600). off — vaqt mintaqasi (soniya)."""
+def queue_agg(branch_ids: list[int], t0: float, off: int = 0, slot: int = 86400, t1: float | None = None) -> list[dict]:
+    """Navbat yig'indisi SQL'da: filial × mahalliy kun (slot=86400) yoki soat (3600). off — vaqt mintaqasi (soniya).
+    t1 (2.4.0) — oraliq oxiri (berilmasa — hozirgacha)."""
     if not branch_ids:
         return []
     from sqlalchemy import func
@@ -684,6 +685,8 @@ def queue_agg(branch_ids: list[int], t0: float, off: int = 0, slot: int = 86400)
                   func.sum(q.wait_n).label("wait_n"), func.max(q.wait_max).label("wait_max"))
            .where(q.branch_id.in_([int(b) for b in branch_ids]), q.minute >= int(t0))
            .group_by(q.branch_id, bucket))
+    if t1 is not None:
+        sel = sel.where(q.minute < int(t1))
     with engine().connect() as c:
         return [{"branch_id": int(r.branch_id), "t": int(r.b), "t_obs": float(r.t_obs or 0),
                  "len_sum": float(r.len_sum or 0), "len_max": int(r.len_max or 0), "long_sec": float(r.long_sec or 0),

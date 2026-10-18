@@ -148,6 +148,10 @@ DEFAULT_SETTINGS = {
     "safety_blocked": "1",         # favqulodda chiqish to'silgan (zona chizilsa)
     "safety_fire": "0",            # olov (tajriba) — sukut bo'yicha o'chiq
     "safety_fight": "0",           # 2.3.0: janjal (tajriba) — sukut bo'yicha o'chiq
+    # 2.4.0: kunlik va haftalik hisobot (app/reports.py) — Telegram'ga matn + PDF
+    "report_daily": "1",           # har kuni report_time da kechagi kun
+    "report_weekly": "1",          # har dushanba report_time da o'tgan hafta
+    "report_time": "09:00",
     "safety_fall_sens": "normal",  # normal | high
     "safety_lying_sec": "20",
     "safety_night_hours": "",      # o'z jadvali "22:30-07:30" (bo'sh — ish vaqtidan tashqari)
@@ -175,4 +179,4 @@ SETTINGS_MIGRATIONS = {
 SETTINGS_VERSION = max(SETTINGS_MIGRATIONS)
 
 APP_NAME = "Hushyor AI"
-APP_VERSION = "2.3.1"
+APP_VERSION = "2.4.0"

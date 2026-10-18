@@ -8,6 +8,44 @@ klipini avtomatik kesib, **Telegram botga** sabablari bilan yuboradi. Qo'riqchi 
 
 ---
 
+## 2.4.0 — 8-bosqich: hisobotlar va tavsiyalar, rahbariyat paneli
+
+* **Kunlik va haftalik hisobot (do'kon kompyuteri).** Har kuni ertalab (sukut 09:00, Hisobotlar sahifasida
+  o'zgartiriladi) kechagi kun bo'yicha, har dushanba — o'tgan hafta (dushanba–yakshanba) bo'yicha Telegram'ga qisqa
+  xabar va **PDF** keladi: tashriflar (o'tgan haftaning shu kuni / o'tgan hafta bilan farq, eng gavjum soat/kun), navbat
+  (o'rtacha va 90% kutish, uzun navbat soatlari), bo'limlar (oqim), o'g'irlik signallari (✅/❌/javobsiz, kamera
+  bo'yicha), xavfsizlik signallari, ish vaqtida ishlamagan kameralar va dastur o'chiq bo'lgan vaqt. Dastur yoki
+  kompyuter rejadagi vaqtda o'chiq bo'lsa — o'sha kuni yoqilganda yuboriladi (haftalik — dushanba kuni). Har chatga bir
+  marta: yetmagan chatga o'sha kun davomida 10 daqiqada bir qayta, PDF yetmasa matn takrorlanmaydi; yuborilgan
+  hisobot keyin qayta hisoblanmaydi.
+* **Tavsiyalar (qoidalar asosida, ko'pi bilan 6 ta, muhimi oldin):** uzun navbat soatlari ("10:00–12:00 da qo'shimcha
+  kassa oching"), 90% kutish chegaradan uzun, ish vaqtida ≥ 30 daqiqa ishlamagan kamera, dastur ≥ 30 daqiqa o'chiq,
+  xato signallar ≥ 60% (eng ko'p xato bergan kamera bilan), javobsiz signallar, javobsiz xavfsizlik signallari,
+  tashriflar −20% / +25%, kirdi–chiqdi farqi > 10% (sanash chizig'i joyi), sanash chizig'i yo'q. Har tavsiyaga
+  Telegram'da yoki panelda **👍 / 👎** — darvoza shu baholarni sanaydi.
+* **Telegram: /hisobot** — bugungi holat (hozirgacha) va tugmalar: kunlik PDF, haftalik PDF, hisobotlarni shu chat
+  uchun o'chirish/yoqish (o'g'irlik signallari kelaveradi).
+* **Hisobotlar sahifasi** (yuqorida yangi bo'lim): istalgan kun/hafta hisobotini yaratish, ko'rsatkichlar, tavsiyalar
+  va baholar, PDF yuklab olish, Telegram'ga qayta yuborish, sozlamalar (vaqt, kunlik/haftalik, qaysi chatlarga),
+  yuborilganlar tarixi va darvoza holati. Eski "Signallar tahlili" o'sha sahifada pastda qoldi.
+* **Rahbariyat paneli (bulut): Taqqoslash** — barcha filiallar bitta jadvalda: tashriflar (bir hafta oldingi xuddi
+  shu davrga nisbatan), o'rtacha kutish, signallar (✅/❌/javobsiz, xato ulushi), xavfsizlik, do'kon kompyuteri ishlagan
+  vaqt; har ustunda eng yomon filial ajratiladi. Kun yoki hafta, istalgan sana. Filiallararo tavsiyalar: kutish
+  boshqa filiallardan ≥ 1,5 barobar (va ≥ 60 s), xato signallar ≥ 60%, javobsiz signallar, ishlagan vaqt < 90%,
+  tashriflar −20%. Egasi barcha filiallarni, menejer — o'zinikini ko'radi; qo'riqchiga ko'rinmaydi.
+* **Haftalik xulosa (bulut):** har dushanba 09:00 dan keyin (bulut vaqt mintaqasi, `CLOUD_TZ_OFFSET`) egasi va
+  menejerlarga Telegram/email orqali — filiallar taqqoslash va tavsiyalar, haftasiga bir marta (server dushanba o'chiq
+  bo'lsa — seshanba). Sozlamalar → Bildirishnomalar → "Haftalik xulosa" bilan o'chiriladi.
+* **Darvoza** (reja: *hisobot 2 hafta har kuni o'z vaqtida, raqamlari to'g'ri, ≥ 3 ta tavsiya foydali*): oxirgi 14 kun
+  — har kungi hisobot rejadagi vaqtdan ≤ 30 daqiqa kechikib yetgan (ko'pi bilan 1 kun o'tkazib), yuborilgan har
+  hisobotdagi tashrif va signallar soni yaratilgan paytda bazadan mustaqil qayta sanalganiga teng, kamida 3 xil
+  tavsiya 👍 (bitta kassaning turli soatlari — bitta tavsiya). Hisobotlar sahifasida
+  yoki `python tests\report_gate.py`. Mezonlar: `app/report_eval.py`. Batafsil: **docs/REPORTS.md**.
+* Bulut paneli telefonda: pastki menyu 10 bo'limgacha yon tomonga suriladi, ochiq bo'lim doim ko'rinadi.
+* **O'lchovlarim (rostini aytsam)** — raqamlar sinov bazasida qo'lda hisoblangani bilan solishtirildi (edge 81/81,
+  bulut 75/75 SQLite va PostgreSQL'da); PDF va sahifalar brauzerda ko'rib chiqildi. Tavsiyalar qanchalik foydali —
+  faqat do'konda, sizning 👍/👎 baholaringiz bilan bilinadi (darvoza).
+
 ## 2.3.1 — tuzatishlar (72 soatlik sinov topgan)
 
 * **Yiqilish: xato signal tuzatildi.** Kameradan tez uzoqlashib, eshik tomon ketayotgan odam "yiqildi" deb chiqardi
@@ -635,7 +673,7 @@ python run.py
 | Kameralar | Veb-kamera, IP kamera (RTSP), video fayl qo'shish; avtomatik yoqish; zonalar |
 | AI model | Model aniqligi, versiyalar, qo'riqchi javoblari va PoseLift bilan qayta o'qitish |
 | Telegram bot | Ulanish kodi, obunachilar, sinov xabari, yuborish sozlamalari |
-| Hisobotlar | Kunlar/soatlar/kameralar bo'yicha, signal aniqligi, javob vaqti |
+| Hisobotlar | Kunlik/haftalik hisobot (Telegram + PDF), tavsiyalar va 👍/👎, darvoza (2.4.0); signallar tahlili: kunlar/soatlar/kameralar, aniqlik, javob vaqti |
 | Tashriflar | Eshikdan kirdi/chiqdi, hozir ichkarida, soat/kun/hafta, eng gavjum soat, qo'lda sanash sinovi, CSV (1.9.0) |
 | Navbat | Har kassada navbat va kutish vaqti, kassir bor/yo'q, qoidalar va signallar, kassir jadvali tavsiyasi, aniqlik sinovi (namuna + sekundomer), CSV (2.0.0) |
 | Aniqlik sinovi | O'z videolaringizda hodisalarni belgilash va aniqlik/topishni o'lchash |
@@ -711,6 +749,9 @@ python -m tests.test_flow                 # 2.1.0 oqim: gomografiya, bo'lim tash
 python -m tests.test_flow_cloud           # 2.1.0 bulutda oqim: hello, soatlik yig'indi, /flow, edge → bulut (PostgreSQL ham)
 python -m tests.test_flow_video           # 2.1.0 haqiqiy videoda oqim (samples/sanash_namuna.mp4, taxminiy kalibrlash)
 python tests/flow_gate.py                 # 2.1.0 oqim darvozasi (nuqtada turish va qo'lda sanash)
+python -m tests.test_reports              # 2.4.0 hisobotlar: davrlar, raqamlar, matn, PDF, Telegram, API, darvoza
+python -m tests.test_reports_cloud        # 2.4.0 bulutda taqqoslash va haftalik xulosa (CLOUD_TEST_PG_URL bilan PostgreSQL ham)
+python tests/report_gate.py               # 2.4.0 hisobot darvozasi (14 kun, o'z vaqtida, raqamlar, foydali tavsiyalar)
 ```
 
 ---

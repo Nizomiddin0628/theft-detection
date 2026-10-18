@@ -395,6 +395,41 @@ CREATE TABLE IF NOT EXISTS sms_log (
     test INTEGER DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_sms_t ON sms_log(t);
+-- 2.4.0: kunlik/haftalik hisobotlar (app/reports.py) va tavsiyalarga baho
+CREATE TABLE IF NOT EXISTS reports (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    kind TEXT NOT NULL,           -- daily | weekly
+    t0 REAL NOT NULL,             -- davr boshi (mahalliy yarim tun)
+    t1 REAL NOT NULL,
+    created_at REAL,
+    due_at REAL,                  -- rejadagi yuborish vaqti (darvoza: o'z vaqtida yetdimi)
+    data TEXT,                    -- hisobot ma'lumoti (JSON) — yaratilgan paytdagi holat
+    sent_at REAL,                 -- Telegram'ga birinchi yetgan vaqt
+    sent_n INTEGER DEFAULT 0,
+    error TEXT,
+    checked TEXT,                 -- darvoza: yaratilgan paytda bazadan mustaqil qayta sanalgani (JSON)
+    frozen INTEGER DEFAULT 0,     -- yuborish boshlangan: qayta hisoblanmaydi (Telegram'dagi nusxa bilan bir xil)
+    UNIQUE (kind, t0)
+);
+CREATE TABLE IF NOT EXISTS report_sends (
+    report_id INTEGER NOT NULL,
+    chat_id INTEGER NOT NULL,
+    sent_at REAL,                 -- matn yetgan vaqt; NULL — yetmagan (qayta urinish)
+    pdf INTEGER DEFAULT 0,        -- PDF ham yetdimi
+    tries INTEGER DEFAULT 0,
+    error TEXT,
+    perm INTEGER DEFAULT 0,       -- oxirgi xato doimiy (bot bloklangan, chat yo'q)
+    auto INTEGER DEFAULT 1,       -- rejalashtiruvchi yubordi (0 — paneldan qo'lda; darvoza sanamaydi)
+    PRIMARY KEY (report_id, chat_id)
+);
+CREATE TABLE IF NOT EXISTS report_feedback (
+    report_id INTEGER NOT NULL,
+    rec_key TEXT NOT NULL,        -- tavsiya kaliti (masalan "queue:3:17-19", "cam:2")
+    useful INTEGER NOT NULL,      -- 1 — foydali, 0 — foydasiz
+    who TEXT NOT NULL,
+    t REAL,
+    PRIMARY KEY (report_id, rec_key, who)
+);
 """
 
 
@@ -445,12 +480,21 @@ EXTRA_COLUMNS = {
     "subscribers": {
         "kb_cleared": "INTEGER DEFAULT 0",   # eski botdan qolgan pastki tugmalar tozalanganmi
         "queue_alerts": "INTEGER DEFAULT 1",  # 2.0.0: navbat signallari shu chatga (/navbat tugmasi bilan o'chiriladi)
+        "reports": "INTEGER DEFAULT 1",       # 2.4.0: kunlik/haftalik hisobot shu chatga
     },
     "jobs": {
         "zone_source_id": "INTEGER",          # yuklangan videoga qaysi kameraning zonalari qo'llanadi
     },
     "eval_runs": {
         "speed": "REAL",                      # tahlil vaqti / video vaqti (model og'irligi)
+    },
+    "reports": {                              # 2.4.0 ishlab chiqish nusxalari uchun (jadval shu versiyada paydo bo'ldi)
+        "checked": "TEXT",
+        "frozen": "INTEGER DEFAULT 0",
+    },
+    "report_sends": {
+        "perm": "INTEGER DEFAULT 0",
+        "auto": "INTEGER DEFAULT 1",
     },
     "outbox": {
         "failed": "INTEGER DEFAULT 0",        # 1.5.0 ishlab chiqish nusxalari uchun (jadval shu versiyada paydo bo'ldi)
@@ -504,6 +548,8 @@ def init_db() -> None:
         # 2.2.0: xavfsizlik qoidalari ishlay boshlagan vaqt — darvozadagi "xato / kamera-hafta" shundan hisoblanadi
         # (undan oldingi kamera daqiqalari xato signal sonini sun'iy kamaytirmasin)
         c.execute("INSERT OR IGNORE INTO settings(key, value) VALUES('safety_since', ?)", (str(round(time.time())),))
+        # 2.4.0: hisobotlar shu vaqtdan (undan oldingi davr uchun avtomatik hisobot yuborilmaydi; darvoza oynasi)
+        c.execute("INSERT OR IGNORE INTO settings(key, value) VALUES('report_since', ?)", (str(round(time.time())),))
         c.execute("UPDATE outbox SET sending=0 WHERE sending=1")   # dastur to'xtaganda yarim qolgan yuborishlar
         # Ishlanmay qolgan vazifalarni yopish (dastur qayta ishga tushganda)
         c.execute("UPDATE jobs SET status='toxtatildi' WHERE status IN ('navbatda','ishlanmoqda')")

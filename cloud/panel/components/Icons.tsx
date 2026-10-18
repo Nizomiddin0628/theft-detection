@@ -49,6 +49,13 @@ export const IconChart = (p: P) => (
   </svg>
 );
 
+export const IconScale = (p: P) => (
+  <svg {...base} {...p}>
+    <path d="M5 20V11M10 20V6M15 20v-7M20 20V9" />
+    <path d="M3 20h18" />
+  </svg>
+);
+
 export const IconPeople = (p: P) => (
   <svg {...base} {...p}>
     <circle cx="9" cy="8" r="3.2" />

@@ -61,14 +61,16 @@ PUSH_HOSTS = ("fcm.googleapis.com", "updates.push.services.mozilla.com", "push.s
 
 DEFAULT_PREFS = {
     "guard": {"event": True, "min_score": 0, "camera": False, "offline": False, "escalation": False,
-              "queue": False, "queue_low": False},
+              "queue": False, "queue_low": False, "digest": False},
     "manager": {"event": True, "min_score": 0, "camera": True, "offline": True, "escalation": True,
-                "queue": True, "queue_low": False},
+                "queue": True, "queue_low": False, "digest": True},
     "owner": {"event": True, "min_score": 75, "camera": True, "offline": True, "escalation": True,
-              "queue": True, "queue_low": False},
+              "queue": True, "queue_low": False, "digest": True},
 }
 # 2.0.0: queue — navbat qoidalari 1, 2, 4 (va egasiga 5 — tarmoq signali); queue_low — 3-qoida ("kassir kerak emas")
-PREF_BOOL = ("event", "camera", "offline", "escalation", "queue", "queue_low")
+# 2.4.0: digest — haftalik xulosa (dushanba, filiallar taqqoslash va tavsiyalar; cloud/report.py)
+PREF_BOOL = ("event", "camera", "offline", "escalation", "queue", "queue_low", "digest")
+DIGEST_HOUR = 9                          # mahalliy vaqt (CLOUD_TZ_OFFSET) bo'yicha dushanba shu soatdan keyin
 QUEUE_RULES = {"R1": "Qo'shimcha kassa oching", "R2": "Kassani tekshiring", "R3": "Qo'shimcha kassir kerak emas",
                "R4": "Kassir jadvali", "R5": "Tarmoq signali"}
 QUEUE_ICON = {"R1": "🧾", "R2": "⚠️", "R3": "ℹ️", "R4": "📅", "R5": "🌐"}
@@ -547,7 +549,53 @@ def monitor() -> dict:
             p["waited"] = now - float(ev["received_at"])
             notify_branch(br["id"], "escalation", ev["uid"], p, "escalation", roles=("manager", "owner"))
             out["escalated"] += 1
+    out["digest"] = weekly_digest(now)
     return out
+
+
+def weekly_digest(now: float | None = None, force: bool = False) -> int:
+    """2.4.0: dushanba (yoki seshanba — server dushanba o'chiq bo'lsa) DIGEST_HOUR dan keyin o'tgan hafta xulosasi
+    egalar va menejerlarga (o'z filiallari bo'yicha), har hafta bir marta. Har foydalanuvchi alohida (bittasidagi xato
+    qolganlarini to'xtatmaydi); navbatga qo'yilgani qayta qo'yilmaydi (ref = hafta:foydalanuvchi), hafta belgisi
+    (kv digest_week) hammasi tugagach yoziladi. Qaytaradi: navbatga qo'yilgan xabarlar."""
+    from . import report
+
+    now = time.time() if now is None else now
+    off = int(round(cfg.tz_offset * 3600))
+    w0, w1 = report.period("week", off, now)                 # o'tgan dushanba–yakshanba
+    local = time.gmtime(now + off)
+    if not force and (local.tm_wday > 1 or (local.tm_wday == 0 and local.tm_hour < DIGEST_HOUR)):
+        return 0
+    if not force and cdb.kv_get("digest_week") == str(int(w0)):
+        return 0
+    lbl = report.label("week", w0, w1, off)
+    n = 0
+    for co in cdb.rows("SELECT id, name FROM companies"):
+        for u in cdb.rows("SELECT id, email, name, role, company_id FROM users WHERE company_id=:c AND active=:a AND "
+                          "role IN ('owner', 'manager')", {"c": co["id"], "a": True}):
+            ref = f"{int(w0)}:{u['id']}"
+            try:
+                if not get_prefs(u).get("digest"):
+                    continue
+                if not force and cdb.scalar("SELECT 1 FROM notify_outbox WHERE kind='digest' AND ref=:r LIMIT 1",
+                                            {"r": ref}):
+                    continue                                     # oldingi urinishda navbatga qo'yilgan
+                ids = cdb.branch_ids_for(u)
+                if not ids:
+                    continue
+                c = report.compare(ids, w0, w1, off, now)
+                p = {"title": f"Haftalik xulosa: {co['name']}, {lbl}", "text": report.digest_text(c, lbl, co["name"]),
+                     "week": int(w0)}
+                for t in targets(u["id"]):
+                    if t["channel"] in ("telegram", "email"):
+                        enqueue(u["id"], t, "digest", ref, p)
+                        n += 1
+            except Exception:  # noqa: BLE001
+                log.exception("Haftalik xulosa: foydalanuvchi %s (kompaniya %s)", u["id"], co["id"])
+    cdb.kv_set("digest_week", str(int(w0)))
+    if n:
+        log.info("Haftalik xulosa: %d ta xabar navbatga qo'yildi (%s)", n, lbl)
+    return n
 
 
 # ----------------------------------------------------------------------------- matnlar
@@ -603,6 +651,8 @@ def render(kind: str, p: dict) -> tuple[str, str, str]:
         return (f"Aloqa tiklandi: {p.get('branch')}",
                 f"✅ <b>Aloqa tiklandi:</b> {esc(p.get('branch'))}\n{fmt_dur(p.get('duration', 0))} uzilgan edi.{extra}",
                 "/branches/")
+    if kind == "digest":
+        return (str(p.get("title") or "Haftalik xulosa"), str(p.get("text") or ""), "/compare/")
     if kind == "test":
         return ("Hushyor AI: sinov xabari", "🧪 <b>Sinov xabari</b>\nBildirishnomalar shu manzilga yetib kelmoqda ✅",
                 "/settings/")

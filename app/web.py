@@ -118,6 +118,9 @@ def _startup() -> None:
         _metrics = metrics.MetricsSampler(mgr)
         _metrics.start()
     threading.Thread(target=_warmup, daemon=True).start()
+    from . import reports
+
+    reports.start(bot)                      # 2.4.0: kunlik/haftalik hisobot (Telegram)
     mgr.autostart()
     if default_password_warning():
         log.warning("Panel standart parol (admin123) bilan tarmoqqa ochiq (HOST=%s). .env da ADMIN_PASSWORD ni "
@@ -1386,6 +1389,148 @@ def api_reports(days: int = 14):
         "avg_score_ok": (sum(e["score"] for e in t_ok) / len(t_ok)) if t_ok else None,
         "avg_score_no": (sum(e["score"] for e in t_no) / len(t_no)) if t_no else None,
     }
+
+
+# ----------------------------------------------------------------------------- 2.4.0: kunlik/haftalik hisobot
+REPORT_TIME_RE = re.compile(r"^([01]\d|2[0-3]):[0-5]\d$")
+
+
+def _report_brief(r: dict) -> dict:
+    try:
+        d = json.loads(r.get("data") or "{}")
+    except ValueError:
+        d = {}
+    return {"id": r["id"], "kind": r["kind"], "t0": r["t0"], "t1": r["t1"], "label": d.get("label"),
+            "created_at": r["created_at"], "due_at": r["due_at"], "sent_at": r["sent_at"], "sent_n": r["sent_n"],
+            "error": r["error"], "recs": len(d.get("recs") or []),
+            "visitors": (d.get("visitors") or {}).get("in"), "theft": (d.get("theft") or {}).get("total")}
+
+
+@app.get("/api/reports/list")
+def api_reports_list(limit: int = 30):
+    rows = db.rows("SELECT * FROM reports ORDER BY t0 DESC, kind LIMIT ?", (max(1, min(limit, 200)),))
+    return {"reports": [_report_brief(r) for r in rows]}
+
+
+@app.get("/api/reports/settings")
+def api_reports_settings():
+    from . import reports
+
+    s = db.get_settings()
+    subs = db.rows("SELECT chat_id, name, username, COALESCE(reports, 1) AS reports FROM subscribers WHERE active=1")
+    return {"daily": s.get("report_daily", "1") == "1", "weekly": s.get("report_weekly", "1") == "1",
+            "time": s.get("report_time", "09:00"), "since": float(s.get("report_since", 0) or 0),
+            "subscribers": subs, "bot": bool(get_bot().token), "next": {k: reports.period(k) for k in reports.KINDS}}
+
+
+@app.post("/api/reports/settings")
+async def api_reports_settings_save(request: Request):
+    d = await body_data(request)
+    vals = {}
+    for k in ("daily", "weekly"):
+        if k in d:
+            vals[f"report_{k}"] = "1" if str(d[k]) in ("1", "true", "on", "True") else "0"
+    if "time" in d:
+        t = str(d["time"]).strip()
+        if not REPORT_TIME_RE.match(t):
+            raise HTTPException(400, "Vaqt ko'rinishi: 09:00")
+        vals["report_time"] = t
+    if vals:
+        db.set_settings(vals)
+    for sub in d.get("subscribers") or []:
+        try:
+            db.execute("UPDATE subscribers SET reports=? WHERE chat_id=?", (int(bool(sub.get("reports"))),
+                                                                            int(sub["chat_id"])))
+        except (KeyError, TypeError, ValueError):
+            continue
+    return {"ok": True}
+
+
+@app.get("/api/reports/gate")
+def api_reports_gate():
+    from . import report_eval
+
+    return report_eval.gate(lambda sql, p=(): db.rows(sql, p), float(db.get_setting("report_since", "0") or 0))
+
+
+@app.post("/api/reports/generate")
+async def api_reports_generate(request: Request):
+    """Hisobotni hozir yaratish (ko'rish uchun): kind daily|weekly, date (YYYY-MM-DD, ixtiyoriy — shu kun / shu kun
+    tushgan hafta; bo'sh — oxirgi tugagan davr)."""
+    from . import reports
+
+    d = await body_data(request)
+    kind = d.get("kind", "daily")
+    if kind not in reports.KINDS:
+        raise HTTPException(400, "kind: daily yoki weekly")
+    date = str(d.get("date") or "").strip()
+    if date:
+        try:
+            t = time.mktime(time.strptime(date, "%Y-%m-%d")) + 43200
+        except ValueError:
+            raise HTTPException(400, "Sana ko'rinishi: 2026-10-17")
+        t0 = reports.day_start(t) if kind == "daily" else reports.week_start(t)
+        t1 = reports.day_start(t0 + (36 if kind == "daily" else 7 * 24 + 12) * 3600)
+        if t0 >= time.time():
+            raise HTTPException(400, "Kelajakdagi davr")
+    else:
+        t0, t1 = reports.period(kind)
+    rid = await run_in_threadpool(reports.generate, kind, t0, t1)
+    return {"ok": True, "id": rid}
+
+
+@app.get("/api/reports/{report_id}")
+def api_report_get(report_id: int):
+    from . import reports
+
+    r = reports.get(report_id)
+    if not r:
+        raise HTTPException(404, "Hisobot topilmadi")
+    return r
+
+
+@app.get("/api/reports/{report_id}/pdf")
+def api_report_pdf(report_id: int):
+    from . import reports
+
+    r = reports.get(report_id)
+    if not r:
+        raise HTTPException(404, "Hisobot topilmadi")
+    name = f"hisobot_{r['kind']}_{time.strftime('%Y%m%d', time.localtime(r['t0']))}.pdf"
+    return Response(reports.pdf(r["data"]), media_type="application/pdf",
+                    headers={"Content-Disposition": f'attachment; filename="{name}"'})
+
+
+@app.post("/api/reports/{report_id}/send")
+async def api_report_send(report_id: int):
+    from . import reports
+
+    bot = get_bot()
+    if not bot.token:
+        raise HTTPException(400, "Telegram bot ulanmagan")
+    if not reports.get(report_id):
+        raise HTTPException(404, "Hisobot topilmadi")
+    # Hammaga (qayta) yuborish; har chat natijasi yoziladi — rejalashtiruvchi yetgan chatlarga takror yubormaydi
+    n = await run_in_threadpool(lambda: reports.send(report_id, bot, mark=True, only_missing=False))
+    return {"ok": n > 0, "sent": n}
+
+
+@app.post("/api/reports/{report_id}/feedback")
+async def api_report_feedback(report_id: int, request: Request):
+    from . import reports
+
+    d = await body_data(request)
+    ref = str(d.get("key") or "").strip()[:120] or None       # tavsiya kaliti (2.4.0 panel) yoki idx
+    if ref is None:
+        try:
+            ref = int(d.get("idx"))
+        except (TypeError, ValueError):
+            raise HTTPException(400, "key yoki idx")
+    rec = reports.feedback(report_id, ref, str(d.get("useful")) in ("1", "true", "True"),
+                           f"panel:{request.session.get('user') or 'admin'}")
+    if rec is None:
+        raise HTTPException(404, "Tavsiya topilmadi")
+    return {"ok": True}
 
 
 # ----------------------------------------------------------------------------- AI model

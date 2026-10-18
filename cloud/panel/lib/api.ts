@@ -211,6 +211,31 @@ export interface Prefs {
   escalation: boolean;
   queue: boolean;
   queue_low: boolean;
+  digest: boolean;
+}
+
+// 2.4.0 Taqqoslash (rahbariyat)
+export interface CompareBranch {
+  id: number;
+  name: string;
+  version: string | null;
+  online: boolean;
+  visits: { in: number; prev_in: number; change_pct: number | null };
+  queue: { served: number; avg_wait: number | null; max_wait: number; long_sec: number } | null;
+  theft: { total: number; confirmed: number; rejected: number; unreviewed: number; false_share: number | null };
+  safety: { total: number; unreviewed: number };
+  uptime: number | null;
+}
+
+export interface Compare {
+  period: "week" | "day";
+  t0: number;
+  t1: number;
+  label: string;
+  partial: boolean;
+  branches: CompareBranch[];
+  total: { visits: number; prev_visits: number; change_pct: number | null; served: number; avg_wait: number | null; theft: number; safety: number; unreviewed: number };
+  recs: { key: string; level: "warn" | "info"; text: string }[];
 }
 
 export interface Target {

@@ -6,7 +6,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 
 import { api, isSafety, KIND_UZ, ROLE_UZ, type Me } from "@/lib/api";
 import { beep, emitLive, getPref, unlockAudio, type LiveMsg } from "@/lib/live";
-import { IconBell, IconCart, IconChart, IconDoor, IconExit, IconList, IconMap, IconPeople, IconShield, IconStore, IconWall } from "./Icons";
+import { IconBell, IconCart, IconChart, IconDoor, IconExit, IconList, IconMap, IconPeople, IconScale, IconShield, IconStore, IconWall } from "./Icons";
 
 interface Toast {
   id: number;
@@ -39,6 +39,7 @@ const NAV = [
   { href: "/visits/", label: "Tashriflar", short: "Tashrif", icon: IconDoor },
   { href: "/queues/", label: "Navbat", short: "Navbat", icon: IconCart },
   { href: "/flow/", label: "Oqim", short: "Oqim", icon: IconMap },
+  { href: "/compare/", label: "Taqqoslash", short: "Taqqos", icon: IconScale, lead: true },
   { href: "/metrics/", label: "Ko'rsatkichlar", short: "Grafiklar", icon: IconChart },
   { href: "/users/", label: "Xodimlar", short: "Xodimlar", icon: IconPeople, owner: true },
   { href: "/settings/", label: "Sozlamalar", short: "Sozlama", icon: IconBell },
@@ -191,6 +192,16 @@ export default function Shell({ children }: { children: ReactNode }) {
 
   const ctx = useMemo(() => (me ? { me, toast, live } : null), [me, toast, live]);
 
+  // Telefonda pastki menyu yon tomonga suriladi: ochiq bo'lim ko'rinib tursin
+  useEffect(() => {
+    const nav = document.querySelector<HTMLElement>(".rail-nav");
+    const on = nav?.querySelector<HTMLElement>(".rail-link.on");
+    if (!nav || !on || nav.scrollWidth <= nav.clientWidth) return;
+    const li = on.parentElement ?? on;
+    const x = li.getBoundingClientRect().left - nav.getBoundingClientRect().left + nav.scrollLeft;
+    nav.scrollLeft = Math.max(0, x - (nav.clientWidth - li.offsetWidth) / 2);
+  }, [pathname, me]);
+
   if (failed) {
     return (
       <main className="boot">
@@ -220,7 +231,7 @@ export default function Shell({ children }: { children: ReactNode }) {
             <IconShield />
           </Link>
           <ul className="rail-nav">
-            {NAV.filter((n) => !n.owner || isOwner).map((n) => (
+            {NAV.filter((n) => (!n.owner || isOwner) && (!n.lead || ctx.me.user.role !== "guard")).map((n) => (
               <li key={n.href}>
                 <Link href={n.href} className={active(n.href) ? "rail-link on" : "rail-link"} aria-current={active(n.href) ? "page" : undefined}>
                   <n.icon />

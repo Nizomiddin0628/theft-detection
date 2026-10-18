@@ -164,6 +164,25 @@ Filial rejasi, bo'limlar bo'yicha tashriflar (davr), yo'nalishlar (eng ko'p 20),
 heatmap (`occ`, `pas`: `{"max", "total", "data": base64 uint8 (ny × nx, 0..255)}`) — faqat joriy `grid` dagi soatlar
 (reja masshtabi o'zgarsa eski kataklar aralashmaydi). Rol doirasi boshqa API'lar kabi.
 
+## 2.4.0 — taqqoslash va haftalik xulosa
+
+Edge yangi yozuv yubormaydi — hammasi mavjud `metrics` (tashriflar va har daqiqadagi tizim qatori `source_id = 0`),
+`queues` va `events` dan hisoblanadi.
+
+### `GET /api/v1/compare?period=week|day&date=YYYY-MM-DD` (panel: egasi, menejer)
+
+Davr `CLOUD_TZ_OFFSET` bo'yicha (hafta — dushanba–yakshanba); `date` berilmasa — oxirgi tugagan kun / hafta;
+kelajakdagi davr yoki noto'g'ri sana — **400**; qo'riqchi — **403**. Javob: `period`, `t0`, `t1`, `label`,
+`partial` (davr hali tugamagan), `branches` — har filial `{"id", "name", "version", "online", "visits": {"in",
+"prev_in", "change_pct"}, "queue": {"served", "avg_wait", "max_wait", "long_sec"} | null, "theft": {"total",
+"confirmed", "rejected", "unreviewed", "false_share"}, "safety": {"total", "unreviewed"}, "uptime": 0..1 | null}`
+(tashrif bo'yicha kamayish tartibida; solishtirish — bir hafta oldingi xuddi shu davr; video tahlili hodisalari
+kirmaydi), `total`, `recs` — `[{"key", "level": "warn"|"info", "text"}]`. Batafsil: docs/REPORTS.md.
+
+**Haftalik xulosa** — bildirishnoma turi `digest` (sozlama `digest`: sukut egasi va menejerda yoqilgan, qo'riqchida
+yo'q): dushanba 09:00 dan keyin (yoki seshanba) haftasiga bir marta, Telegram va email manzillariga, panel havolasi
+`/compare/`.
+
 ## `POST /api/v1/edge/health` — kamera holati
 
 ```json
@@ -268,7 +287,8 @@ Cookie yoki Bearer bilan. Har 15 s `: ping`, har 60 s sessiya va filial doirasi 
 `/` da beradi: Node.js faqat panelni o'zgartiruvchi dasturchiga kerak (`cd cloud/panel && npm ci && npm run build`).
 Sahifalar: kirish, bosh sahifa (filiallar holati + "Tekshirish kerak" devori), hodisalar va hodisa (video, ✅ `T` /
 ❌ `X` / bekor qilish `U` / `Esc`, navbat bilan tekshirish), filiallar (yaratish — token bir marta, tokenni
-yangilash, kameralar va uzilishlar tarixi), ko'rsatkichlar (soatlik grafiklar), xodimlar (egasi), sozlamalar
+yangilash, kameralar va uzilishlar tarixi), ko'rsatkichlar (soatlik grafiklar), taqqoslash (2.4.0, egasi va
+menejer), xodimlar (egasi), sozlamalar
 (Telegram/email/brauzer, nima haqida xabar, sinov xabari, yetkazish statistikasi). Panel sahifalarida CSP
 (`default-src 'self'`, tashqi manba yo'q), `X-Frame-Options: DENY`.
 

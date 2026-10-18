@@ -1,11 +1,39 @@
 {% extends "base.html" %}
 {% from "_icons.html" import icon %}
-{% block subtitle %}<div class="muted small">Signallar dinamikasi, aniqlik va qo'riqchi javob tezligi</div>{% endblock %}
+{% block subtitle %}<div class="muted small">Kunlik/haftalik hisobot va tavsiyalar; signallar dinamikasi, aniqlik va javob tezligi</div>{% endblock %}
 {% block actions %}
 <div class="tabs" id="rng"><button data-d="7">7 kun</button><button data-d="14" class="on">14 kun</button><button data-d="30">30 kun</button><button data-d="90">90 kun</button></div>
 <a class="btn" href="/api/export/events.csv">{{ icon('download') }} CSV</a>
 {% endblock %}
 {% block content %}
+<div class="card" id="rep-card">
+  <div class="card-h"><h2>Kunlik va haftalik hisobot</h2><div class="grow"></div>
+    <button class="btn sm" data-gen="daily">Kechagi</button>
+    <button class="btn sm" data-gen="weekly">O'tgan hafta</button>
+    <input type="date" id="rep-date" style="max-width:150px">
+    <select id="rep-kind" style="max-width:120px"><option value="daily">Kunlik</option><option value="weekly">Haftalik</option></select>
+    <button class="btn sm" id="rep-make">Yaratish</button>
+  </div>
+  <div class="card-b">
+    <p class="hint" style="margin:0 0 10px">Har kuni belgilangan vaqtda kechagi kun, har dushanba o'tgan hafta hisoboti Telegram'ga keladi (matn + PDF).
+      Raqamlar shu paneldagi Tashriflar, Navbat, Oqim va Hodisalar bilan bir manbadan. Tavsiyalarga 👍/👎 bering — 8-bosqich darvozasi uchun.</p>
+    <div id="rep-view" class="muted">Hisobot hali yaratilmagan — "Kechagi" ni bosing.</div>
+  </div>
+</div>
+<div class="grid g3" style="margin-top:16px">
+  <div class="card"><div class="card-h"><h2>Yuborish sozlamalari</h2><div class="grow"></div><button class="btn sm primary" id="rep-save">Saqlash</button></div>
+    <div class="card-b">
+      <label class="switch"><input type="checkbox" id="rep-daily"> <span>Kunlik hisobot (har kuni)</span></label><br>
+      <label class="switch"><input type="checkbox" id="rep-weekly"> <span>Haftalik hisobot (dushanba)</span></label>
+      <div class="field" style="margin-top:8px"><label class="f">Yuborish vaqti</label><input type="time" id="rep-time" style="max-width:120px"></div>
+      <div class="hint" id="rep-subs-hint">Qaysi Telegram obunachilariga:</div>
+      <div id="rep-subs"></div>
+    </div></div>
+  <div class="card"><div class="card-h"><h2>Hisobotlar tarixi</h2></div><div class="card-b" style="max-height:330px;overflow:auto"><div id="rep-list" class="muted">—</div></div></div>
+  <div class="card" id="rep-gate-card"><div class="card-h"><h2>Darvoza (8-bosqich)</h2><div class="grow"></div><span class="badge" id="rep-gate-badge">—</span></div>
+    <div class="card-b small" id="rep-gate">—</div></div>
+</div>
+<h2 style="margin:22px 0 10px">Signallar tahlili</h2>
 <div class="grid g5">
   <div class="card kpi"><div class="label">Jami signallar</div><div class="value" id="r-total">—</div></div>
   <div class="card kpi bad"><div class="label">Tasdiqlangan</div><div class="value" id="r-ok">—</div></div>
@@ -34,6 +62,96 @@
 {% endblock %}
 {% block scripts %}
 <script>
+const RK = { daily: "Kunlik", weekly: "Haftalik" };
+let curRep = null;
+const chg = (p) => p === null || p === undefined ? "" : ` <span class="small ${p < 0 ? "muted" : ""}">(${p > 0 ? "+" : ""}${Math.round(p)}%)</span>`;
+const dur = (s) => s === null || s === undefined ? "—" : H.fmtDur(s);
+function kpi(label, value, sub = "") { return `<div class="card kpi"><div class="label">${label}</div><div class="value">${value}</div>${sub ? `<div class="sub">${sub}</div>` : ""}</div>`; }
+function renderRep(r) {
+  curRep = r;
+  const d = r.data, v = d.visitors, q = d.queues, th = d.theft, cams = d.cameras;
+  const down = (cams.cams || []).filter((c) => c.down_min >= 5);
+  let h = `<div class="row between" style="margin-bottom:10px"><div><b>${RK[d.kind]} — ${H.esc(d.label)}</b>
+    <span class="muted small"> · ${r.sent_at ? "Telegram'ga yuborilgan " + new Date(r.sent_at * 1000).toLocaleString() : "Telegram'ga yuborilmagan"}</span></div>
+    <div class="row"><a class="btn sm" href="/api/reports/${r.id}/pdf">PDF</a><button class="btn sm" id="rep-send">Telegram'ga yuborish</button></div></div>`;
+  h += `<div class="grid g5">`;
+  h += kpi("Tashriflar", v.has ? v.in + chg(v.change_pct) : "—", v.has ? (v.prev_in ? "oldin: " + v.prev_in : "") : "sanash chizig'i yo'q");
+  h += kpi("Navbat: o'rtacha kutish", q.has ? dur(q.avg_wait) : "—", q.has ? `${q.served} xaridor, eng uzun ${q.max_len} kishi` : "navbat zonasi yo'q");
+  h += kpi("O'g'irlik signallari", th.total, `✅ ${th.confirmed} · ❌ ${th.rejected} · 🟡 ${th.unreviewed}`);
+  h += kpi("Xavfsizlik", (d.safety || []).reduce((a, s) => a + s.n, 0), (d.safety || []).map((s) => `${H.esc(s.label)} ${s.n}`).join(", ") || "signal yo'q");
+  h += kpi("Kameralar ishlamagan", down.length ? down.length + " ta" : "0",
+    (down.map((c) => `${H.esc(c.name)} ${dur(c.down_min * 60)}`).join(", ") || "ish vaqtida uzluksiz") + (cams.app_off_min >= 5 ? ` · dastur o'chiq: ${dur(cams.app_off_min * 60)}` : ""));
+  h += `</div>`;
+  h += `<h3 style="margin:16px 0 8px">Tavsiyalar</h3>`;
+  if (!d.recs.length) h += `<div class="muted">Alohida tavsiya yo'q — hammasi me'yorida.</div>`;
+  d.recs.forEach((x, i) => {
+    const f = (r.feedback || {})[x.key] || { up: 0, down: 0 };
+    h += `<div class="row" style="padding:8px 0;border-bottom:1px solid var(--line)"><div style="flex:1">${i + 1}. ${H.esc(x.text)}</div>
+      <button class="btn sm" data-fb="${i}" data-u="1">👍 ${f.up || ""}</button><button class="btn sm" data-fb="${i}" data-u="0">👎 ${f.down || ""}</button></div>`;
+  });
+  const el = document.getElementById("rep-view");
+  el.classList.remove("muted");
+  el.innerHTML = h;
+  el.querySelectorAll("[data-fb]").forEach((b) => b.onclick = async () => {
+    const i = Number(b.dataset.fb), u = b.dataset.u;
+    await H.post(`/api/reports/${r.id}/feedback`, { key: d.recs[i].key, useful: Number(u) });
+    H.toast(u === "1" ? "👍 Foydali deb belgilandi" : "👎 Foydasiz deb belgilandi", "ok");
+    openRep(r.id); loadGate();
+  });
+  document.getElementById("rep-send").onclick = async () => {
+    const x = await H.post(`/api/reports/${r.id}/send`);
+    if (x) H.toast(x.sent ? `${x.sent} ta chatga yuborildi` : "Yuborilmadi (obunachi yo'q yoki Telegram ishlamayapti)", x.sent ? "ok" : "");
+  };
+}
+async function openRep(id) { const r = await H.api(`/api/reports/${id}`); if (r) renderRep(r); }
+async function gen(kind, date = "") {
+  const x = await H.post("/api/reports/generate", { kind, date });
+  if (x && x.id) { await openRep(x.id); loadList(); }
+}
+document.querySelectorAll("[data-gen]").forEach((b) => b.onclick = () => gen(b.dataset.gen));
+document.getElementById("rep-make").onclick = () => gen(document.getElementById("rep-kind").value, document.getElementById("rep-date").value);
+async function loadList() {
+  const r = await H.api("/api/reports/list");
+  if (!r) return;
+  const el = document.getElementById("rep-list");
+  if (!r.reports.length) { el.textContent = "Hali hisobot yo'q"; return; }
+  el.classList.remove("muted");
+  el.innerHTML = `<table><tr><th>Davr</th><th>Tur</th><th>Telegram</th></tr>` + r.reports.map((x) => {
+    const late = x.sent_at && x.due_at ? x.sent_at - x.due_at : null;
+    const st = x.sent_at ? (late !== null && late > 1800 ? `<span class="badge yangi">kech</span>` : `<span class="badge on">yuborildi</span>`) : `<span class="badge">yo'q</span>`;
+    return `<tr style="cursor:pointer" data-id="${x.id}"><td>${H.esc(x.label || "")}</td><td>${RK[x.kind]}</td><td>${st}</td></tr>`;
+  }).join("") + `</table>`;
+  el.querySelectorAll("[data-id]").forEach((tr) => tr.onclick = () => openRep(tr.dataset.id));
+  if (!curRep && r.reports.length) openRep(r.reports[0].id);
+}
+async function loadSettings() {
+  const s = await H.api("/api/reports/settings");
+  if (!s) return;
+  document.getElementById("rep-daily").checked = s.daily;
+  document.getElementById("rep-weekly").checked = s.weekly;
+  document.getElementById("rep-time").value = s.time;
+  const el = document.getElementById("rep-subs");
+  if (!s.bot) { el.innerHTML = `<div class="hint">Telegram bot ulanmagan — <a href="/telegram">ulash</a>.</div>`; return; }
+  el.innerHTML = s.subscribers.map((x) => `<label class="switch"><input type="checkbox" data-chat="${x.chat_id}" ${x.reports ? "checked" : ""}> <span>${H.esc(x.name || x.username || x.chat_id)}</span></label>`).join("<br>") || `<div class="hint">Obunachi yo'q</div>`;
+}
+document.getElementById("rep-save").onclick = async () => {
+  const subs = [...document.querySelectorAll("[data-chat]")].map((c) => ({ chat_id: Number(c.dataset.chat), reports: c.checked }));
+  const x = await H.post("/api/reports/settings", { daily: document.getElementById("rep-daily").checked, weekly: document.getElementById("rep-weekly").checked,
+    time: document.getElementById("rep-time").value, subscribers: subs });
+  if (x) H.toast("Saqlandi", "ok");
+};
+async function loadGate() {
+  const g = await H.api("/api/reports/gate");
+  if (!g) return;
+  const b = document.getElementById("rep-gate-badge");
+  b.textContent = { otdi: "o'tdi", otmadi: "o'tmadi", "yetarli emas": "ma'lumot kam" }[g.state];
+  b.className = "badge " + (g.state === "otdi" ? "on" : g.state === "otmadi" ? "tasdiqlangan" : "");
+  document.getElementById("rep-gate").innerHTML = `<div>Mezon: ${g.need_days} kun har kuni o'z vaqtida (≤ 30 daq kechikish, ko'pi bilan ${g.max_miss} kun o'tkazib), raqamlar bazaga mos, ≥ ${g.min_useful} xil foydali tavsiya.</div>
+    <div style="margin-top:8px">O'z vaqtida: <b>${g.on_time}/${g.days.length}</b> kun · o'tkazilgan: ${g.missed} · raqam farqi: ${g.mismatch.length} · foydali tavsiya: <b>${g.useful}</b> (foydasiz ${g.useless})</div>
+    <div class="hint">Buyruq qatori: <code>python tests\\report_gate.py</code></div>`;
+}
+loadList(); loadSettings(); loadGate();
+
 let days = 14;
 document.querySelectorAll("#rng button").forEach((b) => b.onclick = () => { days = Number(b.dataset.d); document.querySelectorAll("#rng button").forEach((x) => x.classList.toggle("on", x === b)); load(); });
 async function load() {

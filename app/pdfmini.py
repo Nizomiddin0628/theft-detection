@@ -175,6 +175,66 @@ class Doc:
         self.y -= 4
         return True
 
+    def bars(self, values: list, labels: list, title: str = "", height: float = 110,
+             color: tuple = (0.05, 0.49, 0.42)) -> None:
+        """Oddiy ustunli grafik (2.4.0, hisobot): har ustun ustida qiymati, ostida yorlig'i."""
+        vals = [max(0.0, float(v or 0)) for v in values]
+        if not vals:
+            return
+        if title:
+            self.text(title, size=9, color=(0.35, 0.38, 0.42))
+        self._need(height + 26)
+        w_all = PAGE_W - 2 * MARGIN
+        n = len(vals)
+        slot = w_all / n
+        bw = max(2.0, slot * 0.7)
+        top = self.y - 12
+        base = top - height
+        mx = max(vals) or 1.0
+        r, g, b = color
+        cmds = [f"0.85 0.87 0.9 RG 0.5 w {MARGIN:.2f} {base:.2f} m {PAGE_W - MARGIN:.2f} {base:.2f} l S"]
+        for i, v in enumerate(vals):
+            x = MARGIN + i * slot + (slot - bw) / 2
+            hgt = height * v / mx
+            if hgt > 0:
+                cmds.append(f"{r:.3f} {g:.3f} {b:.3f} rg {x:.2f} {base:.2f} {bw:.2f} {hgt:.2f} re f")
+            if v:
+                lab = str(int(round(v)))
+                cmds.append(f"BT 0.2 0.2 0.25 rg /F1 6.5 Tf {x + bw / 2 - text_width(lab, 6.5) / 2:.2f} "
+                            f"{base + hgt + 2:.2f} Td ({_esc(lab)}) Tj ET")
+            lb = to_winansi(str(labels[i] if i < len(labels) else ""))
+            if lb and (n <= 14 or i % 2 == 0):
+                cmds.append(f"BT 0.4 0.4 0.45 rg /F1 6.5 Tf {x + bw / 2 - text_width(lb, 6.5) / 2:.2f} "
+                            f"{base - 9:.2f} Td ({_esc(lb)}) Tj ET")
+        self.pages[-1].extend(cmds)
+        self.y = base - 14
+
+    def table(self, headers: list, rows: list, widths: list, size: float = 8.5) -> None:
+        """Oddiy jadval: sarlavha qalin, satrlar yupqa chiziq bilan; uzun katak qirqiladi."""
+        def cell(v, w):
+            s = to_winansi(str(v if v is not None else "")).replace("\n", " ")
+            while s and text_width(s, size) > w - 6:
+                s = s[:-1]
+            return s
+        lh = size * 1.6
+        self.y -= 5
+        self._need(lh * min(len(rows) + 1, 4))
+        def line(vals, bold):
+            self._need(lh)
+            self.y -= lh
+            x = MARGIN
+            font = "F2" if bold else "F1"
+            for v, w in zip(vals, widths):
+                self.pages[-1].append(f"BT 0 0 0 rg /{font} {size:.1f} Tf {x + 2:.2f} {self.y + 3:.2f} Td "
+                                      f"({_esc(cell(v, w))}) Tj ET")
+                x += w
+            self.pages[-1].append(f"0.88 0.89 0.91 RG 0.4 w {MARGIN:.2f} {self.y:.2f} m "
+                                  f"{MARGIN + sum(widths):.2f} {self.y:.2f} l S")
+        line(headers, True)
+        for r in rows:
+            line(r, False)
+        self.y -= 4
+
     # ----------------------------------------------------------------- yozish
     def render(self) -> bytes:
         objs: list[bytes] = []

@@ -71,6 +71,7 @@ HELP = (
     "/navbat — kassalardagi navbat hozir (navbat signallarini o'chirish/yoqish ham shu yerda)\n"
     "/oqim — bugun qaysi bo'limlarga ko'p kirildi va yo'nalishlar\n"
     "/xavfsizlik — bugungi xavfsizlik signallari (yiqilish, tungi kirish, chiqish to'silgan...)\n"
+    "/hisobot — bugungi holat; kechagi va o'tgan haftaning to'liq hisoboti (PDF). Har kuni ertalab o'zi keladi\n"
     "/stop — xabarlarni to'xtatish\n"
     "/yordam — shu yordam\n\n"
     "⚠️ Bot hech kimni ayblamaydi: u faqat \"tekshirib ko'ring\" deydi. Qaror har doim odamniki."
@@ -310,6 +311,7 @@ class TelegramBot:
         {"command": "tekshirilmagan", "description": "Javob kutayotgan hodisalar"},
         {"command": "navbat", "description": "Kassalardagi navbat"},
         {"command": "oqim", "description": "Bugungi bo'lim tashriflari"},
+        {"command": "hisobot", "description": "Bugungi holat va hisobotlar (PDF)"},
         {"command": "stop", "description": "Xabarlarni to'xtatish"},
         {"command": "yordam", "description": "Yordam"},
     ]
@@ -494,6 +496,16 @@ class TelegramBot:
             from .ai import safety
 
             self._reply(chat_id, safety.status_text())
+        elif cmd == "/hisobot":
+            from . import reports
+
+            on = db.scalar("SELECT COALESCE(reports, 1) FROM subscribers WHERE chat_id=?", (chat_id,))
+            kb = {"inline_keyboard": [
+                [{"text": "📄 Kechagi hisobot (PDF)", "callback_data": "rp:daily"},
+                 {"text": "📄 O'tgan hafta", "callback_data": "rp:weekly"}],
+                [{"text": "🔕 Har kungi hisobotni o'chirish" if on else "🔔 Har kungi hisobotni yoqish",
+                  "callback_data": "rp:off" if on else "rp:on"}]]}
+            self._reply(chat_id, reports.today_text(), kb)
         else:
             self._reply(chat_id, "Buyruqni tushunmadim. /yordam ni bosing.")
 
@@ -564,6 +576,9 @@ class TelegramBot:
         if not chat_id or not self._is_sub(chat_id):
             answer("Ruxsat yo'q")
             return
+        if data.startswith("rf:") or data.startswith("rp:"):
+            self._report_callback(data, chat_id, who, answer, cb)
+            return
         if data in ("qa:on", "qa:off"):
             # 2.0.0: navbat signallari shu chat uchun (boshqa obunachilarga ta'sir qilmaydi)
             on = data == "qa:on"
@@ -606,6 +621,40 @@ class TelegramBot:
         self.refresh_event(ev_id)
         if self.manager is not None:
             self.manager.emit("update", ev_id)
+
+    def _report_callback(self, data: str, chat_id: int, who: str, answer, cb: dict) -> None:
+        """2.4.0: hisobot tugmalari — rf:<hisobot>:<tavsiya xeshi>:<1|0> (baho), rp:daily|weekly (PDF), rp:on|off."""
+        from . import reports
+
+        parts = data.split(":")
+        if parts[0] == "rf" and len(parts) == 4:
+            try:
+                rid, ref, val = int(parts[1]), parts[2], parts[3] == "1"
+                ref = int(ref) if ref.isdigit() and len(ref) <= 2 else ref     # eski tugma: tartib raqami (xesh — 10 belgi)
+            except ValueError:
+                answer()
+                return
+            rec = reports.feedback(rid, ref, val, f"tg:{chat_id}:{who}")
+            answer(("👍 Rahmat — foydali deb belgilandi" if val else "👎 Rahmat — bunday tavsiyalar kamaytiriladi")
+                   if rec else "Hisobot topilmadi")
+            return
+        if parts[0] == "rp" and len(parts) == 2 and parts[1] in ("on", "off"):
+            on = parts[1] == "on"
+            db.execute("UPDATE subscribers SET reports=? WHERE chat_id=?", (int(on), chat_id))
+            answer("🔔 Har kungi hisobot yoqildi" if on else "🔕 Har kungi hisobot o'chirildi (signallar kelaveradi)")
+            return
+        if parts[0] == "rp" and len(parts) == 2 and parts[1] in reports.KINDS:
+            answer("⏳ Hisobot tayyorlanmoqda...")
+            kind = parts[1]
+
+            def work():
+                t0, t1 = reports.period(kind)
+                r = db.row("SELECT id FROM reports WHERE kind=? AND t0=?", (kind, t0))
+                rid = r["id"] if r else reports.generate(kind, t0, t1)
+                reports.send(rid, self, [chat_id], mark=False)
+            self.io_pool.submit(self._safe, work)
+            return
+        answer()
 
     # --------------------------------------------------------------- matnlar
     def _caption(self, ev: dict, clip_pending: bool = False) -> str:

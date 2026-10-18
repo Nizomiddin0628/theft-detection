@@ -79,6 +79,16 @@
     </ul>
     <p><b>Darvoza:</b> yiqilish recall ≥ 85% (do'konda, yumshoq gilam ustida sahnalashtirilgan kamida 20 ta yiqilish — turli joy va yo'nalishda) va xato signal ≤ 1 / kamera / hafta (har signalga ✅/❌ javob bering). Buyruq qatoridan: <code>python tests\safety_gate.py</code>.</p>
 
+    <h2 id="hisobot">Kunlik va haftalik hisobot (2.4.0)</h2>
+    <ul>
+      <li><b>Nima keladi:</b> har kuni ertalab (sukut 09:00) kechagi kun, har dushanba — o'tgan hafta bo'yicha Telegram'ga qisqa xabar va PDF: tashriflar (o'tgan hafta bilan farq), navbat, bo'limlar, signallar (✅/❌/javobsiz), xavfsizlik, ishlamagan kameralar va tavsiyalar.</li>
+      <li><b>Tavsiyalar:</b> masalan "10:00–12:00 da navbat uzun — qo'shimcha kassa oching", "Kassa kamerasi 1 soat ishlamadi — kabelni tekshiring", "signallarning 70% xato — shu kamerada e'tiborsiz zona chizing". Har tavsiyaga 👍 yoki 👎 bosing.</li>
+      <li><b>Telegram: /hisobot</b> — bugungi holat, kunlik/haftalik PDF va hisobotlarni shu chat uchun o'chirish.</li>
+      <li><b>Sozlash:</b> <a href="/reports">Hisobotlar</a> sahifasida — vaqt, kunlik/haftalik, qaysi chatlarga; istalgan kun hisobotini yaratish va PDF yuklab olish.</li>
+      <li><b>Darvoza:</b> o'sha sahifada — 14 kun har kuni o'z vaqtida, raqamlar bazaga mos, kamida 3 ta tavsiya 👍.</li>
+      <li><b>Bulut paneli:</b> egasi va menejer uchun "Taqqoslash" — barcha filiallar bitta jadvalda; har dushanba haftalik xulosa Telegram/email orqali.</li>
+    </ul>
+
     <h2 id="v2">AI modelni yaxshilash va dalil paketi (2.3.0)</h2>
     <ul>
       <li><b>Champion / challenger:</b> 1–2 hafta har signalga ✅/❌ bering, keyin <a href="/model">AI model</a> sahifasida "Challenger sifatida" o'qiting. Yangi model avval "soyada" ishlaydi — signal va ballga ta'sir qilmaydi. Sahifa sizning javoblaringizda solishtiradi: qancha xato signal kamayardi, haqiqiy signal yo'qolmaydimi. Yaxshi bo'lsa — "Challenger'ni faollashtirish", bo'lmasa — "Bekor qilish". Oldingi modelga har doim qaytish mumkin.</li>

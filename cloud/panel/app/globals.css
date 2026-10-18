@@ -1518,7 +1518,7 @@ input[type="range"] {
   font-size: 24px;
 }
 
-@media (max-width: 860px) {
+@media (max-width: 760px) {
   .login {
     grid-template-columns: 1fr;
   }
@@ -1768,4 +1768,61 @@ input[type="range"] {
 .data td .bar i {
   display: block;
   height: 100%;
+}
+
+/* ---------------------------------------------------------------- 2.4.0 taqqoslash */
+.data td.warn {
+  color: var(--off);
+  font-weight: 600;
+}
+
+.chg {
+  margin-left: 6px;
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+.chg.up {
+  color: var(--ok);
+}
+
+.chg.down {
+  color: var(--off);
+}
+
+.recs {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.recs li {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-left: 4px solid var(--line-strong);
+  border-radius: 6px;
+  padding: 10px 14px;
+  line-height: 1.45;
+}
+
+.recs li.warn {
+  border-left-color: var(--off);
+}
+
+/* 10 ta bo'limgacha: telefonda pastki menyu siqilib qolmasin — yon tomonga suriladi */
+@media (max-width: 760px) {
+  .rail-nav {
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  .rail-nav::-webkit-scrollbar {
+    display: none;
+  }
+
+  .rail-nav li {
+    flex: 1 0 56px;
+  }
 }

@@ -45,7 +45,7 @@ from .db import CLIPS_DIR, DATA_DIR
 from .live import hub
 
 log = logging.getLogger("hushyor.cloud")
-VERSION = "2.3.1"
+VERSION = "2.4.0"
 
 API_VERSION = 1
 ROOT = Path(__file__).resolve().parent
@@ -1184,6 +1184,31 @@ def flow(request: Request, days: int = 7, branch_id: int | None = None, plan_id:
             "moves": mv, "today_hours": today_h, "per_day": per_day, "obs": round(obs, 1),
             "heat": {"occ": enc(occ), "pas": enc(pas), "nx": plan.get("nx"), "ny": plan.get("ny"),
                      "cell": plan.get("cell")}}
+
+
+@app.get(f"/api/v{API_VERSION}/compare")
+def compare_branches(request: Request, period: str = "week", date: str | None = None):
+    """2.4.0 Rahbariyat: filiallarni taqqoslash (kun yoki hafta; date — YYYY-MM-DD, bo'sh — oxirgi tugagan davr)."""
+    from . import report
+
+    u = _user(request)
+    _require(u, "owner", "manager")
+    ids = _scope(u)
+    off = _tz_sec()
+    kind = "day" if period == "day" else "week"
+    date_t = None
+    if date:
+        try:
+            import calendar
+
+            date_t = calendar.timegm(time.strptime(date, "%Y-%m-%d")) - off + 43200
+        except ValueError:
+            raise HTTPException(400, "Sana ko'rinishi: 2026-10-17")
+    t0, t1 = report.period(kind, off, date_t=date_t)
+    if t0 >= time.time():
+        raise HTTPException(400, "Kelajakdagi davr")
+    return {"ok": True, "period": kind, "t0": t0, "t1": t1, "label": report.label(kind, t0, t1, off),
+            "partial": t1 > time.time(), **report.compare(ids, t0, t1, off)}
 
 
 @app.post(f"/api/v{API_VERSION}/branches")
