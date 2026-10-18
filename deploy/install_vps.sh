@@ -1,9 +1,14 @@
 #!/usr/bin/env bash
 # Hushyor AI bulut serverini VPS'ga o'rnatish yoki yangilash (Ubuntu 22.04 / 24.04, root yoki sudo bilan).
 #
-#   git clone -b bosqich-2 https://github.com/Nizomiddin0628/theft-detection.git /root/hushyor-src
+#   git clone -b bosqich-9 https://github.com/Nizomiddin0628/theft-detection.git /root/hushyor-src
 #   sudo bash /root/hushyor-src/deploy/install_vps.sh panel.dokon.uz admin@dokon.uz            # SQLite
 #   sudo bash /root/hushyor-src/deploy/install_vps.sh panel.dokon.uz admin@dokon.uz --postgres # PostgreSQL
+#   sudo bash /root/hushyor-src/deploy/install_vps.sh 203.0.113.7 admin@dokon.uz --postgres    # domen yo'q — IP (2.5.0)
+#
+# Domen o'rniga IP berilsa: 203-0-113-7.sslip.io nomi ishlatiladi (sslip.io bu nomga o'sha IP'ni qaytaradi) — Let's
+# Encrypt sertifikati shu nomga olinadi, panel https://203-0-113-7.sslip.io/ da. O'z domeningiz bo'lgach — skriptni
+# domen bilan qayta yurgizing va .env dagi CLOUD_PUBLIC_URL ni o'zgartiring.
 #
 # Yangilash: repo'ni yangilang (git pull) va shu buyruqni qayta yurgizing — .env, baza (cloud/data) saqlanadi.
 # Nima qiladi: python3-venv, nginx, certbot (+ postgresql) o'rnatadi; "hushyor" tizim foydalanuvchisi;
@@ -20,12 +25,20 @@ SRC="$(cd "$(dirname "$0")/.." && pwd)"
 SVC=hushyor-cloud
 
 if [[ -z "$DOMAIN" || -z "$EMAIL" ]]; then
-    echo "Ishlatish: sudo bash deploy/install_vps.sh <domen> <email> [--postgres]"
+    echo "Ishlatish: sudo bash deploy/install_vps.sh <domen yoki IP> <email> [--postgres]"
     exit 1
 fi
 if [[ $EUID -ne 0 ]]; then
     echo "root (sudo) bilan ishga tushiring"
     exit 1
+fi
+if [[ "$DOMAIN" =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}$ ]]; then
+    IP="$DOMAIN"
+    DOMAIN="${IP//./-}.sslip.io"
+    echo "Domen o'rniga IP berildi ($IP) — $DOMAIN ishlatiladi (sslip.io: shu nom $IP ga yo'naladi)."
+    if command -v getent >/dev/null && ! getent hosts "$DOMAIN" | grep -q "$IP"; then
+        echo "DIQQAT: $DOMAIN hozir $IP ga yo'nalmayapti (DNS) — sertifikat olinmasligi mumkin."
+    fi
 fi
 if [[ ! "$DOMAIN" =~ ^[A-Za-z0-9.-]+$ ]]; then
     echo "Domen noto'g'ri: $DOMAIN"

@@ -164,6 +164,13 @@ Filial rejasi, bo'limlar bo'yicha tashriflar (davr), yo'nalishlar (eng ko'p 20),
 heatmap (`occ`, `pas`: `{"max", "total", "data": base64 uint8 (ny × nx, 0..255)}`) — faqat joriy `grid` dagi soatlar
 (reja masshtabi o'zgarsa eski kataklar aralashmaydi). Rol doirasi boshqa API'lar kabi.
 
+## 2.5.0 — tayyorlik va pilot (hello)
+
+Edge hello'ga `"readiness": {"ok", "total", "bad": [nomlar], "warn": [nomlar], "at", "pilot": {"since", "until",
+"days"}}` qo'shiladi (app/pilot.py, 10 daqiqa kesh; eski bulut e'tiborsiz qoldiradi). Bulut tozalaydi (≤ 8 ta nom,
+har biri ≤ 80 belgi, sonlar chegarada) va `branches.readiness` ga `{..., "at": <bulut vaqti>}` qilib yozadi; maydonsiz
+hello oxirgi holatni o'chirmaydi. `GET /api/v1/branches` — har filialda `readiness` (yoki `null`).
+
 ## 2.4.0 — taqqoslash va haftalik xulosa
 
 Edge yangi yozuv yubormaydi — hammasi mavjud `metrics` (tashriflar va har daqiqadagi tizim qatori `source_id = 0`),

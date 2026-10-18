@@ -40,6 +40,15 @@ export interface Branch {
   events_24h: number;
   pending_review: number;
   visits_today?: { in: number; out: number; inside: number } | null;
+  // 2.5.0: do'kon kompyuteridagi tayyorlik ro'yxati va pilot (hello bilan keladi)
+  readiness?: {
+    ok: number;
+    total: number;
+    bad: string[];
+    warn: string[];
+    at: number;
+    pilot: { since: number; until: number | null; days: number } | null;
+  } | null;
 }
 
 // 1.9.0: odamlarni sanash (edge sanash chizig'i → daqiqalik kirdi/chiqdi)

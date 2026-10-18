@@ -18,7 +18,8 @@ from .worker import FileJob, PendingClip, SourceWorker, open_capture
 log = get_logger("manager")
 
 
-_CRED_RE = re.compile(r"^([A-Za-z][A-Za-z0-9+.\-]*://)[^@/]*@")
+# Login:parol — oxirgi "@" gacha (parolda "@" bo'lishi mumkin: rtsp://admin:Admin@123@10.0.0.9/...)
+_CRED_RE = re.compile(r"^([A-Za-z][A-Za-z0-9+.\-]*://)[^/\s]*@")
 
 
 def mask_uri(uri: str) -> str:

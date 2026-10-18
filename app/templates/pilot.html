@@ -1,0 +1,161 @@
+{% extends "base.html" %}
+{% from "_icons.html" import icon %}
+{% block subtitle %}<div class="muted small">Do'konga o'rnatish tayyorligi, barcha bosqichlar darvozalari va pilot natijalari bitta joyda</div>{% endblock %}
+{% block actions %}
+<a class="btn" href="/api/pilot/report.pdf">{{ icon('download') }} Pilot hisoboti (PDF)</a>
+<a class="btn" href="/api/diagnostics.zip" title="Jurnallar va sozlamalar (parol va tokenlarsiz) — dasturchiga yuborish uchun">{{ icon('download') }} Diagnostika paketi</a>
+{% endblock %}
+{% block content %}
+<style>
+  .rd { display: flex; gap: 10px; align-items: flex-start; padding: 9px 0; border-bottom: 1px solid #eef2f6; }
+  .rd:last-child { border-bottom: 0; }
+  .rd .ic { width: 22px; flex: none; text-align: center; }
+  .rd .t { font-weight: 600; }
+  .rd .d { color: var(--muted); font-size: 13px; }
+  .st-otdi { background: var(--ok-soft); color: var(--ok); }
+  .st-otmadi, .st-xato { background: var(--danger-soft); color: var(--danger); }
+  .st-wait { background: var(--warn-soft); color: #92400e; }
+  .bar { height: 8px; border-radius: 99px; background: #e2e8f0; overflow: hidden; margin: 8px 0 4px; }
+  .bar i { display: block; height: 100%; background: var(--brand); }
+  .pt td, .pt th { padding: 7px 8px; font-size: 13px; }
+  .pt td.n, .pt th.n { text-align: right; font-variant-numeric: tabular-nums; }
+  .fb-row { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+  .fb-row { flex-wrap: nowrap; } .fb-row select { width: 76px; } .fb-row input { width: 150px; }
+</style>
+
+<div class="grid g2">
+  <div class="card">
+    <div class="card-h"><h2>Tayyorlik ro'yxati</h2><div class="grow"></div><span class="badge" id="rd-badge">—</span>
+      <button class="btn sm ghost" id="rd-refresh" title="Qayta tekshirish">{{ icon('refresh') }}</button></div>
+    <div class="card-b"><div id="rd-list" class="muted">Tekshirilmoqda...</div>
+      <p class="hint">❌ — pilotdan oldin albatta tuzating; ⚠️ — tavsiya (yoki ixtiyoriy imkoniyat). Ro'yxat bulut paneliga ham boradi.</p></div>
+  </div>
+  <div class="card">
+    <div class="card-h"><h2>Pilot (9-bosqich)</h2><div class="grow"></div><span class="badge" id="pg-badge">—</span></div>
+    <div class="card-b" id="pg-box"><div class="muted">—</div></div>
+  </div>
+</div>
+
+<div class="card" style="margin-top:16px">
+  <div class="card-h"><h2>Pilot haftalari</h2><div class="grow"></div><span class="hint" style="margin:0">Har dushanba Telegram'da egasidan "1–5" baho so'raladi; shu yerda ham kiritish mumkin</span></div>
+  <div class="card-b" style="overflow:auto"><div id="wk" class="muted">Pilot boshlanmagan.</div></div>
+</div>
+
+<div class="card" style="margin-top:16px">
+  <div class="card-h"><h2>Darvozalar jadvali</h2><div class="grow"></div><button class="btn sm ghost" id="gt-refresh">{{ icon('refresh') }}</button></div>
+  <div class="card-b" style="overflow:auto"><div id="gt" class="muted">Hisoblanmoqda...</div>
+    <p class="hint">Har bosqich o'z sahifasidagi "Aniqlik sinovi" / darvoza bilan bir xil mezonlarda. 72 soatlik barqarorlik sinovi — alohida: <code>python tests\soak.py --hours 72</code>.</p></div>
+</div>
+
+<div class="card" style="margin-top:16px">
+  <div class="card-h"><h2>Egasining izohlari</h2></div>
+  <div class="card-b"><div id="fb" class="muted">Hali izoh yo'q.</div></div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+const $ = (id) => document.getElementById(id);
+const ICON = { ok: "✅", warn: "⚠️", bad: "❌" };
+const STATE = { "otdi": ["O'tdi", "st-otdi"], "otmadi": ["O'tmadi", "st-otmadi"], "yetarli emas": ["Ma'lumot yetarli emas", "st-wait"],
+  "qo'llanmaydi": ["Qo'llanmaydi", ""], "boshlanmagan": ["Boshlanmagan", ""], "xato": ["Xato", "st-xato"] };
+const badge = (s) => { const [t, c] = STATE[s] || [s, ""]; return `<span class="badge ${c}">${H.esc(t)}</span>`; };
+const pct = (v) => v == null ? "—" : (v * 100).toFixed(1) + "%";
+const dur = (s) => s == null ? "—" : (s < 60 ? Math.round(s) + " s" : s < 3600 ? Math.round(s / 60) + " daq" : (s / 3600).toFixed(1) + " soat");
+const dmy = (t) => { const d = new Date(t * 1000), p = (n) => String(n).padStart(2, "0");
+  return `${p(d.getDate())}.${p(d.getMonth() + 1)}.${d.getFullYear()}`; };
+
+async function loadReady(force) {
+  const r = await H.api("/api/pilot/readiness" + (force ? "?force=1" : ""));
+  if (!r) return;
+  $("rd-badge").textContent = `${r.ok}/${r.total} tayyor`;
+  $("rd-badge").className = "badge " + (r.ready ? "on" : "yangi");
+  $("rd-list").classList.remove("muted");
+  $("rd-list").innerHTML = r.items.map((x) => `<div class="rd"><div class="ic">${ICON[x.state]}</div><div style="flex:1">
+      <div class="t">${H.esc(x.title)}${x.optional ? ' <span class="muted small">(ixtiyoriy)</span>' : ""}</div>
+      <div class="d">${H.esc(x.detail)}</div></div>
+      ${x.link && x.state !== "ok" ? `<a class="btn sm" href="${H.esc(x.link)}">Tuzatish →</a>` : ""}</div>`).join("");
+}
+
+function pilotBox(s) {
+  const g = s.gate;
+  $("pg-badge").outerHTML = `<span id="pg-badge">${badge(g.state)}</span>`;
+  if (!s.since) {
+    $("pg-box").innerHTML = `<p style="margin-top:0">Pilot — do'konda ${s.criteria.days} kun (4–6 hafta) kuzatuv. Boshlangan kundan e'tiboran:</p>
+      <ul class="small" style="margin:0 0 10px 18px;padding:0">
+        <li>dastur ish vaqtining ≥ ${s.criteria.uptime * 100}% ida ishlaydi, kameralar ≥ ${s.criteria.cam_up * 100}%;</li>
+        <li>o'g'irlik xato signali har kamerada ≤ ${s.criteria.fp_day} / kun, javobsiz signallar ≤ ${s.criteria.unreviewed * 100}%;</li>
+        <li>kunlik hisobot kunlarning ≥ ${s.criteria.reports * 100}% ida o'z vaqtida keladi;</li>
+        <li>egasining haftalik bahosi o'rtacha ≥ ${s.criteria.rating} (kamida ${s.criteria.rating_n} ta).</li></ul>
+      <div class="row"><input type="date" id="pg-date" style="max-width:160px" title="Bo'sh — hozirdan">
+      <button class="btn primary" id="pg-start">Pilotni boshlash</button></div>
+      <p class="hint">Avval tayyorlik ro'yxatidagi ❌ larni tuzating.</p>`;
+    $("pg-start").onclick = async () => {
+      await H.post("/api/pilot/start", { date: $("pg-date").value });
+      H.toast("Pilot boshlandi", "ok"); loadAll();
+    };
+    return;
+  }
+  const k = Math.min(1, g.days / g.need_days);
+  $("pg-box").innerHTML = `<div class="row between"><div>Boshlangan: <b>${dmy(s.since)}</b>${s.until ? ` · yakunlangan: <b>${dmy(s.until)}</b>` : ""}</div>
+      <div class="small muted">${g.days} / ${g.need_days} kun</div></div>
+    <div class="bar"><i style="width:${(k * 100).toFixed(0)}%"></i></div>
+    <table class="pt" style="margin-top:8px"><tr><th>Mezon</th><th class="n">Natija</th><th class="n">Kerak</th><th></th></tr>
+    ${g.checks.map((c) => `<tr><td>${H.esc(c.title)}</td><td class="n">${H.esc(c.text)}</td><td class="n muted">${H.esc(c.need)}</td><td>${c.ok ? "✅" : "▫️"}</td></tr>`).join("")}</table>
+    <div class="row" style="margin-top:10px">${s.until ? `<button class="btn sm" id="pg-restart">Qaytadan boshlash</button>`
+      : `<button class="btn sm" id="pg-stop">Pilotni yakunlash</button>`}</div>`;
+  if ($("pg-stop")) $("pg-stop").onclick = async () => { await H.post("/api/pilot/stop"); H.toast("Pilot yakunlandi", "ok"); loadAll(); };
+  if ($("pg-restart")) $("pg-restart").onclick = async () => { await H.post("/api/pilot/start", {}); H.toast("Pilot qaytadan boshlandi", "ok"); loadAll(); };
+}
+
+function weeksBox(s) {
+  if (!s.weeks.length) { $("wk").className = "muted"; $("wk").textContent = "Pilot boshlanmagan."; return; }
+  $("wk").className = "";
+  $("wk").innerHTML = `<table class="pt"><tr><th>Hafta</th><th class="n">Dastur</th><th class="n">Kameralar</th><th class="n">Signallar ✅/❌/🟡</th>
+    <th class="n">Javob vaqti</th><th class="n">Xavfsizlik</th><th class="n">Tashriflar</th><th class="n">O'rt. kutish</th><th class="n">Hisobot</th><th>Baho</th></tr>
+    ${s.weeks.map((w) => `<tr><td>${H.esc(w.label)}${w.partial ? ' <span class="muted small">(davom etyapti)</span>' : ""}</td>
+      <td class="n">${pct(w.uptime)}</td><td class="n">${pct(w.cam_up)}</td>
+      <td class="n">${w.theft.total} (${w.theft.confirmed}/${w.theft.rejected}/${w.theft.unreviewed})</td>
+      <td class="n">${dur(w.react_med)}</td><td class="n">${w.safety}</td>
+      <td class="n">${w.visitors == null ? "—" : w.visitors}</td><td class="n">${dur(w.avg_wait)}</td>
+      <td class="n">${w.report_on_time}/${w.report_days}</td>
+      <td><div class="fb-row"><b>${w.rating == null ? "—" : w.rating.toFixed(1)}</b><span class="muted small">${w.ratings ? "(" + w.ratings + ")" : ""}</span>
+        <select data-wk="${w.week}"><option value="">baho</option>${[1, 2, 3, 4, 5].map((n) => `<option>${n}</option>`).join("")}</select>
+        <input data-wkc="${w.week}" placeholder="izoh (ixtiyoriy)"><button class="btn sm" data-wks="${w.week}">Saqlash</button></div></td></tr>`).join("")}</table>`;
+  $("wk").querySelectorAll("[data-wks]").forEach((b) => b.onclick = async () => {
+    const wk = b.dataset.wks;
+    const rating = document.querySelector(`[data-wk="${wk}"]`).value;
+    const comment = document.querySelector(`[data-wkc="${wk}"]`).value;
+    await H.post("/api/pilot/feedback", { week: Number(wk), rating: rating ? Number(rating) : null, comment });
+    H.toast("Saqlandi", "ok"); loadSummary();
+  });
+}
+
+function feedbackBox(s) {
+  const rows = s.feedback.filter((x) => x.comment);
+  if (!rows.length) { $("fb").className = "muted"; $("fb").textContent = "Hali izoh yo'q."; return; }
+  $("fb").className = "";
+  $("fb").innerHTML = rows.map((x) => `<div class="rd"><div class="ic">${x.rating || "—"}</div><div style="flex:1">
+    <div class="d">${dmy(x.week_t0)} haftasi · ${H.esc(x.who)}</div><div>${H.esc(x.comment)}</div></div></div>`).join("");
+}
+
+async function loadSummary() {
+  const s = await H.api("/api/pilot/summary");
+  if (!s) return;
+  pilotBox(s); weeksBox(s); feedbackBox(s);
+}
+
+async function loadGates() {
+  const r = await H.api("/api/pilot/gates");
+  if (!r) return;
+  $("gt").className = "";
+  $("gt").innerHTML = `<table class="pt"><tr><th>Bosqich</th><th>Holat</th><th>Izoh</th><th></th></tr>
+    ${r.gates.map((g) => `<tr><td><b>${g.stage}.</b> ${H.esc(g.name)}</td><td>${badge(g.state)}</td><td class="small">${H.esc(g.detail)}</td>
+      <td><a class="btn sm ghost" href="${H.esc(g.link)}">Ochish →</a></td></tr>`).join("")}</table>`;
+}
+
+function loadAll() { loadReady(false); loadSummary(); loadGates(); }
+$("rd-refresh").onclick = () => loadReady(true);
+$("gt-refresh").onclick = () => loadGates();
+loadAll();
+</script>
+{% endblock %}

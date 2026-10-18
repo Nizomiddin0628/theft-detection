@@ -554,7 +554,7 @@ def gate_suite() -> None:
 
 def misc_suite() -> None:
     print("\n--- Boshqa ---")
-    ok("Versiya 2.4.0", config.APP_VERSION == "2.4.0")
+    ok("Versiya ≥ 2.4", tuple(int(x) for x in config.APP_VERSION.split(".")[:2]) >= (2, 4))
     ok("Sukut sozlamalar: kunlik va haftalik yoqiq, 09:00", config.DEFAULT_SETTINGS["report_daily"] == "1"
        and config.DEFAULT_SETTINGS["report_weekly"] == "1" and config.DEFAULT_SETTINGS["report_time"] == "09:00")
     from app import telegram_bot as tb

@@ -8,6 +8,40 @@ klipini avtomatik kesib, **Telegram botga** sabablari bilan yuboradi. Qo'riqchi 
 
 ---
 
+## 2.5.0 — 9-bosqich: pilotga tayyorgarlik
+
+* **Yangi bo'lim: Pilot** (panel menyusida, Telegram'da **/pilot**).
+* **Tayyorlik ro'yxati** — do'konga o'rnatgach bitta sahifada: panel paroli, do'kon nomi, Telegram (bot va
+  obunachilar), kameralar (ishlayaptimi — nomi bilan), zonalar, sanash chizig'i, ish vaqti, avtomatik ishga tushish
+  (Windows vazifasi `HushyorAI`), oxirgi 7 kunda dastur ish vaqtida o'chiq bo'lgan vaqt (uyqu rejimi), diskda joy,
+  hodisalarni saqlash muddati, kunlik hisobot, bulut aloqasi. Har band ✅ / ⚠️ / ❌, izoh va "Tuzatish →" havolasi.
+  Ro'yxatning qisqasi bulutga ketadi: bulut panelining **Filiallar** sahifasida "9/11 tayyor · tuzatish kerak: …" va
+  pilot kuni ko'rinadi.
+* **Darvozalar jadvali** — 3–8-bosqich darvozalari (sanash, navbat, oqim, xavfsizlik, o'g'irlik, hisobot) va pilot
+  bitta jadvalda: o'tdi / o'tmadi / ma'lumot yetarli emas / qo'llanmaydi (masalan, navbat zonasi yo'q). Mezonlar —
+  har bosqichning o'z sahifasidagi bilan bir xil.
+* **Pilot** — "Pilotni boshlash" (istalgan sanadan). Kalendar haftalari bo'yicha: dastur va kameralar ishlagan vaqt,
+  o'g'irlik signallari (✅/❌/javobsiz), signalga javob berish vaqti (mediana), xavfsizlik signallari, tashriflar,
+  navbatda o'rtacha kutish, kunlik hisobot o'z vaqtida kelgan kunlar, egasining bahosi.
+* **Egasining haftalik bahosi** — har dushanba (haftalik hisobotdan 10 daqiqa keyin) Telegram'da "Hushyor AI o'tgan
+  hafta qanchalik foydali bo'ldi? 1–5" tugmalari; bahodan keyin 10 daqiqa ichida yozilgan xabar — izoh. Panelda ham
+  kiritish mumkin.
+* **9-bosqich darvozasi:** pilot ≥ 28 kun va butun pilot davomida — dastur ish vaqtining ≥ 98% ida ishlagan, kameralar
+  ≥ 95%, o'g'irlik xato signali har kamerada ≤ 3 / kun, javobsiz signallar ≤ 10%, kunlik hisobot kunlarning ≥ 90% ida
+  o'z vaqtida, egasining o'rtacha bahosi ≥ 4 (kamida 3 ta). Yopilgan hafta raqamlari saqlanadi (eski hodisalar
+  o'chsa ham o'zgarmaydi); pilot davomida hodisalarni saqlash muddati ≥ 60 kun bo'lishi kerak (tayyorlik ro'yxati).
+  `python tests\pilot_gate.py`. Batafsil: **docs/PILOT.md**.
+* **Pilot hisoboti (PDF)** — darvoza mezonlari, haftalar jadvali, darvozalar jadvali, tayyorlik va egasining izohlari
+  (do'kon egasiga yoki investorga ko'rsatish uchun).
+* **Diagnostika paketi** — bitta tugma: ZIP (versiyalar, tizim, kameralar, sozlamalar, tayyorlik, darvozalar, oxirgi
+  7 kun raqamlari va jurnallar). Parol, token, kalit, RTSP login/paroli va ulanish kodi yashiriladi; rasm, klip va
+  obunachilar ro'yxati kirmaydi — dasturchiga masofadan yordam uchun.
+* **Bulut (UzCloud):** `deploy/install_vps.sh` ga domen o'rniga IP berish mumkin — `203-0-113-7.sslip.io` nomi bilan
+  Let's Encrypt sertifikati olinadi (domen keyin). `docs/DEPLOY.md` yangilandi (`bosqich-9`).
+* **O'lchovlarim (rostini aytsam)** — pilot mezonlari sinov bazasida 30 kunlik soxta ma'lumotda tekshirildi (o'tdi /
+  bir kun kompyuter o'chiq — o'tmadi / xato ko'p — o'tmadi), Telegram so'rovi soxta Telegram API'da. Haqiqiy natija —
+  do'kondagi pilotda.
+
 ## 2.4.0 — 8-bosqich: hisobotlar va tavsiyalar, rahbariyat paneli
 
 * **Kunlik va haftalik hisobot (do'kon kompyuteri).** Har kuni ertalab (sukut 09:00, Hisobotlar sahifasida
@@ -674,6 +708,7 @@ python run.py
 | AI model | Model aniqligi, versiyalar, qo'riqchi javoblari va PoseLift bilan qayta o'qitish |
 | Telegram bot | Ulanish kodi, obunachilar, sinov xabari, yuborish sozlamalari |
 | Hisobotlar | Kunlik/haftalik hisobot (Telegram + PDF), tavsiyalar va 👍/👎, darvoza (2.4.0); signallar tahlili: kunlar/soatlar/kameralar, aniqlik, javob vaqti |
+| Pilot | Tayyorlik ro'yxati, darvozalar jadvali (3–9-bosqich), pilot haftalari va egasining bahosi, pilot hisoboti (PDF), diagnostika paketi (2.5.0) |
 | Tashriflar | Eshikdan kirdi/chiqdi, hozir ichkarida, soat/kun/hafta, eng gavjum soat, qo'lda sanash sinovi, CSV (1.9.0) |
 | Navbat | Har kassada navbat va kutish vaqti, kassir bor/yo'q, qoidalar va signallar, kassir jadvali tavsiyasi, aniqlik sinovi (namuna + sekundomer), CSV (2.0.0) |
 | Aniqlik sinovi | O'z videolaringizda hodisalarni belgilash va aniqlik/topishni o'lchash |
@@ -752,6 +787,8 @@ python tests/flow_gate.py                 # 2.1.0 oqim darvozasi (nuqtada turish
 python -m tests.test_reports              # 2.4.0 hisobotlar: davrlar, raqamlar, matn, PDF, Telegram, API, darvoza
 python -m tests.test_reports_cloud        # 2.4.0 bulutda taqqoslash va haftalik xulosa (CLOUD_TEST_PG_URL bilan PostgreSQL ham)
 python tests/report_gate.py               # 2.4.0 hisobot darvozasi (14 kun, o'z vaqtida, raqamlar, foydali tavsiyalar)
+python -m tests.test_pilot                # 2.5.0 pilot: tayyorlik, darvozalar, pilot darvozasi, baho so'rovi, diagnostika, bulut
+python tests/pilot_gate.py                # 2.5.0 pilot darvozasi va barcha bosqichlar jadvali
 ```
 
 ---

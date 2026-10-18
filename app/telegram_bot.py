@@ -72,6 +72,7 @@ HELP = (
     "/oqim — bugun qaysi bo'limlarga ko'p kirildi va yo'nalishlar\n"
     "/xavfsizlik — bugungi xavfsizlik signallari (yiqilish, tungi kirish, chiqish to'silgan...)\n"
     "/hisobot — bugungi holat; kechagi va o'tgan haftaning to'liq hisoboti (PDF). Har kuni ertalab o'zi keladi\n"
+    "/pilot — pilot holati: tayyorlik va mezonlar\n"
     "/stop — xabarlarni to'xtatish\n"
     "/yordam — shu yordam\n\n"
     "⚠️ Bot hech kimni ayblamaydi: u faqat \"tekshirib ko'ring\" deydi. Qaror har doim odamniki."
@@ -197,6 +198,7 @@ class TelegramBot:
         self.cb_pool = DaemonPool(2, "tg-cb")
         self._code_fails: dict[int, list[float]] = defaultdict(list)
         self._code_fails_all: list[float] = []
+        self._pilot_wait: dict[int, tuple] = {}   # 2.5.0: pilot bahosidan keyin izoh kutilmoqda (hafta, muddat, kim)
         self._chat_locks: dict[int, threading.Lock] = defaultdict(threading.Lock)
         # Hodisa bo'yicha qulf (signal qayta urinishi va klip bosqichi bir-birini takrorlamasin): doimiy 64 ta qulf
         self._ev_locks = [threading.Lock() for _ in range(64)]
@@ -312,6 +314,7 @@ class TelegramBot:
         {"command": "navbat", "description": "Kassalardagi navbat"},
         {"command": "oqim", "description": "Bugungi bo'lim tashriflari"},
         {"command": "hisobot", "description": "Bugungi holat va hisobotlar (PDF)"},
+        {"command": "pilot", "description": "Pilot holati: tayyorlik va mezonlar"},
         {"command": "stop", "description": "Xabarlarni to'xtatish"},
         {"command": "yordam", "description": "Yordam"},
     ]
@@ -440,7 +443,7 @@ class TelegramBot:
         store = db.get_setting("store_name", "")
         self._reply(chat["id"], f"✅ Ulandingiz! Endi <b>{esc(store)}</b> kameralaridagi shubhali "
                                 f"hodisalar shu yerga keladi.\n\n" + HELP)
-        log.info("Yangi obunachi: %s (%s)", name, chat["id"])
+        log.info("Yangi obunachi (chat …%s)", str(chat["id"])[-3:])   # 2.5.0: ism va to'liq chat raqami jurnalga yozilmaydi
 
     def _on_message(self, msg: dict) -> None:
         chat_id = msg["chat"]["id"]
@@ -506,8 +509,33 @@ class TelegramBot:
                 [{"text": "🔕 Har kungi hisobotni o'chirish" if on else "🔔 Har kungi hisobotni yoqish",
                   "callback_data": "rp:off" if on else "rp:on"}]]}
             self._reply(chat_id, reports.today_text(), kb)
+        elif cmd == "/pilot":
+            from . import pilot
+
+            # Hisob bir necha soniya olishi mumkin — so'rovlarni qabul qiluvchi oqim to'xtab qolmasin
+            self.io_pool.submit(self._safe, lambda: self._reply(chat_id, pilot.status_text()))
+        elif text and not text.startswith("/") and self._pilot_comment_take(chat_id, (msg.get("from") or {}).get("id"),
+                                                                             text):
+            self._reply(chat_id, "📝 Izoh saqlandi — rahmat!")
         else:
             self._reply(chat_id, "Buyruqni tushunmadim. /yordam ni bosing.")
+
+    def _pilot_comment_take(self, chat_id: int, user_id, text: str) -> bool:
+        """2.5.0: pilot bahosidan keyin 10 daqiqa ichida o'sha odam yozgan oddiy matn — o'sha haftaga izoh (guruhda
+        boshqa a'zoning xabari emas)."""
+        p = self._pilot_wait.get(chat_id)
+        if not p or not text.strip() or (p[2] is not None and user_id != p[2]):
+            return False
+        self._pilot_wait.pop(chat_id, None)
+        if time.time() > p[1]:
+            return False
+        from . import pilot
+
+        try:
+            pilot.save_feedback(p[0], f"tg:{chat_id}", None, text.strip(), chat_id)
+        except ValueError:
+            return False
+        return True
 
     def _code_blocked(self, chat_id: int) -> bool:
         now = time.time()
@@ -576,6 +604,9 @@ class TelegramBot:
         if not chat_id or not self._is_sub(chat_id):
             answer("Ruxsat yo'q")
             return
+        if data.startswith("pv:"):
+            self._pilot_callback(data, chat_id, user.get("id"), answer)
+            return
         if data.startswith("rf:") or data.startswith("rp:"):
             self._report_callback(data, chat_id, who, answer, cb)
             return
@@ -621,6 +652,27 @@ class TelegramBot:
         self.refresh_event(ev_id)
         if self.manager is not None:
             self.manager.emit("update", ev_id)
+
+    def _pilot_callback(self, data: str, chat_id: int, user_id, answer) -> None:
+        """2.5.0: pv:<hafta>:<1..5> — egasining haftalik bahosi (callback_data tekshiriladi: o'zgartirilgan mijoz
+        istalgan narsa yuborishi mumkin)."""
+        from . import pilot
+
+        parts = data.split(":")
+        try:
+            if len(parts) != 3 or not parts[1].isdigit():
+                raise ValueError
+            week, val = float(parts[1]), int(parts[2])
+            if not 1 <= val <= 5 or not pilot.valid_week(week):
+                raise ValueError
+            pilot.save_feedback(week, f"tg:{chat_id}", val, None, chat_id)
+        except (ValueError, IndexError):
+            answer("Bu hafta uchun baho qabul qilinmaydi")
+            return
+        self._pilot_wait[chat_id] = (week, time.time() + 600, user_id)
+        answer(f"Rahmat! Baho: {val}")
+        self._reply(chat_id, f"✅ Bahoyingiz ({val}/5) saqlandi. Izoh qoldirmoqchi bo'lsangiz — 10 daqiqa ichida shu "
+                             f"chatga oddiy xabar yozing.")
 
     def _report_callback(self, data: str, chat_id: int, who: str, answer, cb: dict) -> None:
         """2.4.0: hisobot tugmalari — rf:<hisobot>:<tavsiya xeshi>:<1|0> (baho), rp:daily|weekly (PDF), rp:on|off."""

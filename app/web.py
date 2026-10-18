@@ -29,7 +29,7 @@ from .ai.manager import archive_feedback, delete_event_files, get_manager
 from .config import (ADMIN_PASSWORD, ADMIN_USER, APP_NAME, APP_VERSION, BASE_DIR, CLIPS_DIR, DATA_DIR,
                      EVAL_DIR, HOST, MODELS_DIR, PUBLIC_URL, SECRET_KEY, SENSITIVITY_PRESETS, UPLOADS_DIR, env)
 from .logutil import MEMORY_LOG, get_logger, setup_logging
-from . import evaluation, flow_web, queue_web, safety_web, visits
+from . import evaluation, flow_web, pilot_web, queue_web, safety_web, visits
 from .ai import zones as zones_mod
 from .ai.safety import SAFETY_KINDS
 # 2.2.0: o'g'irlik aniqligi (precision, model javoblari) xavfsizlik signallarisiz hisoblanadi
@@ -59,6 +59,7 @@ app.include_router(visits.router)        # 1.9.0: odamlarni sanash — /api/coun
 app.include_router(queue_web.router)     # 2.0.0: kassa navbati — /api/queues/*, /api/export/queues.csv
 app.include_router(flow_web.router)      # 2.1.0: oqim va heatmap — /api/flow/*, /media/plans/*, /api/export/flow.csv
 app.include_router(safety_web.router)    # 2.2.0: xavfsizlik va salomatlik — /api/safety/*
+app.include_router(pilot_web.router)     # 2.5.0: pilot — /api/pilot/*, /api/diagnostics.zip
 
 PUBLIC_PATHS = ("/login", "/static", "/favicon.ico", "/healthz")
 VIDEO_EXT = {".mp4", ".avi", ".mov", ".mkv", ".webm", ".m4v", ".mpg", ".mpeg", ".wmv", ".flv", ".3gp", ".ts"}
@@ -77,6 +78,7 @@ NAV = [
     ("queues", "/navbat", "Navbat", "cart"),
     ("flow", "/oqim", "Oqim", "map"),
     ("eval", "/eval", "Aniqlik sinovi", "target"),
+    ("pilot", "/pilot", "Pilot", "check"),
     ("settings", "/settings", "Sozlamalar", "sliders"),
     ("system", "/system", "Tizim holati", "activity"),
     ("help", "/help", "Yo'riqnoma", "book"),
@@ -521,6 +523,11 @@ def safety_page(request: Request):
     return page(request, "xavfsizlik.html", "safety", "Xavfsizlik va salomatlik")
 
 
+@app.get("/pilot", response_class=HTMLResponse)
+def pilot_page(request: Request):
+    return page(request, "pilot.html", "pilot", "Pilot: tayyorlik va darvozalar")
+
+
 @app.get("/settings", response_class=HTMLResponse)
 def settings_page(request: Request, saved: int = 0):
     return page(request, "settings.html", "settings", "Sozlamalar", saved=saved)
@@ -848,23 +855,26 @@ def api_eval_stop():
     return {"ok": True}
 
 
-def theft_live_cams() -> tuple[list[dict], float]:
-    """2.3.0: jonli kameralar bo'yicha o'g'irlik signallari va ishlagan daqiqalar (bir oynada)."""
+def theft_live_cams(t0: float | None = None, t1: float | None = None) -> tuple[list[dict], float]:
+    """2.3.0: jonli kameralar bo'yicha o'g'irlik signallari va ishlagan daqiqalar (bir oynada). t0 / t1 (2.5.0, pilot) —
+    oyna boshi va oxiri (berilmasa — saqlash muddati bo'yicha, hozirgacha)."""
     from . import theft_eval
     from .config import FEEDBACK_DIR
 
-    t0 = theft_eval.window(db.get_setting("retention_days", "30"), time.time())
+    if t0 is None:
+        t0 = theft_eval.window(db.get_setting("retention_days", "30"), time.time())
+    end = 1e18 if t1 is None else float(t1)
     mins = {r["source_id"]: r for r in db.rows(
         "SELECT source_id, MAX(source_name) AS name, COUNT(*) AS minutes FROM metrics_minute WHERE source_id>0 "
-        "AND up_pct>=0.5 AND minute>=? GROUP BY source_id", (t0,))}
+        "AND up_pct>=0.5 AND minute>=? AND minute<? GROUP BY source_id", (t0, end))}
     ev: dict = {}
     for r in db.rows(f"SELECT source_id, status, COUNT(*) AS n FROM events WHERE job_id IS NULL AND source_id IS NOT NULL "
-                     f"AND {NOT_SAFETY} AND created_at>=? GROUP BY source_id, status", (t0,)):
+                     f"AND {NOT_SAFETY} AND created_at>=? AND created_at<? GROUP BY source_id, status", (t0, end)):
         e = ev.setdefault(r["source_id"], {"rejected": 0, "confirmed": 0, "unreviewed": 0})
         e[{"rad_etilgan": "rejected", "tasdiqlangan": "confirmed"}.get(r["status"], "unreviewed")] += r["n"]
     names = {r["id"]: r["name"] for r in db.rows("SELECT id, name FROM sources")}
     live_ids = {r["id"] for r in db.rows("SELECT id FROM events")}
-    theft_eval.add_archived(ev, FEEDBACK_DIR, t0, live_ids, {v: k for k, v in names.items()}, SAFETY_KINDS)
+    theft_eval.add_archived(ev, FEEDBACK_DIR, t0, live_ids, {v: k for k, v in names.items()}, SAFETY_KINDS, t1)
     cams = [{"source_id": sid, "name": names.get(sid) or (mins.get(sid) or {}).get("name") or f"#{sid}",
              "minutes": (mins.get(sid) or {}).get("minutes", 0),
              **ev.get(sid, {"rejected": 0, "confirmed": 0, "unreviewed": 0})} for sid in sorted(set(mins) | set(ev))]

@@ -45,7 +45,7 @@ from .db import CLIPS_DIR, DATA_DIR
 from .live import hub
 
 log = logging.getLogger("hushyor.cloud")
-VERSION = "2.4.0"
+VERSION = "2.5.0"
 
 API_VERSION = 1
 ROOT = Path(__file__).resolve().parent
@@ -342,6 +342,7 @@ def _hello(b: dict, body: dict, ip: str) -> dict:
            if isinstance(occ, dict) else None)
     qs = _hello_queues(body.get("queues"))
     fp = _hello_flow_plans(body.get("flow_plans"))
+    rd = _hello_readiness(body.get("readiness"))
     with cdb.engine().begin() as c:
         vals = {"last_seen": now, "last_ip": ip[:64],
                 "version": str(body.get("version") or "")[:40], "cameras": cams,
@@ -350,6 +351,8 @@ def _hello(b: dict, body: dict, ip: str) -> dict:
                 "queues": ({"at": now, "items": qs} if qs is not None else None)}
         if fp is not None:
             vals["flow_plans"] = {"at": now, "items": fp}
+        if rd is not None:
+            vals["readiness"] = {**rd, "at": now}
         if b.get("token_hash") == "env" and body.get("name"):
             vals["name"] = str(body.get("name"))[:200]      # muhit tokeni bilan ulangan filial nomi edge'dan
         c.execute(cdb.branches.update().where(cdb.branches.c.id == b["id"]).values(**vals))
@@ -369,6 +372,23 @@ def _hello(b: dict, body: dict, ip: str) -> dict:
 
 
 FEATURES = ("queues", "flow")
+
+
+def _hello_readiness(raw) -> dict | None:
+    """2.5.0: edge tayyorlik ro'yxati va pilot holati (qisqa) — tozalangan, cheklangan o'lchamda."""
+    if not isinstance(raw, dict):
+        return None
+
+    def strs(v) -> list[str]:
+        return [str(x)[:80] for x in v[:8] if isinstance(x, (str, int, float))] if isinstance(v, list) else []
+    out = {"ok": max(0, min(99, int(_num(raw.get("ok"))))), "total": max(0, min(99, int(_num(raw.get("total"))))),
+           "bad": strs(raw.get("bad")), "warn": strs(raw.get("warn")), "pilot": None}
+    p = raw.get("pilot")
+    if isinstance(p, dict) and _num(p.get("since")) > 0:
+        until = _num(p.get("until"))
+        out["pilot"] = {"since": float(_num(p.get("since"))), "until": float(until) if until > 0 else None,
+                        "days": max(0, min(3650, int(_num(p.get("days")))))}
+    return out
 
 
 def _hello_flow_plans(raw) -> list[dict] | None:
@@ -950,11 +970,12 @@ def list_branches(request: Request):
     day0 = time.time() - 86400
     out = []
     for b in cdb.rows("SELECT id, name, address, device_id, created_at, last_seen, version, cameras, pending, clock_skew, "
-                      "occupancy "
+                      "occupancy, readiness "
                       "FROM branches WHERE company_id=:c ORDER BY id", {"c": u["company_id"]}):
         if b["id"] not in ids:
             continue
         b["cameras"] = cdb.json_load(b.get("cameras")) or []
+        b["readiness"] = cdb.json_load(b.get("readiness")) or None     # 2.5.0
         b["online"] = bool(b.get("last_seen") and time.time() - b["last_seen"] < 180)
         b["events_24h"] = cdb.scalar("SELECT COUNT(*) FROM events WHERE branch_id=:b AND created_at >= :t",
                                      {"b": b["id"], "t": day0}) or 0

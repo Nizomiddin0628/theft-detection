@@ -275,7 +275,7 @@ def cameras(t0: float, t1: float, now: float | None = None) -> dict:
             "SELECT minute, up_pct FROM metrics_minute WHERE source_id=? AND minute >= ? AND minute < ?",
             (s["id"], t0, end))}
         down = sum(1.0 - min(1.0, up.get(m, 0.0)) for m in mine)
-        out.append({"source_id": s["id"], "name": s["name"], "down_min": round(down),
+        out.append({"source_id": s["id"], "name": s["name"], "down_min": round(down), "on_min": len(mine),
                     "up_pct": round(1 - down / len(mine), 3) if mine else None})
     return {"work_min": len(work), "app_off_min": len(work) - len(on),
             "cams": sorted(out, key=lambda c: -c["down_min"]), "work_hours": spec}
@@ -800,6 +800,15 @@ class Scheduler(threading.Thread):
             except Exception:  # noqa: BLE001  (baza band va h.k. — oqim to'xtamasin)
                 log.exception("%s hisobot yaratilmadi", LABEL[kind])
                 self.next_try[kind] = now + RETRY_SEC
+        if now >= self.next_try.get("poll", 0):
+            try:                                   # 2.5.0: pilot — dushanba egasining haftalik bahosi
+                from . import pilot
+
+                if pilot.poll_week(now) is not None and not pilot.poll_tick(self.bot, now):
+                    self.next_try["poll"] = now + RETRY_SEC
+            except Exception:  # noqa: BLE001
+                log.exception("Pilot so'rovi")
+                self.next_try["poll"] = now + RETRY_SEC
         return done
 
     def run(self) -> None:

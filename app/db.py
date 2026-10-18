@@ -411,6 +411,23 @@ CREATE TABLE IF NOT EXISTS reports (
     frozen INTEGER DEFAULT 0,     -- yuborish boshlangan: qayta hisoblanmaydi (Telegram'dagi nusxa bilan bir xil)
     UNIQUE (kind, t0)
 );
+CREATE TABLE IF NOT EXISTS pilot_weeks (
+    week_t0 REAL NOT NULL,        -- 2.5.0: yopilgan pilot haftasi raqamlari (keyin o'zgarmaydi)
+    t0 REAL NOT NULL,
+    t1 REAL NOT NULL,
+    data TEXT,
+    t REAL,
+    PRIMARY KEY (week_t0, t0, t1)
+);
+CREATE TABLE IF NOT EXISTS pilot_feedback (
+    week_t0 REAL NOT NULL,        -- 2.5.0: hafta boshi (dushanba, mahalliy yarim tun)
+    who TEXT NOT NULL,            -- tg:<chat> yoki panel:<foydalanuvchi>
+    chat_id INTEGER,
+    rating INTEGER,               -- 1..5 (egasining haftalik bahosi)
+    comment TEXT,
+    t REAL,
+    PRIMARY KEY (week_t0, who)
+);
 CREATE TABLE IF NOT EXISTS report_sends (
     report_id INTEGER NOT NULL,
     chat_id INTEGER NOT NULL,

@@ -1,4 +1,4 @@
-# Hushyor AI — o'rnatish va joylashtirish (1.8.0)
+# Hushyor AI — o'rnatish va joylashtirish (1.8.0; 2.5.0 — pilot va UzCloud)
 
 Tizim ikki qismdan iborat:
 
@@ -14,7 +14,7 @@ Bulut bo'lmasa ham edge to'liq ishlaydi. Bulut ulansa, edge ma'lumotni navbat or
 Yangi kompyuter (Python 3.10–3.13 o'rnatilgan, "Add python.exe to PATH" belgilangan):
 
 ```powershell
-git clone -b bosqich-2 https://github.com/Nizomiddin0628/theft-detection.git C:\hushyor-ai
+git clone -b bosqich-9 https://github.com/Nizomiddin0628/theft-detection.git C:\hushyor-ai
 cd C:\hushyor-ai
 .\install_windows.bat
 ```
@@ -28,6 +28,12 @@ cd C:\hushyor-ai
 5. Panelni ochadi.
 
 Qayta ishga tushirsangiz, bor sozlamalar saqlanadi.
+
+**Pilotga tayyorlik (2.5.0):** o'rnatgandan keyin panelda **Pilot** sahifasini oching. Tayyorlik ro'yxatidagi ❌
+bandlarni tuzating (parol, Telegram obunachisi, ishlamayotgan kamera, avtomatik ishga tushish, disk, bulut aloqasi),
+⚠️ larni iloji boricha (do'kon nomi, zonalar, sanash chizig'i, ish vaqti, saqlash muddati ≥ 30 kun). Keyin
+**Pilotni boshlash** — 28 kun kuzatuv boshlanadi (mezonlar sahifada va `docs/PILOT.md` da). Muammo bo'lsa
+**Diagnostika paketi** (ZIP: jurnallar va sozlamalar, parol va tokenlarsiz) ni dasturchiga yuboring.
 
 **Yangilash** (yangi versiya ZIP'i kelganda):
 
@@ -67,15 +73,20 @@ powershell -ExecutionPolicy Bypass -File scripts\windows\install_cloud_autostart
 
 Panel: `http://localhost:9000`. Tarmoqdagi telefondan ochish uchun: `http://<kompyuter-IP>:9000`. Faqat shu kompyuterdan ochiladigan qilish uchun skriptga `-BindHost 127.0.0.1` qo'shing. Agar edge ham shu kompyuterda bo'lsa, edge'ning `.env` faylida `CLOUD_URL=http://127.0.0.1:9000` bo'ladi.
 
-### B/C. VPS (Ubuntu 22.04 / 24.04)
+### B/C. VPS (Ubuntu 22.04 / 24.04) — UzCloud ham
 
 1. Domen yoki subdomen oling (masalan, `panel.dokon.uz`). DNS'da uning `A` yozuvini serverning IP manziliga yo'naltiring.
+   **Domen hali yo'q bo'lsa (2.5.0)** — IP manzilning o'zini bering: skript `203-0-113-7.sslip.io` nomini ishlatadi
+   (sslip.io bu nomga o'sha IP'ni qaytaradi) va Let's Encrypt sertifikatini shu nomga oladi. Shart: serverda 80 va
+   443 portlari tashqaridan ochiq bo'lsin (UzCloud panelida xavfsizlik guruhi / firewall).
 2. Serverda quyidagini bajaring:
 
 ```bash
-git clone -b bosqich-2 https://github.com/Nizomiddin0628/theft-detection.git /root/hushyor-src
+apt-get update && apt-get install -y git
+git clone -b bosqich-9 https://github.com/Nizomiddin0628/theft-detection.git /root/hushyor-src
 sudo bash /root/hushyor-src/deploy/install_vps.sh panel.dokon.uz admin@dokon.uz              # SQLite
 sudo bash /root/hushyor-src/deploy/install_vps.sh panel.dokon.uz admin@dokon.uz --postgres   # PostgreSQL (tavsiya)
+sudo bash /root/hushyor-src/deploy/install_vps.sh 203.0.113.7 admin@dokon.uz --postgres      # domensiz (UzCloud IP)
 ```
 
 Skript quyidagilarni o'rnatadi:
@@ -99,7 +110,11 @@ Boshqa nginx saytlariga va Telegram botlariga tegmaydi.
    ```
    Keyin edge'ni qayta ishga tushiring. **Tizim holati → Bulut → Ulanishni tekshirish** bosilganda "aloqa bor" chiqishi kerak.
 
-**Yangilash:** `cd /root/hushyor-src && git pull && sudo bash deploy/install_vps.sh panel.dokon.uz admin@dokon.uz`. Bunda `.env` va baza saqlanadi.
+**Yangilash:** `cd /root/hushyor-src && git fetch && git checkout <yangi shox> && sudo bash deploy/install_vps.sh panel.dokon.uz admin@dokon.uz`
+(o'sha domen yoki IP va o'sha `--postgres` bilan). Bunda `.env` va baza saqlanadi.
+
+**Filiallar tayyorligi (2.5.0):** bulut panelida **Filiallar** sahifasida har do'kon kompyuterining tayyorlik ro'yxati
+(masalan, "9/11 tayyor · tuzatish kerak: Telegram bot") va pilot kuni ko'rinadi — do'konga bormasdan holatni bilish uchun.
 
 **Xavfsizlik devori:** faqat 22 (SSH), 80 va 443 portlari ochiq bo'lsin: `ufw allow OpenSSH && ufw allow 'Nginx Full' && ufw enable`. 9000-port tashqariga ochilmaydi, unga faqat nginx ulanadi.
 

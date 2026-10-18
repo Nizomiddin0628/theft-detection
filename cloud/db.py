@@ -97,6 +97,7 @@ branches = Table(                                          # filial = do'kon = b
     Column("occupancy", JSON),                            # 1.9.0: hello dagi sanash holati {inside, since, day0, in, out}
     Column("queues", JSON),                               # 2.0.0: hello dagi kassalar holati {at, items: [...]}
     Column("flow_plans", JSON),                           # 2.1.0: hello dagi do'kon rejalari {at, items: [...]}
+    Column("readiness", JSON),                            # 2.5.0: hello dagi tayyorlik va pilot holati
 )
 events = Table(
     "events", meta,
@@ -299,7 +300,8 @@ audit_log = Table(                                         # kim, qachon, nima q
 
 # Mavjud bazalarga (1.6.0) qo'shiladigan ustunlar: create_all eski jadvalni o'zgartirmaydi
 EXTRA_COLUMNS = {
-    "branches": {"offline_since": "FLOAT", "occupancy": "JSON", "queues": "JSON", "flow_plans": "JSON"},
+    "branches": {"offline_since": "FLOAT", "occupancy": "JSON", "queues": "JSON", "flow_plans": "JSON",
+                 "readiness": "JSON"},
     "events": {"received_at": "FLOAT"},
 }
 

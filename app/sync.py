@@ -305,6 +305,12 @@ class SyncWorker(threading.Thread):
                 payload["flow_plans"] = [flow.plan_public(p) for p in plans.values()][:5]
         except Exception:  # noqa: BLE001
             log.exception("Reja ma'lumotini olib bo'lmadi")
+        try:
+            from . import pilot                  # 2.5.0: tayyorlik va pilot holati (bulut filiallar ro'yxatida)
+
+            payload["readiness"] = pilot.summary()
+        except Exception:  # noqa: BLE001
+            log.exception("Tayyorlik holatini olib bo'lmadi")
         t0 = time.time()
         payload["time"] = t0
         code, body = self._post(f"/api/v{API_VERSION}/edge/hello", payload, timeout=15)

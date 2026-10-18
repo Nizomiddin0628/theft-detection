@@ -171,6 +171,25 @@ function BranchCard({ b, owner, onToken }: { b: Branch; owner: boolean; onToken:
         <dd>
           {b.events_24h}, tekshirilmagan {b.pending_review}
         </dd>
+        {b.readiness ? (
+          <>
+            <dt>Tayyorlik</dt>
+            <dd data-testid="readiness">
+              <span className={b.readiness.bad.length ? "pill offline" : "pill online"}>
+                {b.readiness.ok}/{b.readiness.total} tayyor
+              </span>
+              {b.readiness.bad.length ? <span className="error small"> · tuzatish kerak: {b.readiness.bad.join(", ")}</span> : null}
+              {b.readiness.warn.length ? <span className="muted small"> · tavsiya: {b.readiness.warn.join(", ")}</span> : null}
+            </dd>
+            <dt>Pilot</dt>
+            <dd>
+              {b.readiness.pilot
+                ? `${when(b.readiness.pilot.since)} dan, ${b.readiness.pilot.days} kun` +
+                  (b.readiness.pilot.until ? ` (yakunlangan ${when(b.readiness.pilot.until)})` : "")
+                : "boshlanmagan"}
+            </dd>
+          </>
+        ) : null}
         {b.clock_skew !== null && b.clock_skew !== undefined && Math.abs(b.clock_skew) > 60 ? (
           <>
             <dt>Soat farqi</dt>

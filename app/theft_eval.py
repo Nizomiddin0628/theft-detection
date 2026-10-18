@@ -30,7 +30,8 @@ def window(retention_days, now: float) -> float:
     return now - days * 86400
 
 
-def add_archived(ev: dict, feedback_dir, t0: float, live_ids: set, name_to_id: dict, safety) -> int:
+def add_archived(ev: dict, feedback_dir, t0: float, live_ids: set, name_to_id: dict, safety,
+                 t1: float | None = None) -> int:
     """O'chirilgan hodisalarning javoblari (data/feedback/ev*.json) — ❌ belgilangan (yoki javobsiz) signalni o'chirib,
     darvozani "aldab" bo'lmasin; javobsiz o'chirilgani "javobsiz" bo'lib sanaladi. ev: {source_id: {"rejected", "confirmed", "unreviewed"}} — joyida to'ldiriladi. Bazada bor
     hodisalar (live_ids) qayta sanalmaydi. Qaytaradi: qo'shilgan javoblar soni."""
@@ -48,8 +49,8 @@ def add_archived(ev: dict, feedback_dir, t0: float, live_ids: set, name_to_id: d
             continue
         if data.get("job_id") is not None or data.get("kind") in safety:
             continue
-        if float(data.get("created_at") or 0) < t0:
-            continue
+        if float(data.get("created_at") or 0) < t0 or (t1 is not None and float(data.get("created_at") or 0) >= t1):
+            continue                                              # t1 (2.5.0) — yakunlangan pilot oynasi
         sid = data.get("source_id")
         if sid is None:
             sid = name_to_id.get(data.get("source_name"))         # 2.3.0 dan oldingi arxiv: kamera nomi bo'yicha
