@@ -8,6 +8,27 @@ klipini avtomatik kesib, **Telegram botga** sabablari bilan yuboradi. Qo'riqchi 
 
 ---
 
+## 2.9.0 — sayt: uch til, «Qanday ishlaydi» tomir tizimi, boy imkoniyatlar
+
+* **Uch til:** o'zbekcha `/sayt/`, ruscha `/sayt/ru/`, inglizcha `/sayt/en/` — tepada til almashtirgich, `hreflang`,
+  forma xabarlari ham o'z tilida. Ruscha/inglizcha sahifadan kelgan so'rov manbasida til yoziladi (`sayt · til=ru`),
+  filiallar soni egasiga o'zbekcha boradi. Narx matni: `CLOUD_SITE_PRICE` (o'zbekcha), `CLOUD_SITE_PRICE_RU`,
+  `CLOUD_SITE_PRICE_EN` (berilmasa — "по запросу" / "on request"). Panel va bot hozircha o'zbekcha — savollarda ochiq yozilgan.
+* **Sahifalar yasaladi:** `scripts/site_template.html` (Jinja2) + `scripts/site_text.py` (uch tildagi matnlar) →
+  `python scripts/build_site.py` → `site/index.html`, `site/ru/index.html`, `site/en/index.html`. Matnni o'zgartirsangiz
+  — skriptni yurgizing; `tests/test_demo.py` fayllar eskirganini va tarjima kalitlari bir xilligini tekshiradi.
+* **«Qanday ishlaydi» — tomir tizimi:** kameralardan ma'lumot tomirlar bo'ylab do'kon kompyuteriga ("yurak" — urib
+  turadi, atrofida bosqichlar aylanadi) oqadi, undan Telegram, panel, bulut, hisobot va SMS ga tarmoqlanadi;
+  qo'riqchining ✅/❌ javobi vena kabi qaytadi. 7 izoh navbat bilan o'zi yonadi (sichqoncha izohlar ustida bo'lsa —
+  to'xtab turadi); tugun yoki izoh bosilsa — o'sha yo'l yorishadi va almashinuv to'xtaydi. Kompyuterda gorizontal,
+  planshetda vertikal sxema izohlar yonida, telefonda vertikal sxema. Ekran o'quvchi uchun sxema bitta tavsif.
+* **Imkoniyatlar** — har biriga mini-sahna (qo'l cho'ntakka va xavf shkalasi, eshikdan kirganlar "+1", kassa navbati
+  siljishi, heatmap va yo'nalish, yiqilish va SMS, hisobot ustunlari va tavsiya) va aniq tafsilotlar.
+* **Yangi bo'limlar:** «Kimlar uchun» (supermarket, kiyim, dorixona, elektronika, tarmoq), «Maxfiylik va talablar»
+  (kompyuter, kamera, internet, telefon), yangi savollar (kompyuter o'chsa; panel tili).
+* Animatsiyalar faqat ekranda ko'rinib turganda o'ynaydi; "harakatni kamaytirish" yoqilgan bo'lsa — yo'q (sahnalar
+  oxirgi holatda). CSP o'zgarmadi: tashqi manba, ichki skript va inline style yo'q.
+
 ## 2.8.0 — sayt: jonli bosh sahna va animatsiyalar
 
 * **Bosh sahna — mahsulotning o'zi ishlab turgani:** kamera ko'rinishida xaridor polkadan mahsulot olib cho'ntagiga

@@ -88,6 +88,9 @@ uzilsa, videolar qayerda, xato qiladimi, yuzni taniydimi, ko'p filial.
   (~6,5 s, bir marta; sahna ekranga chiqqanda boshlanadi, "Yana ko'rish" — qaytadan; skript o'chiq bo'lsa ham o'ynaydi,
   faqat tugmasiz). Tizimda "harakatni kamaytirish" yoqilgan bo'lsa — sahna darhol oxirgi holatda. Shrift — IBM Plex Sans (`site/fonts`,
   OFL litsenziyasi), bulut paneli bilan bir xil. Tablar, savollar va yuborilgan forma bosilganda yumshoq animatsiya.
+* 2.9.0: uch til — `/sayt/` (o'zbekcha), `/sayt/ru/`, `/sayt/en/`. Sahifalar yasaladi: matnlar `scripts/site_text.py`,
+  shablon `scripts/site_template.html`, keyin `python scripts/build_site.py` (natija `site/` ga yoziladi va commit
+  qilinadi). «Qanday ishlaydi» — tomir tizimi sxemasi, imkoniyatlar — mini-sahnalar bilan.
 * Bulut serveri `/sayt/` da beradi. Aloqa qatorlari **`.env` dan** (berilmagani ko'rsatilmaydi — raqam o'ylab
   topilmaydi):
 
@@ -97,6 +100,8 @@ uzilsa, videolar qayerda, xato qiladimi, yuzni taniydimi, ko'p filial.
   CLOUD_SITE_EMAIL=
   CLOUD_SITE_ADDRESS=
   CLOUD_SITE_PRICE=                              # bo'sh — "so'rov bo'yicha"
+  CLOUD_SITE_PRICE_RU=                           # ruscha sahifa uchun (bo'sh — "по запросу")
+  CLOUD_SITE_PRICE_EN=                           # inglizcha sahifa uchun (bo'sh — "on request")
   ```
 * Domen ildizida sayt chiqishi uchun nginx'dagi `location = /` blokini yoqing (docs/DEPLOY.md): kirmagan mehmon —
   sayt, panelga kirgan xodim — panel (kirish `/login/` dan).

@@ -16,6 +16,7 @@ Panel: cloud/panel_dist (Next.js statik build) — shu server `/` da beradi.
 2.6.0: sayt (site/) — `/sayt/` (aloqa: CLOUD_SITE_*), saytdagi so'rovlar — `POST /api/v1/leads` (cloud/leads.py; xabar:
 CLOUD_LEADS_CHAT, CLOUD_LEADS_EMAIL), `python -m cloud.server --leads`. Demo: `python -m cloud.demo` (cloud/demo.py).
 2.8.0: saytning yangi bosh sahnasi (CSS animatsiya, site/fonts — IBM Plex Sans, OFL).
+2.9.0: sayt uch tilda — /sayt/ (o'zbekcha), /sayt/ru/, /sayt/en/ (scripts/build_site.py yasaydi); CLOUD_SITE_PRICE_RU/_EN.
 """
 from __future__ import annotations
 
@@ -49,7 +50,7 @@ from .db import CLIPS_DIR, DATA_DIR
 from .live import hub
 
 log = logging.getLogger("hushyor.cloud")
-VERSION = "2.8.0"
+VERSION = "2.9.0"
 
 API_VERSION = 1
 ROOT = Path(__file__).resolve().parent
@@ -1913,7 +1914,10 @@ def site_config() -> dict:
         tg = "https://t.me/" + tg
     return {"phone": cdb.env("CLOUD_SITE_PHONE").strip(), "telegram": tg if tg.startswith("https://") else "",
             "email": cdb.env("CLOUD_SITE_EMAIL").strip(), "address": cdb.env("CLOUD_SITE_ADDRESS").strip(),
-            "price": cdb.env("CLOUD_SITE_PRICE").strip() or "so'rov bo'yicha", "demo": DEMO, "version": VERSION}
+            "price": cdb.env("CLOUD_SITE_PRICE").strip() or "so'rov bo'yicha",
+            # 2.9.0: ruscha va inglizcha sahifa uchun (bo'sh — sahifadagi "по запросу" / "on request")
+            "price_ru": cdb.env("CLOUD_SITE_PRICE_RU").strip(), "price_en": cdb.env("CLOUD_SITE_PRICE_EN").strip(),
+            "demo": DEMO, "version": VERSION}
 
 
 @app.get("/sayt")

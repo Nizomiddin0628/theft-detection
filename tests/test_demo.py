@@ -9,6 +9,7 @@ Kun vaqti va vaqt mintaqasiga bog'liq emas. SQLite; CLOUD_TEST_PG_URL bilan bulu
 from __future__ import annotations
 
 import os
+import posixpath
 import re
 import socket
 import subprocess
@@ -318,37 +319,62 @@ def cloud_suite(label: str) -> None:
     # ---- sayt
     r = c.get("/sayt", follow_redirects=False)
     ok(f"{label}: /sayt → /sayt/", r.status_code in (307, 308) and r.headers["location"] == "/sayt/")
-    r = c.get("/sayt/")
-    html_ = r.text
-    ok(f"{label}: sayt — o'zbekcha, forma, qat'iy CSP (ichki skript yo'q)", r.status_code == 200
-       and 'lang="uz"' in html_ and 'id="lead-form"' in html_ and 'name="hp_extra"' in html_
-       and r.headers.get("content-security-policy") == cloud.SITE_CSP and "unsafe-inline" not in cloud.SITE_CSP
-       and not re.search(r"<script(?![^>]*\bsrc=)", html_) and " on" + "click=" not in html_)
-    ok(f"{label}: tashqi manba yo'q (shrift, CDN, skript)", not re.search(r'(src|href)="https?://', html_)
+    # 2.9.0: uch til — /sayt/ (o'zbekcha), /sayt/ru/, /sayt/en/; hammasi bir xil qat'iy qoidalar bilan
+    for lg, url in (("uz", "/sayt/"), ("ru", "/sayt/ru/"), ("en", "/sayt/en/")):
+        r = c.get(url)
+        html_ = r.text
+        pre = f"{label}: sayt {lg}"
+        ok(f"{pre} — til, forma, qat'iy CSP (ichki skript yo'q)", r.status_code == 200
+           and f'lang="{lg}"' in html_ and 'id="lead-form"' in html_ and 'name="hp_extra"' in html_
+           and r.headers.get("content-security-policy") == cloud.SITE_CSP and "unsafe-inline" not in cloud.SITE_CSP
+           and not re.search(r"<script(?![^>]*\bsrc=)", html_) and " on" + "click=" not in html_)
+        ok(f"{pre}: tashqi manba yo'q (shrift, CDN, skript), inline style yo'q",
+           not re.search(r'(src|href)="https?://', html_) and ' style="' not in html_ and "<style" not in html_)
+        vers = set(re.findall(r'\?v=([\w.]+)"', html_))
+        ok(f"{pre}: style.css va app.js keshi versiya bilan yangilanadi (?v= = {cloud.VERSION})",
+           vers == {cloud.VERSION}, str(vers))
+        alts = dict(re.findall(r'<link rel="alternate" hreflang="(\w+)" href="([^"]+)"', html_))
+        ok(f"{pre}: til almashtirgich va hreflang (uz, ru, en)", set(alts) == {"uz", "ru", "en"} and alts[lg] == "./"
+           and html_.count('aria-current="page"') == 1)
+        base = "/sayt/" if lg == "uz" else url
+        imgs = re.findall(r'src="((?:\.\./)?img/[^"]+)"', html_)
+        ok(f"{pre}: barcha rasmlar bor va beriladi", imgs and all(
+            c.get(posixpath.normpath(base + i)).status_code == 200 for i in imgs), str(imgs[:3]))
+        shown = re.sub(r'data-i18n="[^"]*"', "", html_).replace('placeholder="+998 90 123 45 67"', "")
+        ok(f"{pre}: saytda soxta telefon raqami yo'q (namuna faqat maydon ichida va xato xabarida)",
+           not re.search(r"\+998\s?\d{2}\s?\d{3}", shown))
+        ok(f"{pre}: «Qanday ishlaydi» sxemasi (7 izoh) va 6 imkoniyat sahnasi", html_.count('class="vas-it"') == 7
+           and len(re.findall(r'class="fv fv-', html_)) == 6 and 'class="vas-svg vas-h"' in html_)
+        ok(f"{pre}: sxema — bitta tavsif (role=img), SVG'lar ekran o'quvchidan yashirin, impulslarda filtr yo'q",
+           re.search(r'class="vas-fig" role="img" aria-label="[^"]{40,}"', html_) is not None
+           and len(re.findall(r'<svg class="vas-svg vas-[hv]"[^>]*aria-hidden="true"', html_)) == 2
+           and 'aria-pressed="true"' not in html_ and not re.search(r'class="vf[^"]*"[^>]*filter=', html_))
+    ok(f"{label}: /sayt/ru → /sayt/ru/ (qiyshiq chiziqsiz ham ochiladi)",
+       c.get("/sayt/ru", follow_redirects=True).status_code == 200)
+    ok(f"{label}: shrift va litsenziyasi beriladi, app.js va style.css bor",
+       c.get("/sayt/fonts/ibm-plex-sans-latin.woff2").headers.get("content-type", "").startswith("font/woff2")
+       and c.get("/sayt/fonts/OFL.txt").status_code == 200
+       and all(c.get("/sayt/" + f).status_code == 200 for f in ("app.js", "style.css"))
        and "@import" not in (ROOT / "site" / "style.css").read_text(encoding="utf-8"))
-    ok(f"{label}: inline style yo'q (CSP style-src 'self'), shrift va litsenziyasi beriladi",
-       ' style="' not in html_ and "<style" not in html_
-       and c.get("/sayt/fonts/ibm-plex-sans-latin.woff2").headers.get("content-type", "").startswith("font/woff2")
-       and c.get("/sayt/fonts/OFL.txt").status_code == 200)
-    vers = set(re.findall(r'\?v=([\w.]+)"', html_))
-    ok(f"{label}: style.css va app.js keshi versiya bilan yangilanadi (?v= = {cloud.VERSION})", vers == {cloud.VERSION},
-       str(vers))
-    imgs = re.findall(r'src="(img/[^"]+)"', html_)
-    ok(f"{label}: barcha rasmlar bor va beriladi", imgs and all(c.get("/sayt/" + i).status_code == 200 for i in imgs)
-       and all(c.get("/sayt/" + f).status_code == 200 for f in ("app.js", "style.css")), str(imgs))
-    ok(f"{label}: saytda soxta telefon raqami yo'q", not re.search(r"\+998\s?\d{2}\s?\d{3}", html_.replace(
-        'placeholder="+998 90 123 45 67"', "")))
+    if label == "SQLite":
+        rb = subprocess.run([sys.executable, str(ROOT / "scripts" / "build_site.py"), "--check"], capture_output=True,
+                            text=True, timeout=120, cwd=str(ROOT))
+        ok("Sayt sahifalari shablonga mos (scripts/build_site.py --check; tarjima kalitlari bir xil)",
+           rb.returncode == 0, (rb.stdout + rb.stderr)[-300:])
     js = c.get("/sayt/sozlama.js").text
     ok(f"{label}: aloqa qatorlari bo'sh (.env da berilmagan), narx — so'rov bo'yicha", '"phone": ""' in js
        and "so'rov bo'yicha" in js)
     os.environ.update(CLOUD_SITE_PHONE="+998 71 000 00 00", CLOUD_SITE_TELEGRAM="@hushyor_uz",
-                      CLOUD_SITE_EMAIL="a@b.uz</script><b>", CLOUD_SITE_PRICE="kelishiladi")
+                      CLOUD_SITE_EMAIL="a@b.uz</script><b>", CLOUD_SITE_PRICE="kelishiladi",
+                      CLOUD_SITE_PRICE_RU="договорная")
     try:
         js = c.get("/sayt/sozlama.js").text
         ok(f"{label}: .env dagi aloqa — sozlama.js da (Telegram havolaga, '<' ekranlangan)", "+998 71 000 00 00" in js
            and "https://t.me/hushyor_uz" in js and "</script>" not in js and "\\u003c/script" in js and "kelishiladi" in js)
+        ok(f"{label}: ruscha/inglizcha narx alohida (CLOUD_SITE_PRICE_RU/_EN; berilmasa — bo'sh)",
+           '"price_ru": "договорная"' in js and '"price_en": ""' in js)
     finally:
-        for k in ("CLOUD_SITE_PHONE", "CLOUD_SITE_TELEGRAM", "CLOUD_SITE_EMAIL", "CLOUD_SITE_PRICE"):
+        for k in ("CLOUD_SITE_PHONE", "CLOUD_SITE_TELEGRAM", "CLOUD_SITE_EMAIL", "CLOUD_SITE_PRICE", "CLOUD_SITE_PRICE_RU"):
             os.environ.pop(k, None)
 
     # ---- lidlar: tekshiruv
@@ -685,7 +711,7 @@ def browser_suite() -> None:
                 if mob:
                     ok("telefon: sahna ko'rinmaguncha kutadi (animatsiya to'xtab turadi)", pg.evaluate(
                         anims + ".every(a => a.playState === 'paused')") and pg.evaluate(tg_op) == 0)
-                    pg.evaluate("document.getElementById('stage').scrollIntoView()")
+                    pg.evaluate("document.getElementById('stage').scrollIntoView({behavior: 'instant'})")
                 n_an = pg.evaluate(anims + ".length")
                 s2_op = "Number(getComputedStyle(document.querySelector('.tg-ok .s2')).opacity)"
                 for _ in range(60):                      # ~6,5 s sahna; sekin kompyuterda ham kutadi (≤ 15 s)
@@ -700,6 +726,62 @@ def browser_suite() -> None:
                 pg.wait_for_timeout(300)
                 ok(f"{name}: 'Yana ko'rish' sahnani boshidan o'ynatadi", pg.evaluate(tg_op) == 0 and pg.evaluate(
                     anims + ".some(a => a.playState === 'running')"))
+                # 2.9.0: «Qanday ishlaydi» — tomir tizimi sxemasi (kompyuterda gorizontal, telefonda vertikal)
+                ok(f"{name}: sxemaning to'g'ri ko'rinishi ({'vertikal' if mob else 'gorizontal'})",
+                   pg.is_visible(".vas-v" if mob else ".vas-h") and not pg.is_visible(".vas-h" if mob else ".vas-v"))
+                # (sichqoncha sxema ustida qolmasin — u yerda almashinuv to'xtab turadi; html'da silliq aylantirish bor —
+                # sinovda darhol aylantiriladi; qat'iy kutish o'rniga — holat kelguncha so'raladi)
+                pg.mouse.move(1, 1)
+                pg.evaluate("document.getElementById('vas').scrollIntoView({behavior: 'instant'})")
+                cur_js = "(document.querySelector('.vas-it.tour, .vas-it[aria-pressed=\"true\"]') || {dataset: {}}).dataset.k"
+                order = pg.evaluate("Array.from(document.querySelectorAll('.vas-it')).map(b => b.dataset.k)")
+
+                def wait_change(k_from, tries=40):        # izohlar ~3,8 s da almashadi; sekin kompyuterda ≤ 10 s
+                    for _ in range(tries):
+                        k = pg.evaluate(cur_js)
+                        if k != k_from:
+                            return k
+                        pg.wait_for_timeout(250)
+                    return pg.evaluate(cur_js)
+                k0 = pg.evaluate(cur_js)
+                k1 = wait_change(k0)
+                ok(f"{name}: sxema izohlari o'zi navbat bilan almashadi (keyingisi; aria-pressed — faqat bosilganda)",
+                   k0 in order and k1 == order[(order.index(k0) + 1) % len(order)] and pg.evaluate(
+                       "document.querySelectorAll('.vas-it[aria-pressed=\"true\"]').length") == 0, f"{k0} → {k1}")
+                if not mob:
+                    pg.hover('.vas-it[data-k="report"]')
+                    kh = pg.evaluate(cur_js)
+                    pg.wait_for_timeout(4200)
+                    held = pg.evaluate(cur_js) == kh and kh != "report"
+                    pg.mouse.move(1, 1)
+                    ok(f"{name}: sichqoncha izohlar ustida — almashinuv to'xtab turadi, ketganda davom etadi",
+                       held and wait_change(kh) != kh, kh)
+                pg.click('.vas-it[data-k="cloud"]')
+                vis = ".vas-v" if mob else ".vas-h"
+                pressed = "document.querySelector('.vas-it[aria-pressed=\"true\"]').dataset.k"
+                ok(f"{name}: izoh bosilsa — sxemada o'sha yo'l yonadi (Bulut), qolgani xiralashadi", pg.evaluate(pressed)
+                   == "cloud" and pg.evaluate("document.querySelectorAll('.vas-it.tour').length") == 0
+                   and pg.evaluate(f"document.querySelector('{vis} .node[data-k=\"cloud\"]').classList.contains('on')")
+                   and not pg.evaluate(f"document.querySelector('{vis} .node[data-k=\"tg\"]').classList.contains('on')"))
+                pg.mouse.move(1, 1)
+                pg.wait_for_timeout(4200)
+                ok(f"{name}: tanlangandan keyin o'zi almashmaydi", pg.evaluate(pressed) == "cloud")
+                pg.evaluate("document.getElementById('imkoniyatlar').scrollIntoView({behavior: 'instant'})")
+                live_js = "document.querySelector('.fv-theft').classList.contains('live')"
+                for _ in range(20):
+                    if pg.evaluate(live_js):
+                        break
+                    pg.wait_for_timeout(100)
+                live = pg.evaluate(live_js)
+                pg.evaluate("window.scrollTo({top: 0, behavior: 'instant'})")
+                for _ in range(20):
+                    if not pg.evaluate(live_js):
+                        break
+                    pg.wait_for_timeout(100)
+                pg.wait_for_timeout(100)
+                ok(f"{name}: imkoniyat sahnalari faqat ekranda o'ynaydi (ko'rinmasa — to'xtaydi)", live and not pg.evaluate(
+                    live_js) and pg.evaluate(
+                    "document.querySelector('.fv-theft .fv-arm').getAnimations()[0].playState") == "paused")
                 pg.click('[role="tab"]:has-text("Kassa navbati")')
                 ok(f"{name}: ekranlar tablari ishlaydi", pg.is_visible("#sh-2") and not pg.is_visible("#sh-0")
                    and not pg.is_visible("#sh-1"))
@@ -729,11 +811,46 @@ def browser_suite() -> None:
             pg.goto(f"http://127.0.0.1:{port}/sayt/")
             pg.wait_for_load_state("networkidle")
             ok("harakat kamaytirilgan: animatsiya yo'q, xabar va ramka darhol ko'rinadi, 'Yana ko'rish' yo'q",
-               pg.evaluate("document.getElementById('stage').getAnimations({subtree: true}).length") == 0
+               pg.evaluate("document.getAnimations().length") == 0
                and pg.evaluate("getComputedStyle(document.querySelector('.tg')).opacity") == "1"
                and pg.evaluate("getComputedStyle(document.querySelector('.tag-b')).opacity") == "1"
                and not pg.is_visible("#replay"))
+            cur_js = "(document.querySelector('.vas-it.tour, .vas-it[aria-pressed=\"true\"]') || {dataset: {}}).dataset.k"
+            k1 = pg.evaluate(cur_js)
+            pg.evaluate("document.getElementById('vas').scrollIntoView({behavior: 'instant'})")
+            pg.wait_for_timeout(4200)
+            ok("harakat kamaytirilgan: sxema izohlari o'zi almashmaydi, sahnalar oxirgi holatda (SMS, 82)",
+               k1 == "cams" and pg.evaluate(cur_js) == k1
+               and pg.evaluate("getComputedStyle(document.querySelector('.fv-sms')).opacity") == "1")
             ctx.close()
+            # Ruscha va inglizcha sahifa: telefon kengligi, xato yo'q, forma xabarlari o'z tilida
+            for lg, url, msg_name, thanks in (("ru", "/sayt/ru/", "Укажите имя", "Спасибо"),
+                                              ("en", "/sayt/en/", "Enter your name", "Thank you")):
+                ctx = b.new_context(viewport={"width": 360, "height": 740}, is_mobile=True, has_touch=True)
+                pg = ctx.new_page()
+                errs = []
+                pg.on("pageerror", lambda e: errs.append(str(e)))
+                pg.on("console", lambda m: errs.append(m.text) if m.type == "error" else None)
+                pg.goto(f"http://127.0.0.1:{port}{url}")
+                pg.wait_for_load_state("networkidle")
+                ok(f"{lg}: telefon kengligida siljish va xato yo'q, rasm va shrift yuklandi",
+                   pg.evaluate("document.documentElement.scrollWidth") <= 360 and not errs and pg.evaluate(
+                       "[...document.images].filter(i => !i.loading || i.loading !== 'lazy').every(i => i.complete && "
+                       "i.naturalWidth > 0)"), str(errs[:2]))
+                pg.click('button[type="submit"]')
+                ok(f"{lg}: bo'sh forma — xabar o'z tilida", msg_name in pg.inner_text("#form-msg"),
+                   pg.inner_text("#form-msg"))
+                if lg == "ru":
+                    pg.wait_for_timeout(3100)
+                    pg.fill('input[name="name"]', "Тест Браузер")
+                    pg.fill('input[name="phone"]', "+998 97 111 22 55")
+                    pg.select_option('select[name="branches"]', index=4)
+                    pg.click('button[type="submit"]')
+                    pg.locator("#form-msg", has_text=thanks).wait_for(timeout=10000)
+                    row = cloud.cdb.row("SELECT source, branches FROM leads ORDER BY id DESC LIMIT 1")
+                    ok("ru: so'rov qabul qilindi; manbada til (egasi biladi), filiallar soni o'zbekcha",
+                       row and "til=ru" in (row["source"] or "") and row["branches"] == "10 dan ko'p", str(row))
+                ctx.close()
             for w, h in ((820, 1180), (1024, 768)):          # planshet: Telegram xabari sahifadan chiqib ketmasin
                 ctx = b.new_context(viewport={"width": w, "height": h})
                 pg = ctx.new_page()
@@ -744,7 +861,7 @@ def browser_suite() -> None:
             b.close()
     finally:
         srv.should_exit = True
-    ok("Brauzerdan 2 ta so'rov bazada", cloud.cdb.scalar("SELECT COUNT(*) FROM leads") == n0 + 2)
+    ok("Brauzerdan 3 ta so'rov bazada (o'zbekcha 2, ruscha 1)", cloud.cdb.scalar("SELECT COUNT(*) FROM leads") == n0 + 3)
 
 
 def panel_build_check() -> None:

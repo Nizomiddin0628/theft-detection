@@ -98,6 +98,10 @@ h3 { font-size: 19px; line-height: 1.3; letter-spacing: -0.005em; }
 .nav { display: flex; gap: 24px; margin-left: auto; }
 .nav a { color: var(--on-night-muted); text-decoration: none; font-size: 15px; }
 .nav a:hover { color: #fff; }
+.langs { display: flex; gap: 2px; padding: 3px; border-radius: 999px; background: rgba(255, 255, 255, 0.06); }
+.langs a { min-width: 34px; padding: 5px 8px; border-radius: 999px; color: var(--on-night-muted); font-size: 13px; font-weight: 600; text-align: center; text-decoration: none; letter-spacing: 0.02em; }
+.langs a:hover { color: #fff; }
+.langs a[aria-current="page"] { background: rgba(95, 211, 189, 0.18); color: #fff; }
 
 /* ================================================================ bosh qism */
 .hero { background: linear-gradient(180deg, var(--night) 0%, var(--night-2) 100%); color: var(--on-night); padding: 64px 0 72px; }
@@ -198,25 +202,127 @@ h3 { font-size: 19px; line-height: 1.3; letter-spacing: -0.005em; }
 .replay:hover { background: rgba(255, 255, 255, 0.14); }
 .replay[hidden] { display: none; }
 
-/* ================================================================ imkoniyatlar */
-.sec { padding: 88px 0; }
+/* ================================================================ bo'limlar */
+.sec { padding: 96px 0; }
 .sec.alt { background: var(--paper); }
-.sub { color: var(--muted); font-size: 18px; margin: 0 0 36px; max-width: 58ch; }
+.sec.night { background: radial-gradient(120% 90% at 50% 0%, #17304a 0%, var(--night) 58%); color: var(--on-night); }
+.sec.night h2 { color: #fff; }
+.sec.night .sub { color: var(--on-night-muted); }
+.sub { color: var(--muted); font-size: 18px; margin: 0 0 40px; max-width: 60ch; }
 
-.feat { display: grid; grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.6fr); gap: 56px; align-items: start; }
-.feat-intro { position: sticky; top: 104px; }
-.feat-intro .sub { margin-bottom: 0; }
-.feat-list { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: 1fr 1fr; gap: 44px 48px; }
-.feat-list li { display: grid; grid-template-columns: 44px 1fr; column-gap: 16px; align-content: start; }
-.feat-list h3 { margin: 6px 0 6px; }
-.feat-list p { grid-column: 2; margin: 0; color: var(--muted); font-size: 16px; }
-.fi { width: 40px; height: 40px; grid-row: span 2; color: var(--teal); fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
-.feat-main { grid-column: 1 / -1; padding-bottom: 40px; border-bottom: 1px solid var(--line); }
-.feat-main h3 { font-size: 24px; }
-.feat-main p { font-size: 18px; max-width: 56ch; color: var(--ink); }
-.feat-main .fi { width: 44px; height: 44px; color: var(--risk-hi); }
-.feat-sum { grid-column: 1 / -1; padding-top: 40px; border-top: 1px solid var(--line); }
-.feat-sum p { max-width: 56ch; }
+/* ================================================================ tomir tizimi (qanday ishlaydi) */
+.vas-fig { position: relative; margin: 0 auto 36px; max-width: 1120px; }
+.vas-svg { display: block; width: 100%; height: auto; overflow: visible; }
+.vas-v { display: none; max-width: 420px; margin: 0 auto; }
+.vas-svg text { font-family: "IBM Plex Sans", system-ui, sans-serif; }
+.vb { fill: none; stroke: rgba(95, 211, 189, 0.16); stroke-width: 7; stroke-linecap: round; }
+.vf { fill: none; stroke: var(--mint); stroke-width: 3.2; stroke-linecap: round; stroke-dasharray: 1.4 11.1; }
+.thin .vb { stroke-width: 3; }
+.thin .vf { stroke-width: 2; stroke-dasharray: 0.8 6.4; opacity: 0.8; }
+.vein .vb { stroke: rgba(240, 180, 41, 0.16); stroke-dasharray: 2 3; }
+.vein .vf { stroke: var(--amber); }
+.vlabel { fill: #f3c969; font-size: 14px; font-weight: 500; }
+.vlabel.cap { fill: var(--on-night-muted); font-size: 13px; }
+.nd { fill: #132637; stroke: var(--mint); stroke-width: 2; }
+.nd-halo { fill: none; stroke: var(--mint); stroke-width: 1.5; opacity: 0; }
+.node .ic { fill: none; stroke: #dff6f1; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+.lbl { fill: #e6edf3; font-size: 16px; font-weight: 500; }
+.lbl.sm { font-size: 13px; }
+.core { stroke: var(--mint); stroke-width: 2.5; }
+.beat { fill: none; stroke: var(--mint); stroke-width: 2; opacity: 0.35; }
+.beat.b2 { opacity: 0.16; }
+.heart .beat, .heart .orbit { transform-box: view-box; }
+.orb { fill: rgba(169, 214, 205, 0.85); font-size: 11.5px; font-weight: 500; letter-spacing: 0.02em; paint-order: stroke; stroke: #102133; stroke-width: 4px; stroke-linejoin: round; }
+.vlabel { paint-order: stroke; stroke: #0f1d2c; stroke-width: 4px; stroke-linejoin: round; }
+.vas-v .orb { font-size: 10px; }
+.hlbl { fill: #fff; font-size: 16px; font-weight: 600; }
+.vas-v .hlbl { font-size: 14px; }
+.vx { transition: opacity 0.35s var(--ease-out); }
+.node, .heart { cursor: pointer; }
+/* tanlangan yo'l: qolgani xiralashadi */
+.vas.focus .vx:not(.on) { opacity: 0.2; }
+.vas.focus .vx.on .nd-halo { opacity: 0.55; }
+.vas.focus .vx.on .vb { stroke: rgba(95, 211, 189, 0.32); }
+.vas.focus .vein.on .vb { stroke: rgba(240, 180, 41, 0.38); }
+
+.vas-list { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+.vas-it {
+  display: flex; flex-direction: column; gap: 6px; width: 100%; height: 100%; padding: 16px 16px 18px;
+  border: 0; border-radius: 12px; background: rgba(255, 255, 255, 0.035); color: var(--on-night-muted);
+  font-family: inherit; font-size: 14.5px; line-height: 1.5; text-align: left; cursor: pointer;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.06); transition: background-color 0.25s, box-shadow 0.25s, color 0.25s;
+}
+.vas-it b { color: #fff; font-size: 16px; font-weight: 600; }
+.vas-it:hover { background: rgba(255, 255, 255, 0.06); }
+/* bosilgan (aria-pressed) yoki navbatdagi (.tour — o'zi almashayotganda, faqat ko'rinish) */
+.vas-it[aria-pressed="true"], .vas-it.tour { background: rgba(95, 211, 189, 0.1); box-shadow: inset 0 0 0 1px rgba(95, 211, 189, 0.55); color: #d5e6e1; }
+.vas-it[aria-pressed="true"] b, .vas-it.tour b { color: var(--mint); }
+.vas-it[data-k="back"][aria-pressed="true"], .vas-it[data-k="back"].tour { background: rgba(240, 180, 41, 0.1); box-shadow: inset 0 0 0 1px rgba(240, 180, 41, 0.55); }
+.vas-it[data-k="back"][aria-pressed="true"] b, .vas-it[data-k="back"].tour b { color: #f3c969; }
+
+/* ================================================================ imkoniyatlar */
+.feats { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 28px; }
+.feat { display: flex; flex-direction: column; gap: 18px; }
+.feat-theft { grid-column: span 2; display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: 28px; align-items: center; }
+.feat-report { grid-column: 1 / -1; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr); gap: 40px; align-items: center; }
+.feat-report .fv { order: 2; }
+.fv { border-radius: 14px; overflow: hidden; box-shadow: 0 14px 30px rgba(15, 27, 42, 0.14); }
+.fv svg { display: block; width: 100%; height: auto; }
+.fv text { font-family: "IBM Plex Sans", system-ui, sans-serif; }
+.fv-bg { fill: var(--night); }
+.feat h3 { margin: 0 0 6px; font-size: 21px; }
+.feat-theft h3 { font-size: 26px; }
+.feat p { margin: 0 0 12px; color: var(--muted); font-size: 16px; }
+.feat-theft p { font-size: 18px; color: var(--ink); }
+.ticks { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; font-size: 15px; color: var(--ink); }
+.ticks li { position: relative; padding-left: 24px; }
+.ticks li::before { content: ""; position: absolute; left: 2px; top: 0.55em; width: 10px; height: 6px; border-left: 2px solid var(--teal); border-bottom: 2px solid var(--teal); transform: rotate(-45deg); }
+.ticks.big { gap: 14px; font-size: 17px; }
+
+/* mini-sahnalar: oxirgi holat (harakatsiz rejim) */
+.fv-sk, .fv-fig { stroke: var(--risk-hi); }
+.fv-sk circle, .fv-fig circle { fill: none; }
+.fv-arm { transform-box: view-box; transform-origin: 140px 72px; transform: rotate(-14deg); }
+.fv-item-shelf, .fv-item-hand { opacity: 0; }
+.fv-pocket { stroke: var(--risk-hi); opacity: 0.8; }
+.fv-t { fill: var(--on-night-muted); font-size: 13px; }
+.fv-num { fill: #fff; font-size: 20px; font-weight: 600; }
+.fv-bar { fill: var(--risk-hi); transform-box: fill-box; transform-origin: left center; transform: scaleX(0.82); }
+.fv-line { stroke: var(--mint); stroke-width: 2.5; stroke-dasharray: 6 6; }
+.fv-walk circle { fill: #8fb4c9; opacity: 0; }
+.fv-walk .w2 { opacity: 1; transform: translateX(150px); }
+.fv-plus { fill: var(--mint); font-size: 16px; font-weight: 600; opacity: 0; }
+.fv-big { fill: #fff; font-size: 30px; font-weight: 600; letter-spacing: -0.01em; }
+.fv-q circle { fill: #8fb4c9; }
+.fv-q .q5 { opacity: 0; }
+.fv-wait { fill: var(--risk-mid); transform-box: fill-box; transform-origin: left center; transform: scaleX(0.62); }
+.fv-heat circle { transform-box: fill-box; transform-origin: center; }
+.fv-route { stroke: #fff; stroke-width: 2.5; stroke-dasharray: 2 4; opacity: 0.75; }
+.fv-ring { fill: none; stroke: var(--risk-hi); stroke-width: 2.5; opacity: 0.55; }
+.fv-fig { transform-box: view-box; transform-origin: 126px 152px; transform: rotate(90deg) translate(-2px, -2px); }
+.fv-sms rect { fill: var(--risk-hi); }
+.fv-sms text { fill: #fff; font-size: 16px; font-weight: 700; letter-spacing: 0.04em; }
+.fv-sms { transform-box: fill-box; transform-origin: center; }
+.fv-col { fill: #3f7d8c; transform-box: fill-box; transform-origin: center bottom; }
+.fv-col.hot { fill: var(--amber); }
+.fv-d { fill: var(--on-night-muted); font-size: 11px; }
+.fv-tip rect { fill: rgba(95, 211, 189, 0.16); stroke: var(--mint); stroke-width: 1; }
+.fv-tip text { fill: #dff6f1; font-size: 12.5px; font-weight: 500; }
+
+/* ================================================================ kimlar uchun */
+.who-in { display: grid; grid-template-columns: minmax(0, 0.85fr) minmax(0, 1.4fr); gap: 56px; align-items: start; }
+.who { margin: 0; display: grid; grid-template-columns: 1fr 1fr; gap: 0 40px; }
+.who div { padding: 18px 0; border-top: 1px solid var(--line); }
+.who dt { font-weight: 600; font-size: 18px; margin-bottom: 4px; }
+.who dd { margin: 0; color: var(--muted); font-size: 16px; }
+
+/* ================================================================ maxfiylik va talablar */
+.trust { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 56px; align-items: start; margin-top: 28px; }
+.trust h3 { font-size: 20px; margin-bottom: 18px; }
+.req { margin: 0; }
+.req div { display: grid; grid-template-columns: 120px minmax(0, 1fr); gap: 16px; padding: 14px 0; border-top: 1px solid var(--line); }
+.req dt { font-weight: 600; }
+.req dd { margin: 0; color: var(--muted); }
 
 /* ================================================================ ekranlar */
 .tabs { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 22px; }
@@ -390,6 +496,86 @@ h3 { font-size: 19px; line-height: 1.3; letter-spacing: -0.005em; }
 @keyframes rail { from { transform: scaleX(0); } to { transform: scaleX(1); } }
 @keyframes shot-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
 
+/* ---- tomir tizimi va mini-sahnalar: doimiy, nafis harakat (faqat ekranda ko'rinib turganda — app.js .live) */
+@media (prefers-reduced-motion: no-preference) {
+  .vf { animation: vflow 1.1s linear infinite; }
+  .vf-c0 { animation-duration: 1.2s; } .vf-c1 { animation-duration: 0.95s; } .vf-c2 { animation-duration: 1.05s; } .vf-c3 { animation-duration: 1.3s; }
+  .vf-1 { animation-duration: 0.9s; } .vf-2 { animation-duration: 1.15s; } .vf-3 { animation-duration: 1.6s; } .vf-4 { animation-duration: 1.25s; } .vf-5 { animation-duration: 1.4s; }
+  .vein .vf { animation-duration: 1.5s; }
+  .beat { animation: lubdub 1.6s ease-out infinite; }
+  .beat.b2 { animation-name: lubdub2; }
+  .orbit { animation: orbit 70s linear infinite; }
+  .node .nd-halo { animation: halo 2.6s ease-out infinite; }
+  .cam:nth-of-type(2n) .nd-halo { animation-delay: 0.7s; }
+  .out-2 .nd-halo { animation-delay: 0.5s; } .out-3 .nd-halo { animation-delay: 1.1s; } .out-4 .nd-halo { animation-delay: 1.6s; } .out-5 .nd-halo { animation-delay: 2s; }
+  .vas.focus .vx.on .nd-halo { animation: none; }
+  .vas.focus .vx:not(.on) .vf { animation-play-state: paused; }
+
+  .fv-arm { animation: theft-arm 6s ease-in-out infinite; }
+  .fv-item-shelf { animation: theft-shelf 6s linear infinite; }
+  .fv-item-hand { animation: theft-hand 6s linear infinite; }
+  .fv-sk { animation: theft-col 6s linear infinite; }
+  .fv-pocket { animation: theft-pocket 6s linear infinite; }
+  .fv-bar { animation: theft-bar 6s ease-in-out infinite; }
+  .fv-num { animation: theft-num 6s linear infinite; }
+  .fv-walk circle { animation: walk 4.5s linear infinite; }
+  .fv-walk .w2, .fv-plus.p2 { animation-delay: -1.5s; }
+  .fv-walk .w3, .fv-plus.p3 { animation-delay: -3s; }
+  .fv-plus { animation: plus 4.5s ease-out infinite; }
+  .fv-q { animation: qshift 3s ease-in-out infinite; }
+  .fv-q .q0 { animation: qout 3s ease-in-out infinite; }
+  .fv-q .q5 { animation: qin 3s ease-in-out infinite; }
+  .fv-wait { animation: qwait 3s ease-in-out infinite; }
+  .fv-heat .h1 { animation: heat 4s ease-in-out infinite alternate; }
+  .fv-heat .h2 { animation: heat 5s ease-in-out -1.5s infinite alternate; }
+  .fv-heat .h3 { animation: heat 3.6s ease-in-out -2.4s infinite alternate; }
+  .fv-route { stroke-dasharray: 100; animation: route 6s ease-in-out infinite; }
+  .fv-fig { animation: fall 6s infinite; }
+  .fv-ring { animation: ring 6s ease-out infinite; }
+  .fv-sms { animation: sms 6s infinite; }
+  .fv-col { animation: grow 8s ease-out infinite; }
+  .fv-col.c2 { animation-delay: 0.12s; } .fv-col.c3 { animation-delay: 0.24s; } .fv-col.c4 { animation-delay: 0.36s; }
+  .fv-col.c5 { animation-delay: 0.48s; } .fv-col.c6 { animation-delay: 0.6s; } .fv-col.c7 { animation-delay: 0.72s; }
+  .fv-tip { animation: tip 8s ease-out infinite; }
+
+  /* ekrandan tashqarida — to'xtab turadi (skript bo'lmasa — doim o'ynaydi) */
+  body:not(.no-js) .vas:not(.live) *, body:not(.no-js) .fv:not(.live) * { animation-play-state: paused; }
+}
+.vas-h .beat, .vas-h .orbit { transform-origin: 560px 260px; }
+.vas-v .beat, .vas-v .orbit { transform-origin: 180px 290px; }
+
+@keyframes vflow { from { stroke-dashoffset: 12.5; } to { stroke-dashoffset: 0; } }
+@keyframes lubdub { 0% { transform: scale(1); opacity: 0.35; } 8% { transform: scale(1.06); opacity: 0.7; } 16% { transform: scale(1); opacity: 0.4; }
+  26% { transform: scale(1.04); opacity: 0.6; } 42%, 100% { transform: scale(1); opacity: 0.35; } }
+@keyframes lubdub2 { 0%, 6% { transform: scale(1); opacity: 0.16; } 18% { transform: scale(1.1); opacity: 0.32; } 50%, 100% { transform: scale(1.18); opacity: 0; } }
+@keyframes orbit { to { transform: rotate(360deg); } }
+@keyframes halo { 0% { opacity: 0; } 20% { opacity: 0.4; } 100% { opacity: 0; } }
+@keyframes theft-arm { 0%, 14% { transform: rotate(0deg); } 32%, 40% { transform: rotate(80deg); } 60%, 92% { transform: rotate(-14deg); } 100% { transform: rotate(0deg); } }
+@keyframes theft-shelf { 0%, 37% { opacity: 1; } 38%, 95% { opacity: 0; } 100% { opacity: 1; } }
+@keyframes theft-hand { 0%, 37% { opacity: 0; } 38%, 57% { opacity: 1; } 61%, 100% { opacity: 0; } }
+@keyframes theft-col { 0%, 28% { stroke: #5fd3bd; } 45% { stroke: #f0b429; } 62%, 92% { stroke: #e5484d; } 100% { stroke: #5fd3bd; } }
+@keyframes theft-pocket { 0%, 57% { opacity: 0; } 62%, 92% { opacity: 0.8; } 100% { opacity: 0; } }
+@keyframes theft-bar { 0%, 24% { transform: scaleX(0); fill: #5fd3bd; } 45% { fill: #f0b429; } 62%, 92% { transform: scaleX(0.82); fill: #e5484d; } 100% { transform: scaleX(0); fill: #5fd3bd; } }
+@keyframes theft-num { 0%, 60% { opacity: 0; } 64%, 92% { opacity: 1; } 98%, 100% { opacity: 0; } }
+@keyframes walk { 0% { transform: translateX(0); opacity: 0; } 8%, 90% { opacity: 1; } 100% { transform: translateX(240px); opacity: 0; } }
+@keyframes plus { 0%, 49% { opacity: 0; transform: translateY(0); } 53% { opacity: 1; } 72%, 100% { opacity: 0; transform: translateY(-20px); } }
+@keyframes qshift { 0%, 60% { transform: translateX(0); } 80%, 100% { transform: translateX(-32px); } }
+@keyframes qout { 0%, 60% { opacity: 1; } 78%, 100% { opacity: 0; } }
+@keyframes qin { 0%, 62% { opacity: 0; } 80%, 100% { opacity: 1; } }
+@keyframes qwait { 0%, 100% { transform: scaleX(0.62); } 55% { transform: scaleX(0.74); } 80% { transform: scaleX(0.56); } }
+@keyframes heat { from { transform: scale(0.82); opacity: 0.65; } to { transform: scale(1.12); opacity: 1; } }
+@keyframes route { 0% { stroke-dashoffset: 100; opacity: 0.8; } 60% { stroke-dashoffset: 0; } 85% { opacity: 0.8; } 100% { stroke-dashoffset: 0; opacity: 0; } }
+@keyframes fall { 0%, 18% { transform: rotate(0deg); opacity: 1; animation-timing-function: cubic-bezier(0.5, 0, 0.9, 0.6); }
+  28% { transform: rotate(90deg) translate(-2px, -2px); } 30% { transform: rotate(84deg) translate(-2px, -2px); } 32%, 92% { transform: rotate(90deg) translate(-2px, -2px); opacity: 1; }
+  96% { transform: rotate(90deg) translate(-2px, -2px); opacity: 0; } 97% { transform: rotate(0deg); opacity: 0; } 100% { transform: rotate(0deg); opacity: 1; } }
+@keyframes ring { 0%, 32% { transform: scale(0.6); opacity: 0; } 40% { transform: scale(1); opacity: 0.7; } 58% { transform: scale(1.35); opacity: 0; }
+  60% { transform: scale(0.6); opacity: 0; } 68% { transform: scale(1); opacity: 0.6; } 86%, 100% { transform: scale(1.35); opacity: 0; } }
+@keyframes sms { 0%, 40% { transform: scale(0.6); opacity: 0; } 46% { transform: scale(1.08); opacity: 1; } 50%, 92% { transform: scale(1); opacity: 1; } 97%, 100% { transform: scale(1); opacity: 0; } }
+@keyframes grow { 0%, 2% { transform: scaleY(0); } 14%, 90% { transform: scaleY(1); } 97%, 100% { transform: scaleY(0); } }
+@keyframes tip { 0%, 26% { opacity: 0; transform: translateY(10px); } 34%, 90% { opacity: 1; transform: translateY(0); } 96%, 100% { opacity: 0; transform: translateY(0); } }
+.fv-ring { transform-box: fill-box; transform-origin: center; }
+.fv-tip { transform-box: fill-box; }
+
 /* ================================================================ planshet va telefon */
 @media (max-width: 1240px) and (min-width: 981px) {
   .screen { margin-bottom: 110px; }
@@ -397,16 +583,40 @@ h3 { font-size: 19px; line-height: 1.3; letter-spacing: -0.005em; }
   .tg-thumb { display: none; }
 }
 
-@media (max-width: 980px) {
+@media (max-width: 1140px) {
   .nav { display: none; }
+  .langs { margin-left: auto; }
+  /* gorizontal sxema kichrayadi — yozuvlar o'qiladigan bo'lib qolsin */
+  .vas-h .lbl { font-size: 17px; }
+  .vas-h .hlbl { font-size: 17px; }
+  .vas-h .vlabel { font-size: 16px; }
+  .vas-h .vlabel.cap { font-size: 15px; }
+}
+
+@media (max-width: 980px) {
   .top-in { justify-content: space-between; }
   .hero { padding: 40px 0 56px; }
-  .hero-in, .pilot-in, .price, .contact-in, .feat { grid-template-columns: minmax(0, 1fr); gap: 36px; }
+  .hero-in, .pilot-in, .price, .contact-in, .who-in, .trust { grid-template-columns: minmax(0, 1fr); gap: 36px; }
   .hero-text { padding-top: 0; }
-  .feat-intro { position: static; }
+  .vas-list { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .feats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .feat-theft, .feat-report { grid-column: 1 / -1; }
   .steps { grid-template-columns: 1fr 1fr; }
   .steps li:nth-child(2)::after { display: none; }
   .tg { right: 10px; }
+}
+
+@media (max-width: 980px) {
+  .vas-h { display: none; }
+  .vas-v { display: block; }
+}
+
+/* planshet: vertikal sxema chapda, izohlar o'ngda (bir ustun) */
+@media (min-width: 761px) and (max-width: 980px) {
+  .vas { display: grid; grid-template-columns: minmax(0, 340px) minmax(0, 1fr); gap: 28px; align-items: start; }
+  .vas-fig { margin: 0; position: sticky; top: 84px; }
+  .vas-v { max-width: none; }
+  .vas-list { grid-template-columns: minmax(0, 1fr); gap: 8px; }
 }
 
 @media (max-width: 620px) {
@@ -422,9 +632,17 @@ h3 { font-size: 19px; line-height: 1.3; letter-spacing: -0.005em; }
   .tag { transform-box: fill-box; transform-origin: left bottom; transform: scale(1.45); }
   .tg-thumb { display: none; }
   .flow { grid-template-columns: 1fr 1fr; gap: 18px 14px; }
-  .feat-list { grid-template-columns: minmax(0, 1fr); gap: 32px; }
-  .feat-main { padding-bottom: 32px; }
-  .feat-sum { padding-top: 32px; }
+  .vas-list { grid-template-columns: minmax(0, 1fr); gap: 8px; }
+  .feats { grid-template-columns: minmax(0, 1fr); gap: 40px; }
+  .feat-theft, .feat-report { display: flex; flex-direction: column; gap: 18px; }
+  .feat-report .fv { order: 0; }
+  .feat-theft h3 { font-size: 22px; }
+  .feat-theft p { font-size: 16px; color: var(--muted); }
+  .who { grid-template-columns: minmax(0, 1fr); }
+  .req div { grid-template-columns: minmax(0, 1fr); gap: 4px; }
+  .top-in { gap: 10px; }
+  .top-cta { display: none; }
+  .langs a { min-width: 30px; padding: 5px 6px; font-size: 12px; }
   .steps { grid-template-columns: minmax(0, 1fr); gap: 22px; }
   .steps li { padding: 4px 0 0 58px; }
   .steps li::after { display: block; top: 46px; bottom: -18px; left: 19px; right: auto; width: 2px; height: auto; }

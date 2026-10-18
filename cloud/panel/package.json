@@ -1,6 +1,6 @@
 {
   "name": "hushyor-cloud-panel",
-  "version": "2.8.0",
+  "version": "2.9.0",
   "private": true,
   "description": "Hushyor AI bulut paneli (Next.js statik eksport; bulut serveri cloud/panel_dist dan beradi)",
   "scripts": {

@@ -3,49 +3,57 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Hushyor AI — do'kon kameralari uchun sun'iy intellekt</title>
-<meta name="description" content="Hushyor AI mavjud kameralaringizga ulanadi: shubhali harakatni videosi bilan Telegram'ga yuboradi, xaridorlarni sanaydi, kassadagi navbatni o'lchaydi va har kuni qisqa hisobot beradi.">
-<meta property="og:title" content="Hushyor AI — do'kon kameralari uchun sun'iy intellekt">
-<meta property="og:description" content="O'g'irlik signallari, tashriflar, kassa navbati, do'kon oqimi va kunlik hisobot — mavjud kameralar bilan.">
+<title>Hushyor AI — do&#39;kon kameralari uchun sun&#39;iy intellekt</title>
+<meta name="description" content="Hushyor AI mavjud kameralaringizga ulanadi: shubhali harakatni videosi bilan Telegram&#39;ga yuboradi, xaridorlarni sanaydi, kassadagi navbatni o&#39;lchaydi va har kuni qisqa hisobot beradi.">
+<meta property="og:title" content="Hushyor AI — do&#39;kon kameralari uchun sun&#39;iy intellekt">
+<meta property="og:description" content="O&#39;g&#39;irlik signallari, tashriflar, kassa navbati, do&#39;kon oqimi va kunlik hisobot — mavjud kameralar bilan.">
 <meta name="theme-color" content="#0f1b2a">
+<link rel="alternate" hreflang="uz" href="./">
+<link rel="alternate" hreflang="ru" href="ru/">
+<link rel="alternate" hreflang="en" href="en/">
 <link rel="icon" href="img/belgi.svg" type="image/svg+xml">
 <link rel="preload" href="fonts/ibm-plex-sans-latin.woff2" as="font" type="font/woff2" crossorigin>
-<link rel="stylesheet" href="style.css?v=2.8.0">
+<link rel="stylesheet" href="style.css?v=2.9.0">
 <script src="sozlama.js" defer></script>
-<script src="app.js?v=2.8.0" defer></script>
+<script src="app.js?v=2.9.0" defer></script>
 </head>
-<body class="no-js">
-<a class="skip" href="#asosiy">Asosiy qismga o'tish</a>
+<!-- Bu fayl yasaladi: scripts/build_site.py (shablon scripts/site_template.html, matnlar scripts/site_text.py) -->
+<body class="no-js" data-i18n="{&#34;busy&#34;: &#34;&#34;, &#34;call&#34;: &#34;yoki qo\u0027ng\u0027iroq qiling:&#34;, &#34;expired&#34;: &#34;&#34;, &#34;fail&#34;: &#34;Yuborib bo\u0027lmadi \u2014 birozdan keyin qayta urinib ko\u0027ring.&#34;, &#34;k_addr&#34;: &#34;Manzil&#34;, &#34;k_email&#34;: &#34;Email&#34;, &#34;k_phone&#34;: &#34;Telefon&#34;, &#34;k_tg&#34;: &#34;Telegram&#34;, &#34;name&#34;: &#34;Ismingizni yozing&#34;, &#34;net&#34;: &#34;Internet bilan muammo \u2014 qayta urinib ko\u0027ring&#34;, &#34;phone&#34;: &#34;Telefon raqamini to\u0027liq yozing: +998 90 123 45 67&#34;, &#34;phone_bad&#34;: &#34;&#34;, &#34;sending&#34;: &#34;Yuborilmoqda\u2026&#34;, &#34;thanks&#34;: &#34;Rahmat! So\u0027rovingiz qabul qilindi \u2014 tez orada bog\u0027lanamiz.&#34;, &#34;version&#34;: &#34;versiya&#34;}">
+<a class="skip" href="#asosiy">Asosiy qismga o&#39;tish</a>
 <header class="top">
   <div class="wrap top-in">
-    <a class="brand" href="#" aria-label="Hushyor AI — bosh sahifa"><img src="img/belgi.svg" alt="" width="32" height="32"> Hushyor AI</a>
-    <nav class="nav" aria-label="Sayt bo'limlari">
-      <a href="#imkoniyatlar">Imkoniyatlar</a>
-      <a href="#ekranlar">Ko'rinishi</a>
+    <a class="brand" href="./" aria-label="Hushyor AI — bosh sahifa"><img src="img/belgi.svg" alt="" width="32" height="32"> Hushyor AI</a>
+    <nav class="nav" aria-label="Sayt bo&#39;limlari">
       <a href="#qanday">Qanday ishlaydi</a>
+      <a href="#imkoniyatlar">Imkoniyatlar</a>
+      <a href="#ekranlar">Ko&#39;rinishi</a>
       <a href="#pilot">Pilot</a>
       <a href="#savollar">Savollar</a>
     </nav>
-    <a class="btn small" href="#aloqa">So'rov qoldirish</a>
+    <nav class="langs" aria-label="Sayt tili">
+      <a href="./" hreflang="uz" lang="uz" title="O&#39;zbekcha" aria-current="page">UZ</a>
+      <a href="ru/" hreflang="ru" lang="ru" title="Русский">RU</a>
+      <a href="en/" hreflang="en" lang="en" title="English">EN</a>
+    </nav>
+    <a class="btn small top-cta" href="#aloqa">So&#39;rov qoldirish</a>
   </div>
 </header>
 
 <main id="asosiy">
+  <!-- ======================================================================== bosh qism -->
   <section class="hero">
     <div class="wrap hero-in">
       <div class="hero-text">
-        <h1>Kameralaringiz endi o'zi kuzatadi — siz faqat qaror qilasiz</h1>
-        <p class="lead">Do'kon va supermarketlar uchun. Hushyor AI mavjud kameralaringizga ulanadi: shubhali harakatni qisqa
-          videosi bilan Telegram'ga yuboradi, xaridorlarni sanaydi, kassadagi navbatni o'lchaydi va har kuni ertalab
-          qisqa hisobot beradi.</p>
+        <h1>Kameralaringiz endi o&#39;zi kuzatadi — siz faqat qaror qilasiz</h1>
+        <p class="lead">Do&#39;kon va supermarketlar uchun. Hushyor AI mavjud kameralaringizga ulanadi: shubhali harakatni qisqa videosi bilan Telegram&#39;ga yuboradi, xaridorlarni sanaydi, kassadagi navbatni o&#39;lchaydi va har kuni ertalab qisqa hisobot beradi.</p>
         <div class="cta">
-          <a class="btn" href="#aloqa">Pilot so'rash</a>
-          <a class="btn ghost" href="#ekranlar">Panelni ko'rish</a>
+          <a class="btn" href="#aloqa">Pilot so&#39;rash</a>
+          <a class="btn ghost" href="#qanday">Qanday ishlashini ko&#39;rish</a>
         </div>
         <ul class="facts">
           <li>Yangi kamera shart emas</li>
           <li>Internet uzilsa ham ishlaydi</li>
-          <li>Videoarxiv do'koningizda qoladi</li>
+          <li>Videoarxiv do&#39;koningizda qoladi</li>
         </ul>
         <p class="demo-link hidden" id="demo-link">Bu demo server: <a href="/login/">bulut panelini ochish</a> — login va parol kirish oynasida yozilgan.</p>
       </div>
@@ -54,7 +62,7 @@
         <div class="screen">
         <div class="monitor">
           <svg class="scene" viewBox="0 0 640 400" role="img" aria-labelledby="scene-t">
-            <title id="scene-t">Kamera ko'rinishi: xaridor polkadan mahsulot olib cho'ntagiga soladi, tizim uning skeletini chizib, harakatni qizil ramka bilan belgilaydi</title>
+            <title id="scene-t">Kamera ko&#39;rinishi: xaridor polkadan mahsulot olib cho&#39;ntagiga soladi, tizim uning skeletini chizib, harakatni qizil ramka bilan belgilaydi</title>
             <defs>
               <linearGradient id="g-floor" x1="0" y1="0" x2="0" y2="1">
                 <stop offset="0" stop-color="#2b3a47"/>
@@ -220,86 +228,474 @@
             </g>
           </svg>
         </div>
-          <!-- Telegram xabari -->
           <div class="tg" aria-hidden="true">
             <div class="tg-head"><img src="img/belgi.svg" alt="" width="22" height="22"><b>Hushyor AI</b><span>bot</span></div>
             <div class="tg-msg">
               <div class="tg-thumb"><span></span></div>
-              <p><b>⚠️ Shubhali harakat</b><br>Savdo zali, 14:32<br>Qo'l cho'ntakka kirdi, qo'lda mahsulot</p>
+              <p><b>⚠️ Shubhali harakat</b><br>Savdo zali, 14:32<br>Qo&#39;l cho&#39;ntakka kirdi, qo&#39;lda mahsulot</p>
               <div class="tg-btns">
                 <span class="tg-b tg-ok"><i class="tap"></i><em class="s1">✅ Tasdiqlash</em><em class="s2">✅ Tasdiqlandi</em></span>
                 <span class="tg-b tg-no">❌ Xato signal</span>
               </div>
             </div>
-            <p class="tg-done">Qo'riqchi 40 soniyada javob berdi</p>
+            <p class="tg-done">Qo&#39;riqchi 40 soniyada javob berdi</p>
           </div>
         </div>
         <figcaption id="stage-cap" class="flow-wrap">
           <ol class="flow">
-            <li><b>Kamera ko'radi</b><span>Mavjud kamera, yangi uskuna shart emas</span></li>
-            <li><b>AI xavfni baholaydi</b><span>Skelet, qo'l va buyum bo'yicha, yuz tanilmaydi</span></li>
-            <li><b>Telegram'ga klip keladi</b><span>Sabab, rasm va qisqa video bilan</span></li>
-            <li><b>Qo'riqchi qaror qiladi</b><span>✅ yoki ❌ — tizim javobdan o'rganadi</span></li>
+            <li><b>Kamera ko&#39;radi</b><span>Mavjud kamera, yangi uskuna shart emas</span></li>
+            <li><b>AI xavfni baholaydi</b><span>Skelet, qo&#39;l va buyum bo&#39;yicha, yuz tanilmaydi</span></li>
+            <li><b>Telegram&#39;ga klip keladi</b><span>Sabab, rasm va qisqa video bilan</span></li>
+            <li><b>Qo&#39;riqchi qaror qiladi</b><span>✅ yoki ❌ — tizim javobdan o&#39;rganadi</span></li>
           </ol>
         </figcaption>
-        <button class="replay" type="button" id="replay" hidden>Yana ko'rish</button>
+        <button class="replay" type="button" id="replay" hidden>Yana ko&#39;rish</button>
       </figure>
     </div>
   </section>
 
-  <section id="imkoniyatlar" class="sec">
-    <div class="wrap feat">
-      <div class="feat-intro">
-        <h2>Bitta tizim — do'konning olti muammosiga</h2>
-        <p class="sub">Hammasi do'kondagi kompyuterda ishlaydi. Telegram'ga faqat muhim narsa keladi, qolgani — panel va
-          kunlik hisobotda.</p>
+  <!-- ======================================================================== tomir tizimi -->
+  <section id="qanday" class="sec night vas-sec">
+    <div class="wrap">
+      <h2>Qanday ishlaydi: kameradan qarorgacha</h2>
+      <p class="sub">Kameralar — tomirlar, do&#39;kondagi kompyuter — yurak. Video shu yerning o&#39;zida tahlil qilinadi, tashqariga faqat kerakli xabar chiqadi.</p>
+      <div class="vas" id="vas">
+        <div class="vas-fig" role="img" aria-label="Tizim sxemasi: to&#39;rt kamera do&#39;kon kompyuteriga ulanadi; undan Telegram, do&#39;kon paneli, bulut paneli, kunlik hisobot va SMS&#39;ga yo&#39;l ketadi; qo&#39;riqchi javobi Telegram&#39;dan kompyuterga qaytadi">
+          <svg class="vas-svg vas-h" viewBox="0 0 1120 520" aria-hidden="true" focusable="false">
+            <defs>
+              <radialGradient id="heart-g-h" cx=".5" cy=".45" r=".6">
+                <stop offset="0" stop-color="#1f3a4c"/>
+                <stop offset="1" stop-color="#132333"/>
+              </radialGradient>
+              <path id="orbit-h" d="M560,162 a98,98 0 1,1 -0.1,0"/>
+<path id="vein-lbl-h" d="M590,204 C650,34 800,-6 906,52"/>            </defs>
+            <!-- tomirlar: asos (xira) va oqim (impulslar) -->
+            <g class="vx" data-n="cams heart">
+              <path class="vb" d="M214,80 C340,80 380,202.4 492,202.4"/>
+              <path class="vf vf-c0" pathLength="100" d="M214,80 C340,80 380,202.4 492,202.4"/>
+            </g>
+            <g class="vx" data-n="cams heart">
+              <path class="vb" d="M214,200 C340,200 380,240.8 492,240.8"/>
+              <path class="vf vf-c1" pathLength="100" d="M214,200 C340,200 380,240.8 492,240.8"/>
+            </g>
+            <g class="vx" data-n="cams heart">
+              <path class="vb" d="M214,320 C340,320 380,279.2 492,279.2"/>
+              <path class="vf vf-c2" pathLength="100" d="M214,320 C340,320 380,279.2 492,279.2"/>
+            </g>
+            <g class="vx" data-n="cams heart">
+              <path class="vb" d="M214,440 C340,440 380,317.6 492,317.6"/>
+              <path class="vf vf-c3" pathLength="100" d="M214,440 C340,440 380,317.6 492,317.6"/>
+            </g>
+            <g class="vx" data-n="tg heart">
+              <path class="vb" id="art-h-tg" d="M628,199.2 C740,199.2 800,70 906,70"/>
+              <path class="vf vf-1" pathLength="100" d="M628,199.2 C740,199.2 800,70 906,70"/>
+            </g>
+            <g class="vx" data-n="panel heart">
+              <path class="vb" id="art-h-panel" d="M628,229.6 C740,229.6 800,165 906,165"/>
+              <path class="vf vf-2" pathLength="100" d="M628,229.6 C740,229.6 800,165 906,165"/>
+            </g>
+            <g class="vx thin" data-n="cloud heart">
+              <path class="vb" id="art-h-cloud" d="M628,260 C740,260 800,260 906,260"/>
+              <path class="vf vf-3" pathLength="100" d="M628,260 C740,260 800,260 906,260"/>
+            </g>
+            <g class="vx" data-n="report heart">
+              <path class="vb" id="art-h-report" d="M628,290.4 C740,290.4 800,355 906,355"/>
+              <path class="vf vf-4" pathLength="100" d="M628,290.4 C740,290.4 800,355 906,355"/>
+            </g>
+            <g class="vx" data-n="report heart">
+              <path class="vb" id="art-h-sms" d="M628,320.8 C740,320.8 800,450 906,450"/>
+              <path class="vf vf-5" pathLength="100" d="M628,320.8 C740,320.8 800,450 906,450"/>
+            </g>
+            <g class="vx vein" data-n="back">
+              <path class="vb" d="M906,52 C800,-6 650,34 590,204"/>
+              <path class="vf" pathLength="100" d="M906,52 C800,-6 650,34 590,204"/>
+<text class="vlabel" dy="-9"><textPath href="#vein-lbl-h" startOffset="60%" text-anchor="middle">javob qaytadi — tizim o&#39;rganadi</textPath></text>            </g>
+            <g class="vx" data-n="cloud"><text class="vlabel cap" dy="-10"><textPath href="#art-h-cloud" startOffset="52%" text-anchor="middle">faqat hodisa va raqamlar</textPath></text></g>
+            <!-- kameralar -->
+            <g class="vx node cam" data-n="cams" data-k="cams">
+              <circle class="nd-halo" cx="190" cy="80" r="30"/>
+              <circle class="nd" cx="190" cy="80" r="24"/>
+              <path class="ic" d="M3 7h12v10H3z M15 10.5l6-3v9l-6-3z" transform="translate(178 68)"/>
+              <text class="lbl" x="152" y="85" text-anchor="end">Kirish eshigi</text>
+            </g>
+            <g class="vx node cam" data-n="cams" data-k="cams">
+              <circle class="nd-halo" cx="190" cy="200" r="30"/>
+              <circle class="nd" cx="190" cy="200" r="24"/>
+              <path class="ic" d="M3 7h12v10H3z M15 10.5l6-3v9l-6-3z" transform="translate(178 188)"/>
+              <text class="lbl" x="152" y="205" text-anchor="end">Savdo zali</text>
+            </g>
+            <g class="vx node cam" data-n="cams" data-k="cams">
+              <circle class="nd-halo" cx="190" cy="320" r="30"/>
+              <circle class="nd" cx="190" cy="320" r="24"/>
+              <path class="ic" d="M3 7h12v10H3z M15 10.5l6-3v9l-6-3z" transform="translate(178 308)"/>
+              <text class="lbl" x="152" y="325" text-anchor="end">Kassa</text>
+            </g>
+            <g class="vx node cam" data-n="cams" data-k="cams">
+              <circle class="nd-halo" cx="190" cy="440" r="30"/>
+              <circle class="nd" cx="190" cy="440" r="24"/>
+              <path class="ic" d="M3 7h12v10H3z M15 10.5l6-3v9l-6-3z" transform="translate(178 428)"/>
+              <text class="lbl" x="152" y="445" text-anchor="end">Ombor</text>
+            </g>
+            <!-- yurak -->
+            <g class="vx heart" data-n="cams heart tg back panel cloud report" data-k="heart">
+              <circle class="beat b2" cx="560" cy="260" r="84"/>
+              <circle class="beat" cx="560" cy="260" r="73"/>
+              <circle class="core" cx="560" cy="260" r="62" fill="url(#heart-g-h)"/>
+              <g class="orbit"><text class="orb"><textPath href="#orbit-h" textLength="611.8" lengthAdjust="spacing">odamni topadi • skeletni chizadi • qo&#39;lni kuzatadi • buyumni qidiradi • qoidalarni tekshiradi • ball beradi • </textPath></text></g>
+              <text class="hlbl" x="560" y="257" text-anchor="middle">Do&#39;kon</text>
+              <text class="hlbl" x="560" y="277" text-anchor="middle">kompyuteri</text>
+            </g>
+            <!-- chiqishlar -->
+            <g class="vx node out out-1" data-n="tg back" data-k="tg">
+              <circle class="nd-halo" cx="930" cy="70" r="30"/>
+              <circle class="nd" cx="930" cy="70" r="24"/>
+              <path class="ic" d="M3 11.5 21 4l-3.2 16-5.6-4.6-3 3.1v-5.4L17.4 7 7.6 13.2z" transform="translate(918 58)"/>
+              <text class="lbl" x="968" y="75">Telegram</text>
+            </g>
+            <g class="vx node out out-2" data-n="panel" data-k="panel">
+              <circle class="nd-halo" cx="930" cy="165" r="30"/>
+              <circle class="nd" cx="930" cy="165" r="24"/>
+              <path class="ic" d="M3 5h18v11H3z M9 20h6 M12 16v4" transform="translate(918 153)"/>
+              <text class="lbl" x="968" y="170">Do&#39;kon paneli</text>
+            </g>
+            <g class="vx node out out-3" data-n="cloud" data-k="cloud">
+              <circle class="nd-halo" cx="930" cy="260" r="30"/>
+              <circle class="nd" cx="930" cy="260" r="24"/>
+              <path class="ic" d="M7 18h10.5a4 4 0 0 0 .4-8A6 6 0 0 0 6.3 11.3 3.4 3.4 0 0 0 7 18z" transform="translate(918 248)"/>
+              <text class="lbl" x="968" y="265">Bulut paneli</text>
+            </g>
+            <g class="vx node out out-4" data-n="report" data-k="report">
+              <circle class="nd-halo" cx="930" cy="355" r="30"/>
+              <circle class="nd" cx="930" cy="355" r="24"/>
+              <path class="ic" d="M6 3h9l4 4v14H6z M15 3v4h4 M9.5 17v-3 M12.5 17v-6 M15.5 17v-4" transform="translate(918 343)"/>
+              <text class="lbl" x="968" y="360">Kunlik hisobot</text>
+            </g>
+            <g class="vx node out out-5" data-n="report" data-k="report">
+              <circle class="nd-halo" cx="930" cy="450" r="30"/>
+              <circle class="nd" cx="930" cy="450" r="24"/>
+              <path class="ic" d="M4 5h16v11H9.5L4 20z M8 9.5h8 M8 12.5h5" transform="translate(918 438)"/>
+              <text class="lbl" x="968" y="455">SMS</text>
+            </g>
+          </svg>
+          <svg class="vas-svg vas-v" viewBox="0 0 360 720" aria-hidden="true" focusable="false">
+            <defs>
+              <radialGradient id="heart-g-v" cx=".5" cy=".45" r=".6">
+                <stop offset="0" stop-color="#1f3a4c"/>
+                <stop offset="1" stop-color="#132333"/>
+              </radialGradient>
+              <path id="orbit-v" d="M180,204 a86,86 0 1,1 -0.1,0"/>
+            </defs>
+            <!-- tomirlar: asos (xira) va oqim (impulslar) -->
+            <g class="vx" data-n="cams heart">
+              <path class="vb" d="M54,78 C54,160 142.2,160 142.2,232"/>
+              <path class="vf vf-c0" pathLength="100" d="M54,78 C54,160 142.2,160 142.2,232"/>
+            </g>
+            <g class="vx" data-n="cams heart">
+              <path class="vb" d="M138,78 C138,160 167.4,160 167.4,232"/>
+              <path class="vf vf-c1" pathLength="100" d="M138,78 C138,160 167.4,160 167.4,232"/>
+            </g>
+            <g class="vx" data-n="cams heart">
+              <path class="vb" d="M222,78 C222,160 192.6,160 192.6,232"/>
+              <path class="vf vf-c2" pathLength="100" d="M222,78 C222,160 192.6,160 192.6,232"/>
+            </g>
+            <g class="vx" data-n="cams heart">
+              <path class="vb" d="M306,78 C306,160 217.8,160 217.8,232"/>
+              <path class="vf vf-c3" pathLength="100" d="M306,78 C306,160 217.8,160 217.8,232"/>
+            </g>
+            <g class="vx" data-n="tg heart">
+              <path class="vb" id="art-v-tg" d="M144,350 C144,420 60,420 60,478"/>
+              <path class="vf vf-1" pathLength="100" d="M144,350 C144,420 60,420 60,478"/>
+            </g>
+            <g class="vx" data-n="panel heart">
+              <path class="vb" id="art-v-panel" d="M180,350 C180,420 180,420 180,478"/>
+              <path class="vf vf-2" pathLength="100" d="M180,350 C180,420 180,420 180,478"/>
+            </g>
+            <g class="vx thin" data-n="cloud heart">
+              <path class="vb" id="art-v-cloud" d="M216,350 C216,420 300,420 300,478"/>
+              <path class="vf vf-3" pathLength="100" d="M216,350 C216,420 300,420 300,478"/>
+            </g>
+            <g class="vx" data-n="report heart">
+              <path class="vb" id="art-v-report" d="M159,350 C159,470 110,520 110,598"/>
+              <path class="vf vf-4" pathLength="100" d="M159,350 C159,470 110,520 110,598"/>
+            </g>
+            <g class="vx" data-n="report heart">
+              <path class="vb" id="art-v-sms" d="M201,350 C201,470 250,520 250,598"/>
+              <path class="vf vf-5" pathLength="100" d="M201,350 C201,470 250,520 250,598"/>
+            </g>
+            <g class="vx vein" data-n="back">
+              <path class="vb" d="M40,486 C6,420 18,330 122,304"/>
+              <path class="vf" pathLength="100" d="M40,486 C6,420 18,330 122,304"/>
+            </g>
+            <!-- kameralar -->
+            <g class="vx node cam" data-n="cams" data-k="cams">
+              <circle class="nd-halo" cx="54" cy="56" r="25"/>
+              <circle class="nd" cx="54" cy="56" r="20"/>
+              <path class="ic" d="M3 7h12v10H3z M15 10.5l6-3v9l-6-3z" transform="translate(42 44)"/>
+              <text class="lbl sm" x="54" y="25" text-anchor="middle">Kirish</text>
+            </g>
+            <g class="vx node cam" data-n="cams" data-k="cams">
+              <circle class="nd-halo" cx="138" cy="56" r="25"/>
+              <circle class="nd" cx="138" cy="56" r="20"/>
+              <path class="ic" d="M3 7h12v10H3z M15 10.5l6-3v9l-6-3z" transform="translate(126 44)"/>
+              <text class="lbl sm" x="138" y="25" text-anchor="middle">Zal</text>
+            </g>
+            <g class="vx node cam" data-n="cams" data-k="cams">
+              <circle class="nd-halo" cx="222" cy="56" r="25"/>
+              <circle class="nd" cx="222" cy="56" r="20"/>
+              <path class="ic" d="M3 7h12v10H3z M15 10.5l6-3v9l-6-3z" transform="translate(210 44)"/>
+              <text class="lbl sm" x="222" y="25" text-anchor="middle">Kassa</text>
+            </g>
+            <g class="vx node cam" data-n="cams" data-k="cams">
+              <circle class="nd-halo" cx="306" cy="56" r="25"/>
+              <circle class="nd" cx="306" cy="56" r="20"/>
+              <path class="ic" d="M3 7h12v10H3z M15 10.5l6-3v9l-6-3z" transform="translate(294 44)"/>
+              <text class="lbl sm" x="306" y="25" text-anchor="middle">Ombor</text>
+            </g>
+            <!-- yurak -->
+            <g class="vx heart" data-n="cams heart tg back panel cloud report" data-k="heart">
+              <circle class="beat b2" cx="180" cy="290" r="78"/>
+              <circle class="beat" cx="180" cy="290" r="67"/>
+              <circle class="core" cx="180" cy="290" r="56" fill="url(#heart-g-v)"/>
+              <g class="orbit"><text class="orb"><textPath href="#orbit-v" textLength="536.4" lengthAdjust="spacing">odamni topadi • skeletni chizadi • qo&#39;lni kuzatadi • buyumni qidiradi • qoidalarni tekshiradi • ball beradi • </textPath></text></g>
+              <text class="hlbl" x="180" y="287" text-anchor="middle">Do&#39;kon</text>
+              <text class="hlbl" x="180" y="307" text-anchor="middle">kompyuteri</text>
+            </g>
+            <!-- chiqishlar -->
+            <g class="vx node out out-1" data-n="tg back" data-k="tg">
+              <circle class="nd-halo" cx="60" cy="500" r="27"/>
+              <circle class="nd" cx="60" cy="500" r="22"/>
+              <path class="ic" d="M3 11.5 21 4l-3.2 16-5.6-4.6-3 3.1v-5.4L17.4 7 7.6 13.2z" transform="translate(48 488)"/>
+              <text class="lbl sm" x="60" y="542" text-anchor="middle">Telegram</text>
+            </g>
+            <g class="vx node out out-2" data-n="panel" data-k="panel">
+              <circle class="nd-halo" cx="180" cy="500" r="27"/>
+              <circle class="nd" cx="180" cy="500" r="22"/>
+              <path class="ic" d="M3 5h18v11H3z M9 20h6 M12 16v4" transform="translate(168 488)"/>
+              <text class="lbl sm" x="180" y="542" text-anchor="middle">Panel</text>
+            </g>
+            <g class="vx node out out-3" data-n="cloud" data-k="cloud">
+              <circle class="nd-halo" cx="300" cy="500" r="27"/>
+              <circle class="nd" cx="300" cy="500" r="22"/>
+              <path class="ic" d="M7 18h10.5a4 4 0 0 0 .4-8A6 6 0 0 0 6.3 11.3 3.4 3.4 0 0 0 7 18z" transform="translate(288 488)"/>
+              <text class="lbl sm" x="300" y="542" text-anchor="middle">Bulut</text>
+            </g>
+            <g class="vx node out out-4" data-n="report" data-k="report">
+              <circle class="nd-halo" cx="110" cy="620" r="27"/>
+              <circle class="nd" cx="110" cy="620" r="22"/>
+              <path class="ic" d="M6 3h9l4 4v14H6z M15 3v4h4 M9.5 17v-3 M12.5 17v-6 M15.5 17v-4" transform="translate(98 608)"/>
+              <text class="lbl sm" x="110" y="662" text-anchor="middle">Hisobot</text>
+            </g>
+            <g class="vx node out out-5" data-n="report" data-k="report">
+              <circle class="nd-halo" cx="250" cy="620" r="27"/>
+              <circle class="nd" cx="250" cy="620" r="22"/>
+              <path class="ic" d="M4 5h16v11H9.5L4 20z M8 9.5h8 M8 12.5h5" transform="translate(238 608)"/>
+              <text class="lbl sm" x="250" y="662" text-anchor="middle">SMS</text>
+            </g>
+          </svg>
+        </div>
+        <ol class="vas-list" id="vas-list">
+          <li><button type="button" class="vas-it" data-k="cams" aria-pressed="false"><b>Kameralar</b><span>Mavjud IP kameralar yoki DVR/NVR ulanadi. Video oqimi do&#39;kon tarmog&#39;idan chiqmaydi.</span></button></li>
+          <li><button type="button" class="vas-it" data-k="heart" aria-pressed="false"><b>Do&#39;kon kompyuteri — yurak</b><span>Har kadrda odamni topadi va 17 nuqtali skeletini chizadi; qo&#39;l biror narsaga uzatilsa — atrofida buyum qidiradi. Odatda tinch paytda soniyasiga 4 kadr, shubhali harakatda — 8.</span></button></li>
+          <li><button type="button" class="vas-it" data-k="tg" aria-pressed="false"><b>Telegram</b><span>Avval rasm va sabab keladi, keyin klip: shubhali lahzadan 10 soniya oldin va 10 soniya keyin. Kim nima olishi sozlanadi.</span></button></li>
+          <li><button type="button" class="vas-it" data-k="back" aria-pressed="false"><b>Javob qaytadi</b><span>Qo&#39;riqchining ✅ yoki ❌ javobi saqlanadi: xato signal ulushi hisobotda ochiq ko&#39;rinadi, xulq modeli shu javoblarda qayta o&#39;qitiladi.</span></button></li>
+          <li><button type="button" class="vas-it" data-k="panel" aria-pressed="false"><b>Do&#39;kon paneli</b><span>Brauzerda: jonli kameralar, hodisalar, tashriflar, navbat, oqim va sozlamalar. Internetsiz ham ishlaydi.</span></button></li>
+          <li><button type="button" class="vas-it" data-k="cloud" aria-pressed="false"><b>Bulut paneli</b><span>Bir nechta filial bitta joyda, rollar bilan. Bulutga faqat hodisa, klip va yig&#39;indi raqamlar boradi; internet uzilsa — navbatda kutadi.</span></button></li>
+          <li><button type="button" class="vas-it" data-k="report" aria-pressed="false"><b>Hisobot va SMS</b><span>Har kuni ertalab kechagi raqamlar va tavsiyalar (PDF ham). Yiqilish yoki tungi kirish kabi kritik holatda — SMS.</span></button></li>
+        </ol>
       </div>
-      <ul class="feat-list">
-        <li class="feat-main">
-          <svg class="fi" viewBox="0 0 40 40" aria-hidden="true"><path d="M4 12V4h8M28 4h8v8M36 28v8h-8M12 36H4v-8"/><circle cx="20" cy="13" r="3.5"/><path d="M20 17v9m0 0-4 8m4-8 4 8m-4-15 7 4m-7-4-6 5"/></svg>
-          <h3>O'g'irlik signallari</h3>
-          <p>Qo'l cho'ntakka, kiyim ichiga yoki sumkaga kirdi — sababi va videosi bilan Telegram'ga. Qo'riqchi bir bosishda
-            tasdiqlaydi yoki "xato signal" deydi, tizim shu javoblardan o'rganadi.</p>
+    </div>
+  </section>
+
+  <!-- ======================================================================== imkoniyatlar -->
+  <section id="imkoniyatlar" class="sec">
+    <div class="wrap">
+      <h2>Bitta tizim — do&#39;konning olti muammosiga</h2>
+      <p class="sub">Hammasi do&#39;kondagi kompyuterda ishlaydi. Telegram&#39;ga faqat muhim narsa keladi, qolgani — panel va kunlik hisobotda.</p>
+      <ul class="feats">
+        <li class="feat feat-theft">
+          <div class="fv fv-theft" aria-hidden="true">
+            <svg viewBox="0 0 320 180">
+              <rect class="fv-bg" width="320" height="180" rx="10"/>
+              <rect x="22" y="38" width="76" height="118" rx="3" fill="#22374a"/>
+              <g fill="#3a4f63"><rect x="22" y="78" width="76" height="4"/><rect x="22" y="116" width="76" height="4"/></g>
+              <g opacity=".85"><rect x="30" y="56" width="12" height="22" rx="2" fill="#6b7b6a"/><rect x="46" y="60" width="12" height="18" rx="2" fill="#7d6a5c"/>
+                <rect x="30" y="94" width="16" height="22" rx="2" fill="#5f7183"/><rect x="52" y="96" width="14" height="20" rx="2" fill="#8b7c5d"/><rect x="72" y="92" width="18" height="24" rx="2" fill="#5d7a70"/></g>
+              <rect class="fv-item-shelf" x="84" y="60" width="11" height="18" rx="2" fill="#d9a441"/>
+              <g class="fv-sk" fill="none" stroke-width="3" stroke-linecap="round">
+                <circle cx="140" cy="52" r="11"/>
+                <path d="M140 63 V112 M126 112 H154 M130 112 L127 158 M150 112 L153 158 M140 72 L124 104"/>
+                <g class="fv-arm"><path d="M140 72 L140 128"/><rect class="fv-item-hand" x="134.5" y="124" width="11" height="18" rx="2" fill="#d9a441" stroke="none"/></g>
+              </g>
+              <text class="fv-t" x="214" y="56">xavf</text>
+              <text class="fv-num" x="300" y="56" text-anchor="end">82</text>
+              <rect x="214" y="66" width="86" height="10" rx="5" fill="#25394c"/>
+              <rect class="fv-bar" x="214" y="66" width="86" height="10" rx="5"/>
+              <path class="fv-pocket" d="M150 122 q8 2 12 -4" fill="none" stroke-width="2"/>
+            </svg>
+          </div>
+          <div class="feat-text">
+            <h3>O&#39;g&#39;irlik signallari</h3>
+            <p>Qo&#39;l cho&#39;ntakka, kiyim ichiga yoki sumkaga kirdi — sababi va videosi bilan Telegram&#39;ga.</p>
+            <ul class="ticks">
+              <li>Polka, kassa va xodim zonalari kamerada chiziladi</li>
+              <li>Har signalga ball va sabablar</li>
+              <li>✅/❌ bir bosishda, tizim javoblardan o&#39;rganadi</li>
+            </ul>
+          </div>
         </li>
-        <li>
-          <svg class="fi" viewBox="0 0 40 40" aria-hidden="true"><path d="M10 36V6h16v30M4 36h32M26 20h-4"/><path d="M30 14l5 5-5 5"/></svg>
-          <h3>Tashriflar</h3>
-          <p>Kirish eshigidagi chiziq: bugun nechta xaridor kirdi, hozir ichkarida nechta, qaysi soatlar gavjum. Xodimlar
-            alohida sanaladi.</p>
+        <li class="feat feat-visits">
+          <div class="fv fv-visits" aria-hidden="true">
+            <svg viewBox="0 0 320 180">
+              <rect class="fv-bg" width="320" height="180" rx="10"/>
+              <path d="M128 160 V36 H192 V160" fill="none" stroke="#3a4f63" stroke-width="4"/>
+              <line class="fv-line" x1="160" y1="30" x2="160" y2="166"/>
+              <g class="fv-walk"><circle class="w1" cx="40" cy="112" r="8"/><circle class="w2" cx="40" cy="112" r="8"/><circle class="w3" cx="40" cy="112" r="8"/></g>
+              <text class="fv-plus p1" x="174" y="88">+1</text><text class="fv-plus p2" x="174" y="88">+1</text><text class="fv-plus p3" x="174" y="88">+1</text>
+              <text class="fv-big" x="22" y="52">127</text>
+              <text class="fv-t" x="22" y="72">bugun kirdi</text>
+            </svg>
+          </div>
+          <div class="feat-text">
+            <h3>Tashriflar</h3>
+            <p>Kirish chizig&#39;i bo&#39;yicha: bugun nechta xaridor kirdi va hozir ichkarida nechta.</p>
+            <ul class="ticks">
+              <li>Soatlar bo&#39;yicha gavjumlik</li>
+              <li>Xodimlar alohida sanaladi</li>
+              <li>Kunlar va ish vaqti taqqoslanadi</li>
+            </ul>
+          </div>
         </li>
-        <li>
-          <svg class="fi" viewBox="0 0 40 40" aria-hidden="true"><rect x="4" y="22" width="12" height="12" rx="2"/><circle cx="23" cy="14" r="3"/><circle cx="31" cy="14" r="3"/><path d="M20 34v-9a3 3 0 0 1 6 0v9M28 34v-9a3 3 0 0 1 6 0v9"/></svg>
-          <h3>Kassa navbati</h3>
-          <p>Navbat uzunligi, kutish vaqti, kassir joyida yo'qligi. Navbat uzaysa — darhol xabar va kassir jadvali bo'yicha
-            tavsiya.</p>
+        <li class="feat feat-queue">
+          <div class="fv fv-queue" aria-hidden="true">
+            <svg viewBox="0 0 320 180">
+              <rect class="fv-bg" width="320" height="180" rx="10"/>
+              <rect x="24" y="78" width="54" height="56" rx="4" fill="#22374a" stroke="#3a4f63" stroke-width="2"/>
+              <circle cx="51" cy="62" r="9" fill="#5fd3bd"/>
+              <text class="fv-t" x="51" y="154" text-anchor="middle">1-kassa</text>
+              <g class="fv-q">
+                <circle class="q0" cx="104" cy="106" r="10"/><circle cx="136" cy="106" r="10"/><circle cx="168" cy="106" r="10"/>
+                <circle cx="200" cy="106" r="10"/><circle cx="232" cy="106" r="10"/><circle class="q5" cx="264" cy="106" r="10"/>
+              </g>
+              <text class="fv-t" x="104" y="46">kutish</text>
+              <rect x="104" y="56" width="180" height="8" rx="4" fill="#25394c"/>
+              <rect class="fv-wait" x="104" y="56" width="180" height="8" rx="4"/>
+            </svg>
+          </div>
+          <div class="feat-text">
+            <h3>Kassa navbati</h3>
+            <p>Har kassada navbat uzunligi va kutish vaqti, kassir joyida yo&#39;qligi.</p>
+            <ul class="ticks">
+              <li>Navbat uzaysa — darhol xabar</li>
+              <li>O&#39;rtacha va eng uzoq kutish</li>
+              <li>Kassir jadvali bo&#39;yicha tavsiya</li>
+            </ul>
+          </div>
         </li>
-        <li>
-          <svg class="fi" viewBox="0 0 40 40" aria-hidden="true"><rect x="4" y="6" width="32" height="28" rx="2"/><path d="M4 18h12V6M24 34V22h12"/><circle cx="28" cy="13" r="4"/><circle cx="12" cy="27" r="2.5"/></svg>
-          <h3>Oqim va heatmap</h3>
-          <p>Do'kon rejasida: qaysi bo'limga ko'p kirishadi, xaridorlar bo'limdan bo'limga qanday yuradi, qayer bo'sh
-            qoladi.</p>
+        <li class="feat feat-flow">
+          <div class="fv fv-flow" aria-hidden="true">
+            <svg viewBox="0 0 320 180">
+              <defs>
+                <radialGradient id="heat-uz"><stop offset="0" stop-color="#e5484d" stop-opacity=".9"/><stop offset=".45" stop-color="#f0b429" stop-opacity=".55"/><stop offset="1" stop-color="#f0b429" stop-opacity="0"/></radialGradient>
+              </defs>
+              <rect class="fv-bg" width="320" height="180" rx="10"/>
+              <g fill="none" stroke="#3a4f63" stroke-width="2"><rect x="20" y="20" width="280" height="140" rx="4"/>
+                <path d="M110 20 V92 M200 20 V70 M20 110 H150 M200 70 H300 M240 110 V160"/></g>
+              <g class="fv-heat"><circle class="h1" cx="70" cy="60" r="44" fill="url(#heat-uz)"/><circle class="h2" cx="250" cy="130" r="38" fill="url(#heat-uz)"/><circle class="h3" cx="170" cy="120" r="30" fill="url(#heat-uz)"/></g>
+              <path class="fv-route" pathLength="100" d="M160 158 C160 130 120 128 90 112 S60 70 80 50 S150 40 170 60 S230 100 262 128" fill="none"/>
+            </svg>
+          </div>
+          <div class="feat-text">
+            <h3>Oqim va heatmap</h3>
+            <p>Do&#39;kon rejasida: qaysi bo&#39;limga ko&#39;p kirishadi va xaridorlar qanday yuradi.</p>
+            <ul class="ticks">
+              <li>Bo&#39;limlar bo&#39;yicha tashriflar</li>
+              <li>Eng ko&#39;p yo&#39;nalishlar</li>
+              <li>Bo&#39;sh qolayotgan joylar</li>
+            </ul>
+          </div>
         </li>
-        <li>
-          <svg class="fi" viewBox="0 0 40 40" aria-hidden="true"><path d="M20 4l13 6v9c0 8-5.4 14.6-13 17-7.6-2.4-13-9-13-17v-9z"/><path d="M20 13v9m0 5v.5"/></svg>
-          <h3>Xavfsizlik</h3>
-          <p>Odam yiqildi, ish vaqtidan tashqari kimdir kirdi, kassa oldida gavjumlik — bularni ham kameralar o'zi
-            sezadi.</p>
+        <li class="feat feat-safety">
+          <div class="fv fv-safety" aria-hidden="true">
+            <svg viewBox="0 0 320 180">
+              <rect class="fv-bg" width="320" height="180" rx="10"/>
+              <line x1="20" y1="152" x2="300" y2="152" stroke="#3a4f63" stroke-width="3"/>
+              <circle class="fv-ring" cx="196" cy="140" r="36"/>
+              <g class="fv-fig" fill="none" stroke-width="3" stroke-linecap="round">
+                <circle cx="126" cy="58" r="10"/>
+                <path d="M126 68 V112 M114 112 H138 M118 112 L116 152 M134 112 L136 152 M126 76 L112 104 M126 76 L140 104"/>
+              </g>
+              <g class="fv-sms"><rect x="232" y="26" width="68" height="34" rx="8"/><text x="266" y="49" text-anchor="middle">SMS</text></g>
+            </svg>
+          </div>
+          <div class="feat-text">
+            <h3>Xavfsizlik</h3>
+            <p>Odam yiqildi, ish vaqtidan tashqari kimdir kirdi, kassa oldida gavjumlik.</p>
+            <ul class="ticks">
+              <li>Yiqilish va «odam yotibdi»</li>
+              <li>Tungi kirish va to&#39;silgan chiqish</li>
+              <li>Kritik holatda SMS</li>
+            </ul>
+          </div>
         </li>
-        <li class="feat-sum">
-          <svg class="fi" viewBox="0 0 40 40" aria-hidden="true"><path d="M8 4h17l7 7v25H8z"/><path d="M25 4v7h7M14 30v-6M20 30v-11M26 30v-8"/></svg>
-          <h3>Hisobot va tavsiyalar</h3>
-          <p>Har kuni ertalab kechagi kun, har dushanba o'tgan hafta: raqamlar, o'tgan davr bilan solishtirish va aniq
-            tavsiyalar (PDF ham).</p>
+        <li class="feat feat-report">
+          <div class="fv fv-report" aria-hidden="true">
+            <svg viewBox="0 0 480 200">
+              <rect class="fv-bg" width="480" height="200" rx="10"/>
+              <line x1="28" y1="132" x2="452" y2="132" stroke="#3a4f63" stroke-width="2"/>
+              <rect class="fv-col c1" x="44" y="86" width="34" height="46" rx="4"/>
+              <text class="fv-d" x="61" y="150" text-anchor="middle">Du</text>
+              <rect class="fv-col c2" x="102" y="74" width="34" height="58" rx="4"/>
+              <text class="fv-d" x="119" y="150" text-anchor="middle">Se</text>
+              <rect class="fv-col c3" x="160" y="80" width="34" height="52" rx="4"/>
+              <text class="fv-d" x="177" y="150" text-anchor="middle">Ch</text>
+              <rect class="fv-col c4" x="218" y="68" width="34" height="64" rx="4"/>
+              <text class="fv-d" x="235" y="150" text-anchor="middle">Pa</text>
+              <rect class="fv-col c5" x="276" y="54" width="34" height="78" rx="4"/>
+              <text class="fv-d" x="293" y="150" text-anchor="middle">Ju</text>
+              <rect class="fv-col c6 hot" x="334" y="34" width="34" height="98" rx="4"/>
+              <text class="fv-d" x="351" y="150" text-anchor="middle">Sh</text>
+              <rect class="fv-col c7" x="392" y="62" width="34" height="70" rx="4"/>
+              <text class="fv-d" x="409" y="150" text-anchor="middle">Ya</text>
+              <g class="fv-tip"><rect x="90" y="162" width="300" height="28" rx="14"/><text x="240" y="181" text-anchor="middle">Shanba 17:00 — 2-kassani oching</text></g>
+            </svg>
+          </div>
+          <div class="feat-text">
+            <h3>Hisobot va tavsiyalar</h3>
+            <p>Har kuni ertalab kechagi kun, har dushanba o&#39;tgan hafta — raqamlar va aniq tavsiyalar.</p>
+            <ul class="ticks">
+              <li>PDF va Telegram&#39;da</li>
+              <li>O&#39;tgan davr bilan solishtirish</li>
+              <li>Filiallar taqqoslanadi (bulut)</li>
+            </ul>
+          </div>
         </li>
       </ul>
     </div>
   </section>
 
-  <section id="ekranlar" class="sec alt">
+  <!-- ======================================================================== kimlar uchun -->
+  <section id="kimlar" class="sec alt">
+    <div class="wrap who-in">
+      <div>
+        <h2>Kimlar uchun</h2>
+        <p class="sub">Har do&#39;konda muammo boshqacha — sozlamalar va zonalar shunga qarab tanlanadi.</p>
+      </div>
+      <dl class="who">
+        <div><dt>Supermarket va minimarket</dt><dd>Kassa navbati, gavjum soatlar va kichik mahsulot o&#39;g&#39;irligi.</dd></div>
+        <div><dt>Kiyim va poyabzal</dt><dd>Kiyim ichiga yashirish, kiyinish xonasi atrofi, bo&#39;limlar oqimi.</dd></div>
+        <div><dt>Dorixona va kosmetika</dt><dd>Kichik va qimmat mahsulot, kassa oldi, ish vaqtidan tashqari kirish.</dd></div>
+        <div><dt>Elektronika va telefonlar</dt><dd>Vitrina oldida uzoq turish, sumkaga solish, tungi xavfsizlik.</dd></div>
+        <div><dt>Do&#39;konlar tarmog&#39;i</dt><dd>Har filial o&#39;z kompyuterida, egasi hammasini bulut panelida ko&#39;radi.</dd></div>
+      </dl>
+    </div>
+  </section>
+
+  <!-- ======================================================================== ekranlar -->
+  <section id="ekranlar" class="sec">
     <div class="wrap">
-      <h2>Qanday ko'rinadi</h2>
-      <p class="sub">Rasmlar demo do'kondan olingan (raqamlar namuna uchun).</p>
-      <div class="tabs" role="tablist" aria-label="Panel ko'rinishlari">
+      <h2>Qanday ko&#39;rinadi</h2>
+      <p class="sub">Rasmlar demo do&#39;kondan olingan (raqamlar namuna uchun).</p>
+      <div class="tabs" role="tablist" aria-label="Panel ko&#39;rinishlari">
         <button role="tab" aria-selected="true" aria-controls="sh-0" id="tb-0">Bosh sahifa</button>
         <button role="tab" aria-selected="false" aria-controls="sh-1" id="tb-1" tabindex="-1">Hodisalar</button>
         <button role="tab" aria-selected="false" aria-controls="sh-2" id="tb-2" tabindex="-1">Kassa navbati</button>
@@ -310,28 +706,28 @@
       </div>
       <div class="shots">
         <figure class="shot" role="tabpanel" id="sh-0" aria-labelledby="tb-0">
-          <div class="frame"><img src="img/panel.jpg" alt="Do'kon paneli bosh sahifasi: bugungi hodisalar, tashriflar, kassa navbati va kameralar" width="1280" height="800" loading="lazy"></div>
+          <div class="frame"><img src="img/panel.jpg" alt="Do&#39;kon paneli bosh sahifasi: bugungi hodisalar, tashriflar, kassa navbati va kameralar" width="1280" height="800" loading="lazy"></div>
           <figcaption>Bugungi holat bir sahifada: signallar, tashriflar, navbat va jonli kameralar.</figcaption>
         </figure>
         <figure class="shot" role="tabpanel" id="sh-1" aria-labelledby="tb-1">
-          <div class="frame"><img src="img/hodisalar.jpg" alt="Hodisalar ro'yxati: har signal rasmi, turi, vaqti va qo'riqchi javobi bilan" width="1280" height="800" loading="lazy"></div>
+          <div class="frame"><img src="img/hodisalar.jpg" alt="Hodisalar ro&#39;yxati: har signal rasmi, turi, vaqti va qo&#39;riqchi javobi bilan" width="1280" height="800" loading="lazy"></div>
           <figcaption>Har signal — rasm, video, sabab va kim qachon javob bergani. Tekshirilmaganlar alohida.</figcaption>
         </figure>
         <figure class="shot" role="tabpanel" id="sh-2" aria-labelledby="tb-2">
-          <div class="frame"><img src="img/navbat.jpg" alt="Navbat sahifasi: kassalar hozirgi holati, bugungi kutish vaqti va soatlar bo'yicha grafik" width="1280" height="800" loading="lazy"></div>
-          <figcaption>Kassalar hozir: navbatda necha kishi, kassir bormi; bugungi o'rtacha va eng uzoq kutish.</figcaption>
+          <div class="frame"><img src="img/navbat.jpg" alt="Navbat sahifasi: kassalar hozirgi holati, bugungi kutish vaqti va soatlar bo&#39;yicha grafik" width="1280" height="800" loading="lazy"></div>
+          <figcaption>Kassalar hozir: navbatda necha kishi, kassir bormi; bugungi o&#39;rtacha va eng uzoq kutish.</figcaption>
         </figure>
         <figure class="shot" role="tabpanel" id="sh-3" aria-labelledby="tb-3">
-          <div class="frame"><img src="img/oqim.jpg" alt="Do'kon rejasidagi heatmap va bo'limlar bo'yicha tashriflar" width="1280" height="800" loading="lazy"></div>
-          <figcaption>Do'kon rejasida gavjum joylar, bo'lim tashriflari va eng ko'p yo'nalish.</figcaption>
+          <div class="frame"><img src="img/oqim.jpg" alt="Do&#39;kon rejasidagi heatmap va bo&#39;limlar bo&#39;yicha tashriflar" width="1280" height="800" loading="lazy"></div>
+          <figcaption>Do&#39;kon rejasida gavjum joylar, bo&#39;lim tashriflari va eng ko&#39;p yo&#39;nalish.</figcaption>
         </figure>
         <figure class="shot" role="tabpanel" id="sh-4" aria-labelledby="tb-4">
           <div class="frame"><img src="img/hisobot.jpg" alt="Kunlik hisobot: tashriflar, navbat, signallar va tavsiyalar" width="1280" height="800" loading="lazy"></div>
-          <figcaption>Har kuni ertalab Telegram'ga: kechagi raqamlar va 2–3 ta aniq tavsiya.</figcaption>
+          <figcaption>Har kuni ertalab Telegram&#39;ga: kechagi raqamlar va 2–3 ta aniq tavsiya.</figcaption>
         </figure>
         <figure class="shot" role="tabpanel" id="sh-5" aria-labelledby="tb-5">
           <div class="frame"><img src="img/taqqoslash.jpg" alt="Bulut paneli: filiallarni taqqoslash jadvali va tavsiyalar" width="1280" height="800" loading="lazy"></div>
-          <figcaption>Bir nechta filial bo'lsa — bulut paneli: filiallarni taqqoslash, rollar (egasi, menejer, qorovul).</figcaption>
+          <figcaption>Bir nechta filial bo&#39;lsa — bulut paneli: filiallarni taqqoslash, rollar (egasi, menejer, qorovul).</figcaption>
         </figure>
         <figure class="shot phone" role="tabpanel" id="sh-6" aria-labelledby="tb-6">
           <div class="frame"><img src="img/telefon.jpg" alt="Bulut paneli telefonda: filiallar holati va tekshirilmagan signallar" width="390" height="760" loading="lazy"></div>
@@ -341,28 +737,53 @@
     </div>
   </section>
 
-  <section id="qanday" class="sec">
+  <!-- ======================================================================== maxfiylik va talablar -->
+  <section id="maxfiylik" class="sec alt">
+    <div class="wrap">
+      <h2>Maxfiylik va talablar</h2>
+      <div class="trust">
+        <div>
+          <h3>Maxfiylik</h3>
+          <ul class="ticks big">
+            <li>Yuz tanilmaydi — tizim shaxsni emas, harakatni baholaydi.</li>
+            <li>Videoarxiv do&#39;kondagi kompyuterda qoladi.</li>
+            <li>Kim nimani ko&#39;rishi rollar bilan cheklanadi: egasi, menejer, qorovul.</li>
+            <li>Har signalni odam tekshiradi, xato signal ulushi hisobotda ochiq.</li>
+          </ul>
+        </div>
+        <div>
+          <h3>Nima kerak</h3>
+          <dl class="req">
+            <div><dt>Kompyuter</dt><dd>Windows 10 yoki 11, 8 GB xotira, 4–6 yadroli protsessor (tavsiya). Nechta kamera sig&#39;ishini ko&#39;rib chiqishda o&#39;lchab aytamiz.</dd></div>
+            <div><dt>Kameralar</dt><dd>RTSP oqimi beradigan IP kamera yoki DVR/NVR.</dd></div>
+            <div><dt>Internet</dt><dd>Telegram va bulut uchun. Uzilsa, signallar navbatda kutadi va internet qaytganda yetkaziladi.</dd></div>
+            <div><dt>Telefon</dt><dd>Telegram o&#39;rnatilgan har qanday telefon.</dd></div>
+          </dl>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ======================================================================== ishga tushirish -->
+  <section id="ishga-tushirish" class="sec">
     <div class="wrap">
       <h2>Qanday ishga tushadi</h2>
       <p class="sub">Birinchi uchrashuvdan pilot natijasigacha — odatda bir oy.</p>
       <ol class="steps">
-        <li><b>Ko'rib chiqamiz</b><span>Kameralar, kompyuter va internetni birga ko'ramiz (do'konda yoki video qo'ng'iroqda).
-          Ko'pincha mavjud IP kamera yoki DVR/NVR yetarli.</span></li>
-        <li><b>O'rnatamiz</b><span>Do'kondagi Windows kompyuterga dastur, kameralarni ulash, zonalarni chizish (polka, kassa,
-          eshik). Odatda bir kunda.</span></li>
-        <li><b>Telegram'ga ulaymiz</b><span>Egasi, menejer va qo'riqchi telefoniga — kim nima olishi sozlanadi.</span></li>
-        <li><b>4 hafta pilot</b><span>Har hafta raqamlarni birga ko'ramiz, sozlaymiz. Oxirida natija bo'yicha qaror
-          qilasiz.</span></li>
+        <li><b>Ko&#39;rib chiqamiz</b><span>Kameralar, kompyuter va internetni birga ko&#39;ramiz (do&#39;konda yoki video qo&#39;ng&#39;iroqda). Ko&#39;pincha mavjud IP kamera yoki DVR/NVR yetarli.</span></li>
+        <li><b>O&#39;rnatamiz</b><span>Do&#39;kondagi Windows kompyuterga dastur, kameralarni ulash, zonalarni chizish (polka, kassa, eshik). Odatda bir kunda.</span></li>
+        <li><b>Telegram&#39;ga ulaymiz</b><span>Egasi, menejer va qo&#39;riqchi telefoniga — kim nima olishi sozlanadi.</span></li>
+        <li><b>4 hafta pilot</b><span>Har hafta raqamlarni birga ko&#39;ramiz, sozlaymiz. Oxirida natija bo&#39;yicha qaror qilasiz.</span></li>
       </ol>
     </div>
   </section>
 
+  <!-- ======================================================================== pilot -->
   <section id="pilot" class="sec alt">
     <div class="wrap pilot-in">
       <div>
-        <h2>Pilot — so'z bilan emas, raqam bilan</h2>
-        <p class="sub">4 haftalik pilot natijasini oldindan kelishilgan mezonlar bilan baholaymiz. Hammasini panelning
-          "Pilot" bo'limida o'zingiz ko'rib turasiz.</p>
+        <h2>Pilot — so&#39;z bilan emas, raqam bilan</h2>
+        <p class="sub">4 haftalik pilot natijasini oldindan kelishilgan mezonlar bilan baholaymiz. Hammasini panelning &#34;Pilot&#34; bo&#39;limida o&#39;zingiz ko&#39;rib turasiz.</p>
       </div>
       <table class="gate">
         <caption>Pilot mezonlari</caption>
@@ -371,68 +792,72 @@
           <tr><th scope="row">Kameralar ish vaqtida ishlagan</th><td>≥ 95%</td></tr>
           <tr><th scope="row">Xato signal, kamera boshiga kuniga</th><td>≤ 3</td></tr>
           <tr><th scope="row">Javobsiz qolgan signallar</th><td>≤ 10%</td></tr>
-          <tr><th scope="row">Kunlik hisobot o'z vaqtida kelgan kunlar</th><td>≥ 90%</td></tr>
+          <tr><th scope="row">Kunlik hisobot o&#39;z vaqtida kelgan kunlar</th><td>≥ 90%</td></tr>
           <tr><th scope="row">Egasining haftalik bahosi (5 dan)</th><td>≥ 4</td></tr>
         </tbody>
       </table>
     </div>
   </section>
 
+  <!-- ======================================================================== narx -->
   <section id="narx" class="sec">
     <div class="wrap price">
       <div>
         <h2>Narx</h2>
-        <p class="sub">Narx kameralar soni, filiallar va bulut paneli kerakligiga bog'liq. Pilotdan keyin aniq taklif
-          beramiz.</p>
+        <p class="sub">Narx kameralar soni, filiallar va bulut paneli kerakligiga bog&#39;liq. Pilotdan keyin aniq taklif beramiz.</p>
       </div>
       <div class="price-box">
-        <strong id="price">so'rov bo'yicha</strong>
-        <a class="btn" href="#aloqa">Taklif so'rash</a>
+        <strong id="price">so&#39;rov bo&#39;yicha</strong>
+        <a class="btn" href="#aloqa">Taklif so&#39;rash</a>
       </div>
     </div>
   </section>
 
+  <!-- ======================================================================== savollar -->
   <section id="savollar" class="sec alt">
     <div class="wrap faq">
-      <h2>Ko'p beriladigan savollar</h2>
+      <h2>Ko&#39;p beriladigan savollar</h2>
       <details>
         <summary>Yangi kamera sotib olish kerakmi?</summary>
-        <p>Ko'pincha yo'q: RTSP oqimi beradigan IP kameralar yoki DVR/NVR ulanadi. Ko'rib chiqishda qaysi kamera qaysi ish
-          uchun yaroqli ekanini aytamiz (masalan, kassa navbati uchun kassani yuqoridan ko'radigan kamera yaxshi).</p>
+        <p>Ko&#39;pincha yo&#39;q: RTSP oqimi beradigan IP kameralar yoki DVR/NVR ulanadi. Ko&#39;rib chiqishda qaysi kamera qaysi ish uchun yaroqli ekanini aytamiz (masalan, kassa navbati uchun kassani yuqoridan ko&#39;radigan kamera yaxshi).</p>
       </details>
       <details>
-        <summary>Internet uzilsa nima bo'ladi?</summary>
-        <p>Tahlil do'kondagi kompyuterda bo'ladi — internet uzilsa ham kuzatuv davom etadi. Signallar va raqamlar internet
-          qaytganda Telegram va bulutga yetkaziladi.</p>
+        <summary>Internet uzilsa nima bo&#39;ladi?</summary>
+        <p>Tahlil do&#39;kondagi kompyuterda bo&#39;ladi — internet uzilsa ham kuzatuv davom etadi. Signallar va raqamlar internet qaytganda Telegram va bulutga yetkaziladi.</p>
       </details>
       <details>
         <summary>Videolar qayerda saqlanadi?</summary>
-        <p>Videoarxiv do'koningizdagi kompyuterda. Telegram'ga faqat signalning qisqa klipi va rasmi boradi; bulut paneli
-          ishlatilsa, unga ham signal kliplari va yig'indi raqamlar boradi — doimiy video oqimi emas.</p>
+        <p>Videoarxiv do&#39;koningizdagi kompyuterda. Telegram&#39;ga faqat signalning qisqa klipi va rasmi boradi; bulut paneli ishlatilsa, unga ham signal kliplari va yig&#39;indi raqamlar boradi — doimiy video oqimi emas.</p>
       </details>
       <details>
         <summary>Tizim xato qiladimi?</summary>
-        <p>Ha, har qanday kamera tizimi kabi. Shuning uchun har signalni odam tekshiradi, xato signal ulushi hisobotda
-          ochiq ko'rsatiladi va zonalar, sezgirlik shu raqamlar asosida sozlanadi.</p>
+        <p>Ha, har qanday kamera tizimi kabi. Shuning uchun har signalni odam tekshiradi, xato signal ulushi hisobotda ochiq ko&#39;rsatiladi va zonalar, sezgirlik shu raqamlar asosida sozlanadi.</p>
       </details>
       <details>
         <summary>Odamlarning yuzini taniydimi?</summary>
-        <p>Yo'q. Tizim shaxsni aniqlamaydi — harakatni baholaydi: qo'l, sumka, polka oldida turish, navbat, o'tish
-          chizig'i.</p>
+        <p>Yo&#39;q. Tizim shaxsni aniqlamaydi — harakatni baholaydi: qo&#39;l, sumka, polka oldida turish, navbat, o&#39;tish chizig&#39;i.</p>
       </details>
       <details>
-        <summary>Bir nechta filialim bor — hammasini bir joyda ko'ramanmi?</summary>
-        <p>Ha: har filialdagi kompyuter bulut paneliga ulanadi. Egasi hamma filiallarni, menejer va qo'riqchi faqat o'z
-          filialini ko'radi. Har dushanba filiallar taqqoslangan xulosa keladi.</p>
+        <summary>Bir nechta filialim bor — hammasini bir joyda ko&#39;ramanmi?</summary>
+        <p>Ha: har filialdagi kompyuter bulut paneliga ulanadi. Egasi hamma filiallarni, menejer va qo&#39;riqchi faqat o&#39;z filialini ko&#39;radi. Har dushanba filiallar taqqoslangan xulosa keladi.</p>
+      </details>
+      <details>
+        <summary>Kompyuter o&#39;chib qolsa-chi?</summary>
+        <p>Dastur Windows bilan birga o&#39;zi ishga tushadi va qotib qolsa qayta yoqiladi. Kamera uzilsa — Telegram&#39;ga xabar keladi; filial internetdan uzilsa — bulut panelida ko&#39;rinadi.</p>
+      </details>
+      <details>
+        <summary>Panel va bot qaysi tilda?</summary>
+        <p>Hozircha o&#39;zbek tilida (lotin yozuvi). Rus yoki ingliz tili kerak bo&#39;lsa, so&#39;rovda yozing.</p>
       </details>
     </div>
   </section>
 
+  <!-- ======================================================================== aloqa -->
   <section id="aloqa" class="sec contact">
     <div class="wrap contact-in">
       <div class="contact-text">
-        <h2>So'rov qoldiring</h2>
-        <p class="sub">Telefon raqamingizni qoldiring — bog'lanib, do'koningizni ko'rib chiqish vaqtini kelishamiz.</p>
+        <h2>So&#39;rov qoldiring</h2>
+        <p class="sub">Telefon raqamingizni qoldiring — bog&#39;lanib, do&#39;koningizni ko&#39;rib chiqish vaqtini kelishamiz.</p>
         <ul class="contacts" id="contacts"></ul>
       </div>
       <form class="form" id="lead-form" novalidate>
@@ -443,28 +868,28 @@
             <input name="phone" type="tel" inputmode="tel" autocomplete="tel" placeholder="+998 90 123 45 67" maxlength="25" required></label>
         </div>
         <div class="row2">
-          <label class="field"><span>Do'kon nomi</span>
+          <label class="field"><span>Do&#39;kon nomi</span>
             <input name="store" autocomplete="organization" maxlength="200"></label>
           <label class="field"><span>Shahar</span>
             <input name="city" autocomplete="address-level2" maxlength="100"></label>
         </div>
-        <label class="field"><span>Nechta filial / do'kon</span>
+        <label class="field"><span>Nechta filial / do&#39;kon</span>
           <select name="branches">
             <option value="">Tanlang</option>
-            <option>1</option>
-            <option>2–3</option>
-            <option>4–10</option>
-            <option>10 dan ko'p</option>
+            <option value="1">1</option>
+            <option value="2–3">2–3</option>
+            <option value="4–10">4–10</option>
+            <option value="10 dan ko&#39;p">10 dan ko&#39;p</option>
           </select></label>
         <label class="field"><span>Izoh</span>
-          <textarea name="message" rows="3" maxlength="2000" placeholder="Masalan: 6 ta kamera bor, kassada navbat ko'p"></textarea></label>
-        <label class="hp" aria-hidden="true">Bu maydonni bo'sh qoldiring <input name="hp_extra" tabindex="-1" autocomplete="off"></label>
-        <button class="btn wide" type="submit">So'rov yuborish</button>
+          <textarea name="message" rows="3" maxlength="2000" placeholder="Masalan: 6 ta kamera bor, kassada navbat ko&#39;p"></textarea></label>
+        <label class="hp" aria-hidden="true">Bu maydonni bo&#39;sh qoldiring <input name="hp_extra" tabindex="-1" autocomplete="off"></label>
+        <button class="btn wide" type="submit">So&#39;rov yuborish</button>
         <div class="form-done">
           <svg class="done-ico" viewBox="0 0 52 52" aria-hidden="true"><circle pathLength="1" cx="26" cy="26" r="23"/><path pathLength="1" d="M15 27l7 7 15-16"/></svg>
           <p class="form-msg" id="form-msg" role="status" aria-live="polite"></p>
         </div>
-        <p class="fine">Raqamingiz faqat siz bilan bog'lanish uchun ishlatiladi.</p>
+        <p class="fine">Raqamingiz faqat siz bilan bog&#39;lanish uchun ishlatiladi.</p>
       </form>
     </div>
   </section>
