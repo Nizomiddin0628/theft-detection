@@ -13,6 +13,8 @@ Ishga tushirish:
 Muhit: CLOUD_DB_URL, CLOUD_DATA_DIR, CLOUD_EDGE_TOKENS (eski usul), CLOUD_ADMIN_TOKEN (barcha kompaniyalar bo'yicha ko'rish),
 bildirishnomalar: CLOUD_TELEGRAM_BOT_TOKEN, CLOUD_PUBLIC_URL, CLOUD_SMTP_*, CLOUD_VAPID_SUB (cloud/notify.py).
 Panel: cloud/panel_dist (Next.js statik build) — shu server `/` da beradi.
+2.6.0: sayt (site/) — `/sayt/` (aloqa: CLOUD_SITE_*), saytdagi so'rovlar — `POST /api/v1/leads` (cloud/leads.py; xabar:
+CLOUD_LEADS_CHAT, CLOUD_LEADS_EMAIL), `python -m cloud.server --leads`. Demo: `python -m cloud.demo` (cloud/demo.py).
 """
 from __future__ import annotations
 
@@ -33,19 +35,19 @@ from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
-from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from starlette.concurrency import run_in_threadpool
 
 from . import db as cdb
-from . import maintenance, notify, service
+from . import leads, maintenance, notify, service
 from .db import CLIPS_DIR, DATA_DIR
 from .live import hub
 
 log = logging.getLogger("hushyor.cloud")
-VERSION = "2.5.0"
+VERSION = "2.6.0"
 
 API_VERSION = 1
 ROOT = Path(__file__).resolve().parent
@@ -62,7 +64,10 @@ STATUSES = ("yangi", "tasdiqlangan", "rad_etilgan")
 ENV_BRANCH_MAX = 20                 # muhit (CLOUD_EDGE_TOKENS) tokeni bilan o'z-o'zidan yaratiladigan filiallar chegarasi
 SESSION_COOKIE = "hc_session"       # panel sessiyasi (HttpOnly, SameSite=Strict)
 PANEL_DIR = ROOT / "panel_dist"     # Next.js statik build (cloud/panel → npm run build)
+SITE_DIR = ROOT.parent / "site"     # 2.6.0: landing sayt (/sayt/) — oddiy HTML/CSS/JS, tashqi manbasiz
 EMAIL_RE = re.compile(r"[^@\s]{1,100}@[^@\s]{1,100}\.[^@\s]{2,20}")
+# 2.6.0: python -m cloud.demo (namuna kompaniya) — faqat alohida "demo" papkasida (haqiqiy bulut bazasida hech qachon)
+DEMO = os.environ.get("CLOUD_DEMO") == "1" and DATA_DIR.name == "demo"
 # Panel sahifalari uchun CSP: tashqi manba yo'q. Skriptlar — faqat o'z fayllari va HTML ichidagi aniq skriptlar
 # (sha256 xeshi har sahifa uchun hisoblanadi, `_panel_csp`) — 'unsafe-inline' yo'q: kiritilgan begona skript ishlamaydi
 _CSP_REST = ("style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'self'; "
@@ -70,6 +75,9 @@ _CSP_REST = ("style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; medi
              "base-uri 'self'; form-action 'self'")
 PANEL_CSP = f"default-src 'self'; script-src 'self'; {_CSP_REST}"
 PERMISSIONS_POLICY = "camera=(), microphone=(), geolocation=(), payment=(), usb=(), interest-cohort=()"
+# Sayt: ichki skript ham, tashqi manba ham yo'q (forma — o'z serverimizga fetch)
+SITE_CSP = ("default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; "
+            "font-src 'self'; form-action 'self'; frame-ancestors 'none'; object-src 'none'; base-uri 'self'")
 SSE_PER_SESSION = 6                 # bitta brauzer (sessiya): ochiq tablar — eng eskisi yopiladi
 SSE_PER_USER = 24                   # bitta xodimning barcha qurilmalari (umumiy qo'riqchi akkaunti — bir nechta planshet)
 SSE_TOTAL = 1000
@@ -153,7 +161,8 @@ def _fail_now(request: Request) -> bool:
 def _check_length(request: Request, limit: int) -> None:
     try:
         if int(request.headers.get("content-length") or 0) > limit:
-            raise HTTPException(413, f"so'rov juda katta (> {limit // (1 << 20)} MB)")
+            size = f"{limit // (1 << 20)} MB" if limit >= 1 << 20 else f"{limit // 1024} KB"
+            raise HTTPException(413, f"so'rov juda katta (> {size})")
     except ValueError:
         raise HTTPException(400, "Content-Length noto'g'ri")
 
@@ -948,17 +957,22 @@ def auth_status(request: Request):
         raise HTTPException(503)
     u = cdb.user_by_token(_bearer(request) or request.cookies.get(SESSION_COOKIE, ""))
     if not u:
-        return {"ok": True, "authenticated": False}
+        out = {"ok": True, "authenticated": False}
+        if DEMO:
+            from .demo import EMAIL, PASSWORD           # demo: kirish oynasida login/parol tayyor turadi
+
+            out.update(demo=True, demo_login={"email": EMAIL, "password": PASSWORD})
+        return out
     comp = cdb.row("SELECT id, name FROM companies WHERE id=:c", {"c": u["company_id"]})
     return {"ok": True, "authenticated": True, "user": _public_user(u), "company": comp,
-            "branch_ids": cdb.branch_ids_for(u)}
+            "branch_ids": cdb.branch_ids_for(u), "demo": DEMO}
 
 
 @app.get(f"/api/v{API_VERSION}/me")
 def me(request: Request):
     u = _user(request)
     comp = cdb.row("SELECT id, name FROM companies WHERE id=:c", {"c": u["company_id"]})
-    return {"ok": True, "user": _public_user(u), "company": comp, "branch_ids": cdb.branch_ids_for(u)}
+    return {"ok": True, "user": _public_user(u), "company": comp, "branch_ids": cdb.branch_ids_for(u), "demo": DEMO}
 
 
 @app.get(f"/api/v{API_VERSION}/branches")
@@ -1836,6 +1850,93 @@ def admin_clip(request: Request, device_id: str, name: str):
     return FileResponse(p, media_type="video/mp4" if name.endswith(".mp4") else "image/jpeg")
 
 
+# ----------------------------------------------------------------------------- 2.6.0: sayt so'rovlari (lidlar)
+@app.post(f"/api/v{API_VERSION}/leads")
+async def create_lead(request: Request):
+    """Saytdagi forma (ochiq, kirishsiz). Faqat aniq `application/json` (boshqa sahifa "oddiy" so'rov bilan — preflight'siz —
+    yubora olmaydi) va o'z saytimizdan (Sec-Fetch-Site / Origin). Himoyaning qolgani — cloud/leads.py."""
+    _check_length(request, leads.BODY_LIMIT)
+    if request.headers.get("content-type", "").split(";")[0].strip().lower() != "application/json":
+        raise HTTPException(415, "JSON kutilgan")
+    if _cross_site(request):
+        raise HTTPException(403, "boshqa saytdan so'rov rad etildi")
+    body = await _json(request)
+    ip = _ip(request)
+
+    def _do() -> dict:
+        try:
+            leads.create(body, ip)
+            # Faqat "qabul qilindi": raqam avval yuborilganmi, bot deb topildimi, nechta so'rov bor — tashqariga chiqmaydi
+            return {"ok": True}
+        except leads.Limited as e:
+            raise HTTPException(429, str(e))
+        except leads.Invalid as e:
+            raise HTTPException(400, str(e))
+    return await run_in_threadpool(_do)
+
+
+@app.get(f"/api/v{API_VERSION}/admin/leads")
+def admin_leads(request: Request, status: str | None = None, limit: int = 200):
+    _auth_admin(request)
+    try:
+        rows_ = leads.listing(status or None, limit)
+    except leads.Invalid as e:
+        raise HTTPException(400, str(e))
+    return {"ok": True, "leads": rows_, **leads.summary(), "channels": leads.channels()}
+
+
+@app.post(f"/api/v{API_VERSION}/admin/leads/{{lead_id}}")
+async def admin_lead_status(request: Request, lead_id: int):
+    _auth_admin(request)
+    body = await _json(request)
+    if not isinstance(body, dict):
+        raise HTTPException(400, "JSON obyekt kutilgan")
+
+    def _do() -> dict:
+        try:
+            r = leads.set_status(lead_id, str(body.get("status") or ""), body.get("note"))
+        except leads.Invalid as e:
+            raise HTTPException(400, str(e))
+        except LookupError:
+            raise HTTPException(404, "so'rov topilmadi")
+        return {"ok": True, "lead": leads.public(r)}
+    return await run_in_threadpool(_do)
+
+
+def site_config() -> dict:
+    """Saytdagi aloqa ma'lumotlari — .env dan (raqam o'ylab topilmaydi; bo'sh bo'lsa sayt o'sha qatorni ko'rsatmaydi)."""
+    tg = cdb.env("CLOUD_SITE_TELEGRAM").strip().lstrip("@")
+    if tg and not tg.startswith("http"):
+        tg = "https://t.me/" + tg
+    return {"phone": cdb.env("CLOUD_SITE_PHONE").strip(), "telegram": tg if tg.startswith("https://") else "",
+            "email": cdb.env("CLOUD_SITE_EMAIL").strip(), "address": cdb.env("CLOUD_SITE_ADDRESS").strip(),
+            "price": cdb.env("CLOUD_SITE_PRICE").strip() or "so'rov bo'yicha", "demo": DEMO, "version": VERSION}
+
+
+@app.get("/sayt")
+def _site_root():
+    return RedirectResponse("/sayt/", status_code=308)
+
+
+@app.get("/sayt/sozlama.js")
+def site_settings_js():
+    body = "window.HUSHYOR_SITE = " + json.dumps(site_config(), ensure_ascii=False).replace("<", "\\u003c") + ";\n"
+    return Response(body, media_type="application/javascript; charset=utf-8",
+                    headers={"Cache-Control": "no-cache", "Content-Security-Policy": SITE_CSP})
+
+
+class _SiteFiles(StaticFiles):
+    def file_response(self, full_path, stat_result, scope, status_code=200):
+        resp = super().file_response(full_path, stat_result, scope, status_code)
+        resp.headers["Content-Security-Policy"] = SITE_CSP
+        resp.headers["Cache-Control"] = "no-cache" if str(full_path).endswith(".html") else "public, max-age=3600"
+        return resp
+
+
+if SITE_DIR.is_dir():
+    app.mount("/sayt", _SiteFiles(directory=str(SITE_DIR), html=True), name="site")
+
+
 @app.get("/healthz")
 async def healthz():
     return {"ok": True, "service": "hushyor-cloud", "api": API_VERSION, "db": cdb.engine().dialect.name}
@@ -1975,8 +2076,25 @@ def main() -> None:
                     help="birinchi kompaniya va egasini yaratish, keyin chiqish (PAROL o'rniga - : so'rab oladi)")
     ap.add_argument("--set-password", metavar="EMAIL",
                     help="foydalanuvchiga yangi parol (egasi parolni unutsa); parol so'rab olinadi")
+    ap.add_argument("--leads", action="store_true", help="saytdan kelgan so'rovlar va 10-bosqich darvozasi")
+    ap.add_argument("--lead", nargs="+", metavar=("ID", "HOLAT"),
+                    help="so'rov holatini o'zgartirish: --lead 5 pilot \"izoh\" (yangi | boglanildi | pilot | rad)")
     a = ap.parse_args()
     info = init_db()
+    if a.leads or a.lead:
+        notify.configure()
+        if a.lead:
+            if len(a.lead) < 2 or not a.lead[0].isdigit():
+                print("Xato: --lead ID HOLAT [izoh]")
+                return
+            try:
+                r = leads.set_status(int(a.lead[0]), a.lead[1], " ".join(a.lead[2:]) or None)
+                print(f"So'rov #{r['id']}: {leads.LABELS[r['status']]}")
+            except (leads.Invalid, LookupError) as e:
+                print("Xato:", e)
+                return
+        print(leads.cli_report())
+        return
     if a.init_owner:
         email, pw, comp = a.init_owner
         try:

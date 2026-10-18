@@ -233,13 +233,14 @@ def main() -> None:
     import uvicorn
 
     url = f"http://localhost:{a.port}"
-    print("\n" + "=" * 62)
-    print("  Hushyor AI ishga tushmoqda...")
-    print(f"  Web panel:        {url}")
-    print(f"  Tarmoqdan:        http://{local_ip()}:{a.port}")
-    print("  Login / parol:    .env faylida (standart: admin / admin123)")
-    print("  To'xtatish:       Ctrl+C")
-    print("=" * 62 + "\n")
+    if os.environ.get("HUSHYOR_DEMO") != "1":          # demo o'z manzili va login/parolini scripts/demo.py da chiqaradi
+        print("\n" + "=" * 62)
+        print("  Hushyor AI ishga tushmoqda...")
+        print(f"  Web panel:        {url}")
+        print(f"  Tarmoqdan:        http://{local_ip()}:{a.port}")
+        print("  Login / parol:    .env faylida (standart: admin / admin123)")
+        print("  To'xtatish:       Ctrl+C")
+        print("=" * 62 + "\n")
     if not a.no_browser and os.environ.get("HUSHYOR_NO_BROWSER") != "1":
         threading.Thread(target=lambda: (time.sleep(2.5), webbrowser.open(url)), daemon=True).start()
     from app import web

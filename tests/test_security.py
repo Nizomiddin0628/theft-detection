@@ -109,7 +109,8 @@ def seed() -> dict:
 
 
 # ----------------------------------------------------------------------------- A01: ruxsat
-PUBLIC = {"/api/v1/auth/login", "/api/v1/auth/logout", "/api/v1/auth/status", "/healthz"}
+# /api/v1/leads — saytdagi ochiq forma (2.6.0; himoyasi tests/test_demo.py da: honeypot, chegara, faqat JSON)
+PUBLIC = {"/api/v1/auth/login", "/api/v1/auth/logout", "/api/v1/auth/status", "/healthz", "/api/v1/leads"}
 
 
 def a01_access(s: dict) -> None:

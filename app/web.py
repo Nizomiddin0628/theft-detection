@@ -26,7 +26,7 @@ from starlette.middleware.sessions import SessionMiddleware
 
 from . import db, metrics, sync
 from .ai.manager import archive_feedback, delete_event_files, get_manager
-from .config import (ADMIN_PASSWORD, ADMIN_USER, APP_NAME, APP_VERSION, BASE_DIR, CLIPS_DIR, DATA_DIR,
+from .config import (ADMIN_PASSWORD, ADMIN_USER, APP_NAME, APP_VERSION, BASE_DIR, CLIPS_DIR, DATA_DIR, DEMO,
                      EVAL_DIR, HOST, MODELS_DIR, PUBLIC_URL, SECRET_KEY, SENSITIVITY_PRESETS, UPLOADS_DIR, env)
 from .logutil import MEMORY_LOG, get_logger, setup_logging
 from . import evaluation, flow_web, pilot_web, queue_web, safety_web, visits
@@ -243,7 +243,8 @@ def page(request: Request, name: str, active: str, title: str, **ctx) -> HTMLRes
     pending = db.scalar("SELECT COUNT(*) FROM events WHERE status='yangi'") or 0
     base = {"nav": NAV, "active": active, "title": title, "settings": s, "app_name": APP_NAME,
             "version": APP_VERSION, "user": request.session.get("user"), "subs": subs, "pending": pending,
-            "presets": SENSITIVITY_PRESETS, "kind_uz": KIND_UZ, "default_pw_warn": default_password_warning()}
+            "presets": SENSITIVITY_PRESETS, "kind_uz": KIND_UZ, "default_pw_warn": default_password_warning(),
+            "demo": DEMO}
     base.update(ctx)
     return templates.TemplateResponse(request, name, base)
 
@@ -1680,10 +1681,17 @@ def api_models_benchmark():
     return {"ok": True}
 
 
+def _no_demo(what: str) -> None:
+    """Demo rejimida models/ papkasiga (haqiqiy dastur bilan umumiy) yozadigan amallar o'chiq (2.6.0)."""
+    if DEMO:
+        raise HTTPException(400, f"Demo rejimida {what} o'chirilgan")
+
+
 @app.post("/api/models/download")
 async def api_models_download(request: Request):
     from .ai import model_zoo
 
+    _no_demo("model yuklab olish")
     d = await body_data(request)
     ms = d.get("model_set", "open")
     if not isinstance(ms, str) or ms not in model_zoo.MODEL_SETS:
@@ -1697,6 +1705,7 @@ def api_models_upload(file: UploadFile = File(...)):
     """Internetdan yuklab bo'lmasa: rasmiy saytdan olingan zip/onnx faylni qo'lda yuklash."""
     from .ai import model_zoo
 
+    _no_demo("model yuklash")
     name = (file.filename or "").lower()
     key = _model_key_from_name(name)
     if key not in model_zoo.FILES:
@@ -1736,6 +1745,7 @@ def api_models_upload(file: UploadFile = File(...)):
 
 @app.post("/api/model/train")
 async def api_train(request: Request):
+    _no_demo("model o'qitish")
     if train_state["running"]:
         raise HTTPException(409, "O'qitish allaqachon ketmoqda")
     d = await body_data(request)

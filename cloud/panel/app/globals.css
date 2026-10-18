@@ -1078,6 +1078,20 @@ input[type="range"] {
   background: var(--rej-soft);
 }
 
+.demo-note {
+  margin: -8px 0 20px;
+  padding: 10px 14px;
+  border-radius: 10px;
+  background: var(--teal-soft);
+  color: var(--text);
+  font-size: 14px;
+}
+
+.demo-note strong {
+  color: var(--teal);
+  margin-right: 4px;
+}
+
 .note-ok {
   font-size: 13px;
   color: var(--muted);

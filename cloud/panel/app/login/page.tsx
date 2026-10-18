@@ -27,12 +27,18 @@ function LoginForm() {
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [demo, setDemo] = useState(false);
 
   useEffect(() => {
-    // Sessiya bor bo'lsa — to'g'ridan-to'g'ri panelga
-    api<{ authenticated: boolean }>("/auth/status")
+    // Sessiya bor bo'lsa — to'g'ridan-to'g'ri panelga. Demo serverda (python -m cloud.demo) login/parol tayyor turadi
+    api<{ authenticated: boolean; demo?: boolean; demo_login?: { email: string; password: string } }>("/auth/status")
       .then((r) => {
         if (r.authenticated) window.location.replace(next);
+        else if (r.demo && r.demo_login) {
+          setDemo(true);
+          setEmail(r.demo_login.email);
+          setPassword(r.demo_login.password);
+        }
       })
       .catch(() => undefined);
   }, [next]);
@@ -53,6 +59,11 @@ function LoginForm() {
   return (
     <form className="login-form" onSubmit={submit} noValidate>
       <h2>Panelga kirish</h2>
+      {demo ? (
+        <p className="demo-note" data-testid="demo-login">
+          <strong>DEMO</strong> — login va parol yozib qo&apos;yilgan, &quot;Kirish&quot; ni bosing.
+        </p>
+      ) : null}
       <label className="field">
         <span>Email</span>
         <input

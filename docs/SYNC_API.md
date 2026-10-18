@@ -310,7 +310,26 @@ o'chmaydi, lekin yangi bazaga ko'chirilmaydi). Bulutdagi tekshirish `updated_at`
 * `GET /api/v1/admin/summary` — qurilmalar, har birida hodisa/klip/ko'rsatkich/holat soni, oxirgi ko'rinish.
 * `GET /api/v1/admin/events?device_id=&limit=` — oxirgi hodisalar.
 * `GET /api/v1/admin/clips/{device_id}/{name}` — klip yoki rasm fayli.
+* `GET /api/v1/admin/leads?status=&limit=` (2.6.0) — saytdagi so'rovlar, holatlar soni, 10-bosqich darvozasi
+  (`gate`: ≥ 10 so'rov, ≥ 3 pilot) va xabar kanallari.
+* `POST /api/v1/admin/leads/{id}` `{"status": "yangi|boglanildi|pilot|rad", "note": "..."}` — holat.
 * `GET /healthz` — server tirikmi.
+
+## 2.6.0 — sayt va so'rovlar (ochiq, kirishsiz)
+
+* `GET /sayt/` — landing sayt (`site/`), qat'iy CSP (ichki skript yo'q). `GET /sayt/sozlama.js` — `.env` dagi
+  `CLOUD_SITE_PHONE`, `CLOUD_SITE_TELEGRAM`, `CLOUD_SITE_EMAIL`, `CLOUD_SITE_ADDRESS`, `CLOUD_SITE_PRICE`.
+* `POST /api/v1/leads` — faqat `Content-Type: application/json`, tana ≤ 16 KB:
+  `{"name", "phone", "store"?, "city"?, "branches"?, "message"?, "source"?, "elapsed", "hp_extra"}`. Faqat aniq
+  `application/json` va o'z saytidan (`Sec-Fetch-Site` / `Origin` boshqa sayt bo'lsa — 403).
+  `elapsed` — forma ochilganidan beri soniya (yo'q yoki cheksiz — 400; < 3 — bot), `hp_extra` — honeypot (to'ldirilsa — bot). Bot
+  belgisi bo'lsa ham `200 {"ok": true, "id": null}` (bazaga yozilmaydi). Telefon `998XXXXXXXXX` ko'rinishiga
+  keltiriladi (9 xonali yozilsa 998 qo'shiladi). Javoblar: `200 {"ok": true, "id": n, "repeat"?: true}` (shu telefon
+  24 soat ichida — mavjudiga qo'shildi), `400` maydon xato, `415` JSON emas, `413` katta, `429` chegara (IP: soatiga
+  5 / kuniga 20, IPv6 — /64 bo'yicha; kuniga 1000 dan keyin). Kuniga 300 dan keyingilari saqlanadi, lekin xabar
+  yuborilmaydi (hujumda guruh to'lmasin).
+* `GET /api/v1/auth/status` (demo serverda, `CLOUD_DEMO=1`): kirmagan bo'lsa `demo: true` va `demo_login`;
+  `GET /api/v1/me` — `demo` belgisi (panel "DEMO" yozuvini ko'rsatadi).
 
 ## Edge tomonidagi kafolatlar (qabul mezoni: internet 1 soat uzilsa ma'lumot yo'qolmaydi)
 

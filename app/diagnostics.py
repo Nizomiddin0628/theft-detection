@@ -94,8 +94,12 @@ def _env_keys() -> dict:
     """.env dagi kalitlar: maxfiylari — faqat "berilgan / bo'sh"."""
     from .config import BASE_DIR
 
+    from .config import DEMO
+
     out = {}
     p = BASE_DIR / ".env"
+    if DEMO:
+        return {"_fayl": "demo rejimi — haqiqiy .env o'qilmaydi"}
     if not p.exists():
         return {"_fayl": "yo'q"}
     try:

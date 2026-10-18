@@ -262,6 +262,12 @@ export default function Shell({ children }: { children: ReactNode }) {
               </button>
             </span>
           </header>
+          {ctx.me.demo ? (
+            <p className="demo-note" data-testid="demo-banner">
+              <strong>DEMO</strong> — namuna kompaniya: filiallar, signallar va raqamlar sun&apos;iy. Haqiqiy bulut bazasiga
+              tegilmaydi.
+            </p>
+          ) : null}
           {children}
         </div>
       </div>

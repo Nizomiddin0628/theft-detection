@@ -32,6 +32,9 @@
       {% block actions %}{% endblock %}
     </div>
     <div class="content">
+      {% if demo %}
+      <div class="note info" style="margin-bottom:16px" data-testid="demo-banner">{{ icon('info') }}<div><b>DEMO rejimi</b> — namuna do'kon: 30 kunlik ma'lumot sun'iy, kameralar o'rnida namuna videolar. Haqiqiy do'kon ma'lumoti, Telegram bot va bulutga tegilmaydi.</div></div>
+      {% endif %}
       {% if default_pw_warn %}
       <div class="note danger" style="margin-bottom:16px" data-testid="insecure-default">{{ icon('alert') }}<div><b>Panel standart parol (admin123) bilan tarmoqqa ochiq!</b> Shu Wi-Fi/tarmoqdagi istalgan odam kira oladi. <code>.env</code> faylida <code>ADMIN_PASSWORD</code> ni o'zgartiring va dasturni qayta ishga tushiring (yoki faqat shu kompyuter uchun <code>HOST=127.0.0.1</code>).</div></div>
       {% endif %}

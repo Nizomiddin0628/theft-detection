@@ -95,6 +95,8 @@ class Config:
     escalate_sec: float = 600.0
     push_allow_any: bool = False         # sinovlar uchun: istalgan push manzili (aks holda faqat ma'lum push xizmatlari)
     edge_tg_token: str = ""              # do'kon boti tokeni (bir xil bo'lsa — bulut boti o'chiriladi)
+    leads_chat: str = ""                 # 2.6.0: saytdagi so'rovlar shu Telegram chatiga (cloud/leads.py)
+    leads_email: str = ""                # 2.6.0: ... va shu emailga
     extra: dict = field(default_factory=dict)
 
 
@@ -127,6 +129,7 @@ def configure() -> Config:
         tz_offset=num("CLOUD_TZ_OFFSET", 5.0), offline_sec=num("CLOUD_OFFLINE_MIN", 5) * 60,
         escalate_sec=num("CLOUD_ESCALATE_MIN", 10) * 60,
         edge_tg_token=_env("TELEGRAM_BOT_TOKEN").strip(),
+        leads_chat=_env("CLOUD_LEADS_CHAT").strip(), leads_email=_env("CLOUD_LEADS_EMAIL").strip(),
     )
     state["tg_conflict"] = bool(cfg.tg_token and cfg.tg_token == cfg.edge_tg_token)
     if state["tg_conflict"]:
@@ -620,7 +623,8 @@ def _event_text(p: dict, kind: str) -> str:
 
 
 def _plain(s: str) -> str:
-    return re.sub(r"<[^>]+>", "", html.unescape(s))
+    # Avval teglar, keyin ekranlash ochiladi: matndagi "< 5 mln, > 3 kamera" teg deb o'chib ketmasin (2.6.0)
+    return html.unescape(re.sub(r"<[^>]+>", "", s))
 
 
 def render(kind: str, p: dict) -> tuple[str, str, str]:
@@ -829,6 +833,11 @@ def send_email(row: dict, t: dict) -> None:
     body_html = text_.replace("\n", "<br>") + (f'<p><a href="{html.escape(link)}">Panelda ochish</a></p>' if link else "")
     msg.add_alternative(f"<div style=\"font-family:Segoe UI,Arial,sans-serif;font-size:14px\">{body_html}</div>",
                         subtype="html")
+    smtp_send(msg)
+
+
+def smtp_send(msg: EmailMessage) -> None:
+    """SMTP orqali yuborish (CLOUD_SMTP_*). Xatolar: Permanent (manzil rad etildi) yoki Retry."""
     try:
         if cfg.smtp_tls == "ssl":
             s = smtplib.SMTP_SSL(cfg.smtp_host, cfg.smtp_port, timeout=20, context=ssl.create_default_context())
@@ -1029,6 +1038,12 @@ class Worker(threading.Thread):
                 maintenance.tick()          # kliplar muddati, disk, zaxira nusxa (o'zi soat/kunda bir marta)
             except Exception:
                 log.exception("Xizmat ko'rsatish (maintenance) xatosi")
+            try:
+                from . import leads
+
+                leads.retry_async()         # 2.6.0: yuborilmay qolgan sayt so'rovlari (alohida oqimda)
+            except Exception:
+                log.exception("Sayt so'rovlarini qayta yuborishda xato")
             self.stop_evt.wait(self.MONITOR_SEC)
 
 
@@ -1180,8 +1195,23 @@ class TelegramPoller(threading.Thread):
             self.reply(chat_id, f"✅ Ulandingiz: <b>{esc(u.get('name') or u['email'])}</b> ({esc(comp.get('name'))}).\n"
                                 "Endi filiallaringizdagi hodisalar shu yerga keladi. /holat — do'konlar holati, /bugun — bugungi hodisalar.")
             return
+        if cmd == "/chatid":
+            # 2.6.0: CLOUD_LEADS_CHAT ni sozlash uchun (botni guruhga qo'shib, /chatid yuboriladi)
+            self.reply(chat_id, f"Bu chat raqami: <code>{esc(chat_id)}</code>\nSaytdagi so'rovlar shu yerga kelishi uchun "
+                                f"serverdagi .env ga yozing: <code>CLOUD_LEADS_CHAT={esc(chat_id)}</code>")
+            return
+        is_leads = bool(cfg.leads_chat) and str(chat_id) == cfg.leads_chat
+        if is_leads and cmd in ("/lidlar", "/sorovlar"):
+            from . import leads                    # 2.6.0: saytdagi so'rovlar (faqat CLOUD_LEADS_CHAT da)
+
+            self.reply(chat_id, "<pre>" + esc(leads.cli_report()[:3800]) + "</pre>")
+            return
+        if is_leads and not text_.startswith("/"):
+            return                                 # so'rovlar guruhidagi suhbat (xodimlar xabarga javob yozadi) — jim
         users = self.users_for_chat(chat_id)
         if not users:
+            if is_leads or ((msg.get("chat") or {}).get("type") not in (None, "private") and not text_.startswith("/")):
+                return                             # guruhdagi oddiy xabarlarga bot aralashmaydi
             self.reply(chat_id, "👋 Bu Hushyor AI bulut boti. Ulanish uchun panelda <b>Sozlamalar → Telegram → Ulash</b> ni bosing.")
             return
         u = users[0]
@@ -1250,6 +1280,30 @@ class TelegramPoller(threading.Thread):
                 pass
         m = re.fullmatch(r"r:(\d{1,12}):(ok|no)", cb.get("data") or "")
         chat_id = str(((cb.get("message") or {}).get("chat") or {}).get("id"))
+        lm = re.fullmatch(r"l:(\d{1,12}):(boglanildi|pilot|rad)", cb.get("data") or "")
+        if lm:
+            # 2.6.0: sayt so'rovi holati — faqat so'rovlar chatidan (CLOUD_LEADS_CHAT)
+            from . import leads
+
+            if not cfg.leads_chat or chat_id != cfg.leads_chat:
+                answer("Ruxsat yo'q")
+                return
+            who = " ".join(x for x in ((cb.get("from") or {}).get("first_name"), (cb.get("from") or {}).get("last_name")) if x)
+            try:
+                r = leads.set_status(int(lm.group(1)), lm.group(2))
+            except LookupError:
+                answer("So'rov topilmadi")
+                return
+            answer(f"Holat: {leads.LABELS[lm.group(2)]}")
+            msg = cb.get("message") or {}
+            try:
+                _tg("editMessageText", {"chat_id": chat_id, "message_id": msg.get("message_id"),
+                                        "text": leads.text_for(r, by=who or None),
+                                        "parse_mode": "HTML", "disable_web_page_preview": True,
+                                        "reply_markup": leads.markup(int(lm.group(1)))})
+            except (Retry, Permanent):
+                pass
+            return
         if not m:
             answer("")
             return

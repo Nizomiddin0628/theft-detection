@@ -60,6 +60,8 @@ TELEGRAM_API_BASE = env("TELEGRAM_API_BASE", "https://api.telegram.org").rstrip(
 ADMIN_USER = env("ADMIN_USER", "admin")
 ADMIN_PASSWORD = env("ADMIN_PASSWORD", "admin123")
 HOST = env("HOST", "0.0.0.0")
+# 2.6.0: demo rejimi (scripts/demo.py) — namuna ma'lumot, faqat alohida "demo" papkasida (haqiqiy data/ da hech qachon)
+DEMO = env("HUSHYOR_DEMO") == "1" and DATA_DIR.name == "demo"
 PORT = int(env("PORT", "8000"))
 PUBLIC_URL = env("PUBLIC_URL", "").rstrip("/")
 # Bulut (markaziy server): bo'sh bo'lsa — hamma narsa faqat shu kompyuterda, yuborilmaydi
@@ -179,4 +181,4 @@ SETTINGS_MIGRATIONS = {
 SETTINGS_VERSION = max(SETTINGS_MIGRATIONS)
 
 APP_NAME = "Hushyor AI"
-APP_VERSION = "2.5.0"
+APP_VERSION = "2.6.0"

@@ -431,8 +431,15 @@ def _owner(browser, s: dict) -> None:
     page.wait_for_selector("text=Hali sanash ma'lumoti yo'q", timeout=8000)
     page.select_option("select.select", label="Chilonzor do'koni")
     page.wait_for_selector("[data-testid=visits-inside]", timeout=8000)
-    ok("Filial tanlovi: sanashsiz filial — bo'sh holat, Chilonzor — o'sha son",
-       int(page.locator(".kpi b").nth(1).inner_text()) == db_in)
+
+    def kpi_in() -> int | None:
+        try:
+            return int(page.locator(".kpi b").nth(1).inner_text(timeout=1000))
+        except Exception:  # noqa: BLE001 — so'rov hali kelmagan (yuklanmoqda / eski filial)
+            return None
+    # 2.6.0: filial almashgach so'rov javobi kelguncha kutiladi (yuklangan serverda darhol o'qish yiqilardi)
+    wait(lambda: kpi_in() == db_in, 8)
+    ok("Filial tanlovi: sanashsiz filial — bo'sh holat, Chilonzor — o'sha son", kpi_in() == db_in, f"{kpi_in()} / {db_in}")
     shot(page, "07b_visits")
 
     # Navbat (2.0.0)

@@ -6,7 +6,7 @@
 <a class="btn" href="/upload">{{ icon('upload') }} Video yuklash</a>
 {% endblock %}
 {% block content %}
-<div id="tg-warn" class="note warn hidden" style="margin-bottom:16px">{{ icon('send') }}<div><b>Telegram hali ulanmagan.</b> Shubhali hodisalar telefoningizga kelishi uchun <a href="/telegram">Telegram bo'limi</a>dagi kodni botga yuboring.</div></div>
+{% if not demo %}<div id="tg-warn" class="note warn hidden" style="margin-bottom:16px">{{ icon('send') }}<div><b>Telegram hali ulanmagan.</b> Shubhali hodisalar telefoningizga kelishi uchun <a href="/telegram">Telegram bo'limi</a>dagi kodni botga yuboring.</div></div>{% endif %}
 
 <div class="grid g5">
   <div class="card kpi"><div class="label">{{ icon('alert', 14) }} Bugungi hodisalar</div><div class="value" id="k-today">—</div><div class="sub">barcha kameralar</div></div>
@@ -69,7 +69,8 @@ document.addEventListener("summary", (e) => {
   document.getElementById("k-no").textContent = s.today_no;
   document.getElementById("k-prec").textContent = H.pct(s.precision);
   document.getElementById("k-prec-sub").textContent = s.reviewed ? `${s.reviewed} ta javob asosida` : "hali javob yo'q";
-  document.getElementById("tg-warn").classList.toggle("hidden", !!s.subs);
+  const tgw = document.getElementById("tg-warn");
+  if (tgw) tgw.classList.toggle("hidden", !!s.subs);
   const v = s.visits;
   document.getElementById("visits-row").classList.toggle("hidden", !v);
   if (v) {

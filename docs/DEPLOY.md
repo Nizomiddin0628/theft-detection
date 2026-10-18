@@ -1,4 +1,4 @@
-# Hushyor AI — o'rnatish va joylashtirish (1.8.0; 2.5.0 — pilot va UzCloud)
+# Hushyor AI — o'rnatish va joylashtirish (1.8.0; 2.5.0 — pilot va UzCloud; 2.6.0 — sayt va so'rovlar)
 
 Tizim ikki qismdan iborat:
 
@@ -14,7 +14,7 @@ Bulut bo'lmasa ham edge to'liq ishlaydi. Bulut ulansa, edge ma'lumotni navbat or
 Yangi kompyuter (Python 3.10–3.13 o'rnatilgan, "Add python.exe to PATH" belgilangan):
 
 ```powershell
-git clone -b bosqich-9 https://github.com/Nizomiddin0628/theft-detection.git C:\hushyor-ai
+git clone -b bosqich-10 https://github.com/Nizomiddin0628/theft-detection.git C:\hushyor-ai
 cd C:\hushyor-ai
 .\install_windows.bat
 ```
@@ -83,7 +83,7 @@ Panel: `http://localhost:9000`. Tarmoqdagi telefondan ochish uchun: `http://<kom
 
 ```bash
 apt-get update && apt-get install -y git
-git clone -b bosqich-9 https://github.com/Nizomiddin0628/theft-detection.git /root/hushyor-src
+git clone -b bosqich-10 https://github.com/Nizomiddin0628/theft-detection.git /root/hushyor-src
 sudo bash /root/hushyor-src/deploy/install_vps.sh panel.dokon.uz admin@dokon.uz              # SQLite
 sudo bash /root/hushyor-src/deploy/install_vps.sh panel.dokon.uz admin@dokon.uz --postgres   # PostgreSQL (tavsiya)
 sudo bash /root/hushyor-src/deploy/install_vps.sh 203.0.113.7 admin@dokon.uz --postgres      # domensiz (UzCloud IP)
@@ -115,6 +115,17 @@ Boshqa nginx saytlariga va Telegram botlariga tegmaydi.
 
 **Filiallar tayyorligi (2.5.0):** bulut panelida **Filiallar** sahifasida har do'kon kompyuterining tayyorlik ro'yxati
 (masalan, "9/11 tayyor · tuzatish kerak: Telegram bot") va pilot kuni ko'rinadi — do'konga bormasdan holatni bilish uchun.
+
+**Sayt va so'rovlar (2.6.0):** sayt `https://<domen>/sayt/` da ochiladi (fayllar `site/`). `/opt/hushyor-ai/.env` ga
+aloqa qatorlarini yozing — `CLOUD_SITE_PHONE`, `CLOUD_SITE_TELEGRAM`, `CLOUD_SITE_EMAIL` (berilmagani saytda
+ko'rinmaydi) — va so'rovlar boradigan joyni: bulut botini Telegram guruhiga qo'shing, guruhda `/chatid` yozing va
+chiqqan raqamni `CLOUD_LEADS_CHAT=` ga yozing (va/yoki `CLOUD_LEADS_EMAIL=`, SMTP sozlangan bo'lsa). Keyin
+`sudo systemctl restart hushyor-cloud` va telefondan saytdagi formani yuborib ko'ring — guruhga kelishi kerak.
+So'rovlar ro'yxati: `cd /opt/hushyor-ai && sudo -u hushyor .venv/bin/python -m cloud.server --leads`.
+Domen ildizida sayt chiqishi kerak bo'lsa — `/etc/nginx/sites-available/hushyor-cloud` dagi `location = /` blokining
+izohini oching: kirmagan mehmon `/` da saytni, panelga kirgan xodim — panelni ko'radi (xodimlar `/login/` dan kiradi);
+keyin `nginx -t && systemctl reload nginx`.
+nginx formani ham cheklaydi (bitta IP dan daqiqasiga 6 ta). Demo va ssenariy: **docs/DEMO.md**.
 
 **Xavfsizlik devori:** faqat 22 (SSH), 80 va 443 portlari ochiq bo'lsin: `ufw allow OpenSSH && ufw allow 'Nginx Full' && ufw enable`. 9000-port tashqariga ochilmaydi, unga faqat nginx ulanadi.
 

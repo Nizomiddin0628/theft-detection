@@ -8,6 +8,39 @@ klipini avtomatik kesib, **Telegram botga** sabablari bilan yuboradi. Qo'riqchi 
 
 ---
 
+## 2.6.0 — 10-bosqich: demo, sayt va so'rovlar
+
+* **Do'kon demosi — bitta buyruq:** `demo_windows.bat` → http://127.0.0.1:8090 (`demo` / `demo12345`). Alohida papka
+  `data\demo`: haqiqiy baza, Telegram bot, bulut va SMS ga tegmaydi (`.env` tokenlari demo jarayonga berilmaydi),
+  ishlab turgan Hushyor AI bilan bir vaqtda ishlaydi. Kameralar o'rnida `samples\` videolari aylanadi (AI jonli),
+  o'tgan 30 kun: tashriflar, navbat, signallar (klip bilan, ✅/❌), xavfsizlik, kalibrlangan reja va heatmap,
+  hisobotlar va baholar, pilot. Har sahifada "DEMO rejimi" yozuvi; tayyorlik ro'yxati demoga moslangan.
+  `--reset` — qaytadan yaratish, `--port` — boshqa port (band bo'lsa xabar beradi).
+* **Bulut demosi — 3 filial:** `python -m cloud.demo` → http://127.0.0.1:9090 (`demo@hushyor.uz` / `demo12345`,
+  kirish oynasida yozilgan). Alohida baza `cloud\data\demo`. Ma'lumot edge yuboradigan ko'rinishda (Sync API): 30 kun
+  tashriflar, 3 hafta navbat, 2 hafta oqim, signallar, ko'rsatkichlar, tayyorlik va pilot; filiallar onlayn (har
+  daqiqa "aloqa" taqlidi). Filiallar ataylab har xil — Taqqoslashda tavsiyalar chiqadi. Panelda "DEMO" yozuvi.
+* **Sayt (landing)** — `site/`, bulut serveri `/sayt/` da beradi: o'zbekcha, telefon birinchi, tashqi manbasiz (shrift,
+  CDN yo'q), qat'iy CSP. Bo'limlar: imkoniyatlar, panel rasmlari (demodan), qanday ishga tushadi, pilot mezonlari,
+  narx ("so'rov bo'yicha"), savollar, so'rov formasi. Telefon, Telegram, email — `.env` dan (`CLOUD_SITE_*`; berilmagani
+  ko'rsatilmaydi). Rasmlarni yangilash: `python scripts\site_shots.py`.
+* **Saytdagi so'rovlar (lidlar):** `POST /api/v1/leads` — honeypot, "juda tez" (bot), IP bo'yicha chegara, takror
+  telefon birlashtiriladi. Bulut boti Telegram guruhiga (`CLOUD_LEADS_CHAT`, guruhda `/chatid`) va/yoki emailga
+  (`CLOUD_LEADS_EMAIL`) yuboradi, yetmasa qayta urinadi. Holatlar: yangi → bog'lanildi → pilot | rad — xabardagi
+  tugmalar, `/lidlar`, `python -m cloud.server --leads` / `--lead 5 pilot "izoh"`, admin API.
+* **10-bosqich darvozasi:** demo bitta buyruq bilan ochiladi va har bo'limda ma'lumot; sayt telefonda ishlaydi va forma
+  Telegram'ga yetadi; ≥ 10 so'rov va ≥ 3 pilot kelishuvi (`python -m cloud.server --leads`). Batafsil va 10 daqiqalik
+  demo ssenariysi: **docs/DEMO.md**.
+* 2.5.1 tuzatishi shu versiyada (alohida yuborilmagan).
+
+## 2.5.1 — tuzatish
+
+* `tests/test_pilot.py` kun vaqtiga bog'liq edi: Toshkentda ish vaqti boshlangandan keyin "dastur 100% ishladi"
+  tekshiruvi, peshindan keyin esa "10 kun" tekshiruvi yiqilardi (sinov ma'lumoti kechagacha edi). Endi har qanday
+  vaqt mintaqasi va soatda bir xil (24 xil soatda sinab ko'rilgan). Kod xatosi emas edi — darvoza to'g'ri hisoblagan.
+* Kamera/dastur ishlash hisobi (tayyorlik, pilot, `/hisobot`): tugamagan oynada oxirgi 2 daqiqa hisobga olinmaydi —
+  daqiqalik qator bir daqiqa kechikib yoziladi, ishlab turgan dastur bir-ikki daqiqa "o'chiq" chiqmasin.
+
 ## 2.5.0 — 9-bosqich: pilotga tayyorgarlik
 
 * **Yangi bo'lim: Pilot** (panel menyusida, Telegram'da **/pilot**).
@@ -789,6 +822,8 @@ python -m tests.test_reports_cloud        # 2.4.0 bulutda taqqoslash va haftalik
 python tests/report_gate.py               # 2.4.0 hisobot darvozasi (14 kun, o'z vaqtida, raqamlar, foydali tavsiyalar)
 python -m tests.test_pilot                # 2.5.0 pilot: tayyorlik, darvozalar, pilot darvozasi, baho so'rovi, diagnostika, bulut
 python tests/pilot_gate.py                # 2.5.0 pilot darvozasi va barcha bosqichlar jadvali
+python -m tests.test_demo                 # 2.6.0 demo (edge va bulut), sayt (telefon kengligi), so'rovlar va xabarlar
+python -m cloud.server --leads            # 2.6.0 saytdagi so'rovlar va 10-bosqich darvozasi
 ```
 
 ---

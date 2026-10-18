@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Hushyor AI bulut serverini VPS'ga o'rnatish yoki yangilash (Ubuntu 22.04 / 24.04, root yoki sudo bilan).
 #
-#   git clone -b bosqich-9 https://github.com/Nizomiddin0628/theft-detection.git /root/hushyor-src
+#   git clone -b bosqich-10 https://github.com/Nizomiddin0628/theft-detection.git /root/hushyor-src
 #   sudo bash /root/hushyor-src/deploy/install_vps.sh panel.dokon.uz admin@dokon.uz            # SQLite
 #   sudo bash /root/hushyor-src/deploy/install_vps.sh panel.dokon.uz admin@dokon.uz --postgres # PostgreSQL
 #   sudo bash /root/hushyor-src/deploy/install_vps.sh 203.0.113.7 admin@dokon.uz --postgres    # domen yo'q — IP (2.5.0)
@@ -99,6 +99,12 @@ if [[ ! -f "$ENVF" ]]; then
         echo "# Email (ixtiyoriy): CLOUD_SMTP_HOST, CLOUD_SMTP_PORT, CLOUD_SMTP_USER, CLOUD_SMTP_PASSWORD, CLOUD_SMTP_FROM"
         echo "CLOUD_CLIP_KEEP_DAYS=30"
         echo "CLOUD_CLIP_KEEP_CONFIRMED_DAYS=180"
+        echo "# Sayt (/sayt/) aloqa qatorlari va saytdagi so'rovlar (docs/DEMO.md):"
+        echo "CLOUD_SITE_PHONE="
+        echo "CLOUD_SITE_TELEGRAM="
+        echo "CLOUD_SITE_EMAIL="
+        echo "CLOUD_LEADS_CHAT="
+        echo "CLOUD_LEADS_EMAIL="
     } > "$ENVF"
     umask 022
     echo "   .env yaratildi"

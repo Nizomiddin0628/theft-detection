@@ -15,6 +15,7 @@ export interface Me {
   user: User;
   company: { id: number; name: string } | null;
   branch_ids: number[];
+  demo?: boolean;
 }
 
 export interface Camera {

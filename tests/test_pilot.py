@@ -79,7 +79,8 @@ def add_camera(name: str = "Kassa kamera", zones: bool = True) -> int:
 def seed_days(sid: int, day0: float, n: int, off_days: tuple[int, ...] = (), rejected: int = 1, confirmed: int = 2,
               unreviewed: int = 0, reports_ok: bool = True) -> None:
     """n kun: har daqiqa tizim va kamera qatori (off_days — dastur butun kun o'chiq), signallar (javob 2 daqiqada),
-    kunlik hisobot (rejadagi vaqtdan 1 daqiqa keyin yetgan)."""
+    kunlik hisobot (rejadagi vaqtdan 1 daqiqa keyin yetgan). Oxirgi kun kecha bo'lsa — bugungi o'tgan daqiqalar ham
+    (dastur hozir ham ishlayapti; aks holda bugungi ish vaqti "o'chiq" chiqadi — sinov kun vaqtiga bog'liq bo'lmasin)."""
     mm, d = [], day0
     days = []
     for i in range(n):
@@ -90,6 +91,10 @@ def seed_days(sid: int, day0: float, n: int, off_days: tuple[int, ...] = (), rej
                 mm.append((minute, 0, "tizim", None, None, None, None, None, None, 10.0, 20.0, None))
                 mm.append((minute, sid, "Kassa kamera", 1.0, 2, 5.0, 0.5, 1.0, 0, None, None, None))
         d = reports.day_start(d + 36 * 3600)
+    if d == reports.day_start(time.time()):
+        for minute in range(int(d), int(time.time() // 60 * 60), 60):
+            mm.append((minute, 0, "tizim", None, None, None, None, None, None, 10.0, 20.0, None))
+            mm.append((minute, sid, "Kassa kamera", 1.0, 2, 5.0, 0.5, 1.0, 0, None, None, None))
     with db.tx() as c:
         c.executemany("INSERT OR REPLACE INTO metrics_minute(minute, source_id, source_name, persons_avg, persons_max, "
                       "fps_ai, active_pct, up_pct, alerts, cpu, ram, extra) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)", mm)
@@ -137,7 +142,7 @@ def readiness_suite() -> None:
     ok("Saqlash muddati 7 kun — ⚠️ (pilot uchun ≥ 30); do'kon nomi va ish vaqti — ✅", st["retention"]["state"] == "warn"
        and st["store"]["state"] == "ok" and st["work_hours"]["state"] == "ok")
     now = time.time()
-    seed_days(sid, reports.day_start(now - 7 * 86400 + 43200), 8, off_days=(2,))
+    seed_days(sid, reports.day_start(reports.day_start(now) - 7 * 86400 + 43200), 8, off_days=(2,))
     r = pilot.readiness(force=True)
     a = next(x for x in r["items"] if x["key"] == "app_off")
     ok("Oxirgi 7 kunda dastur ish vaqtida o'chiq bo'lgan (bir kun) — ❌ va maslahat", a["state"] == "bad"
@@ -164,7 +169,7 @@ def pilot_suite() -> None:
     ok("Boshlanmagan", g["state"] == "boshlanmagan" and not pilot.weeks())
     sid = add_camera()
     now = time.time()
-    start = reports.day_start(now - 30 * 86400 + 43200)
+    start = reports.day_start(reports.day_start(now) - 30 * 86400 + 43200)
     seed_days(sid, start, 30)
     pilot.start(start)
     for i, r in enumerate((5, 4, 4)):
@@ -254,8 +259,8 @@ def pilot_suite() -> None:
        and g["state"] == "otmadi", json.dumps({k: v["text"] for k, v in chk.items()}, ensure_ascii=False))
     clear()
     sid = add_camera()
-    seed_days(sid, reports.day_start(now - 10 * 86400 + 43200), 10)
-    pilot.start(reports.day_start(now - 10 * 86400 + 43200))
+    seed_days(sid, reports.day_start(reports.day_start(now) - 10 * 86400 + 43200), 10)
+    pilot.start(reports.day_start(reports.day_start(now) - 10 * 86400 + 43200))
     g = pilot.pilot_gate()
     ok("10 kun — 'yetarli emas' (28 kundan kam)", g["state"] == "yetarli emas" and g["days"] == 10, g["detail"])
     pilot.stop(now - 2 * 86400)

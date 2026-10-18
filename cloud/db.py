@@ -298,6 +298,30 @@ audit_log = Table(                                         # kim, qachon, nima q
     Index("ix_audit_company_t", "company_id", "t"),
 )
 
+leads = Table(                                             # 2.6.0: saytdagi so'rovlar (cloud/leads.py) — kompaniyaga bog'liq emas
+    "leads", meta,
+    Column("id", Integer, primary_key=True),
+    Column("created_at", Float, nullable=False),
+    Column("updated_at", Float),
+    Column("name", String(100), nullable=False),
+    Column("phone", String(20), nullable=False),          # faqat raqamlar (998901234567)
+    Column("store", String(200)),
+    Column("city", String(100)),
+    Column("branches", String(20)),
+    Column("message", Text),
+    Column("source", String(200)),                        # sahifa / utm (qayerdan keldi)
+    Column("ip_hash", String(64)),                        # sha256(IP) — IP o'zi saqlanmaydi
+    Column("status", String(20), nullable=False, default="yangi"),   # yangi | boglanildi | pilot | rad
+    Column("note", Text),
+    Column("repeats", Integer, nullable=False, default=0),            # shu telefon 24 soat ichida yana yuborgan
+    Column("notified_at", Float),
+    Column("notify_tries", Integer, nullable=False, default=0),
+    Column("notify_error", String(300)),
+    Column("notify_next", Float),                         # keyingi urinish vaqti (yuborilmagan bo'lsa)
+    Index("ix_leads_created", "created_at"),
+    Index("ix_leads_phone", "phone"),
+)
+
 # Mavjud bazalarga (1.6.0) qo'shiladigan ustunlar: create_all eski jadvalni o'zgartirmaydi
 EXTRA_COLUMNS = {
     "branches": {"offline_since": "FLOAT", "occupancy": "JSON", "queues": "JSON", "flow_plans": "JSON",

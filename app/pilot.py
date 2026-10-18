@@ -101,7 +101,7 @@ def autostart_task() -> bool | None:
 def _items() -> list[dict]:
     from . import reports, sync
     from .ai.counting import LINE_KIND
-    from .config import ADMIN_PASSWORD, DATA_DIR
+    from .config import ADMIN_PASSWORD, DATA_DIR, DEMO
     from .ai.manager import get_manager
     from .telegram_bot import get_bot
 
@@ -112,7 +112,9 @@ def _items() -> list[dict]:
         out.append({"key": key, "title": title, "state": state, "detail": detail, "link": link, "optional": optional})
 
     # 1. Panel paroli
-    if ADMIN_PASSWORD == "admin123":
+    if DEMO:
+        add("password", "Panel paroli", "ok", "Demo rejimi (faqat shu kompyuterdan ochiladi)")
+    elif ADMIN_PASSWORD == "admin123":
         add("password", "Panel paroli", "bad", "Standart parol (admin123). .env faylida ADMIN_PASSWORD= ni o'zgartiring va "
                                                "dasturni qayta ishga tushiring.")
     else:
@@ -124,7 +126,10 @@ def _items() -> list[dict]:
     # 3. Telegram
     bot = get_bot()
     subs = int(db.scalar("SELECT COUNT(*) FROM subscribers WHERE active=1") or 0)
-    if not getattr(bot, "token", ""):
+    if DEMO:
+        add("telegram", "Telegram bot", "warn", "Demo rejimida o'chirilgan (haqiqiy botga xalaqit bermaslik uchun)",
+            optional=True)
+    elif not getattr(bot, "token", ""):
         add("telegram", "Telegram bot", "bad", ".env da TELEGRAM_BOT_TOKEN berilmagan — signallar hech kimga bormaydi",
             "/telegram")
     else:
@@ -138,7 +143,7 @@ def _items() -> list[dict]:
             add("telegram", "Telegram bot", "ok", f"Obunachilar: {subs}", "/telegram")
     # 4. Kameralar
     srcs = [x for x in db.rows("SELECT id, name, kind, enabled FROM sources ORDER BY id")
-            if x["enabled"] and x["kind"] != "file"]
+            if x["enabled"] and (x["kind"] != "file" or DEMO)]          # demo: namuna videolar — kamera o'rnida
     if not srcs:
         add("cameras", "Kameralar", "bad", "Hech qanday kamera qo'shilmagan (yoki hammasi o'chirilgan)", "/sources")
     else:
@@ -173,14 +178,15 @@ def _items() -> list[dict]:
         wh or "Kiritilmagan — hisobot va kamera nazorati kecha-kunduz deb hisoblanadi, tungi kirish ishlamaydi",
         "/visits")
     # 8. Avtomatik ishga tushish
-    task = autostart_task()
+    task = None if DEMO else autostart_task()
     if task is True:
         add("autostart", "Avtomatik ishga tushish", "ok", "HushyorAI vazifasi o'rnatilgan")
     elif task is False:
         add("autostart", "Avtomatik ishga tushish", "bad",
             "O'rnatilmagan — kompyuter qayta yoqilsa dastur ishlamaydi. install_windows.bat ni yurgizing")
     else:
-        add("autostart", "Avtomatik ishga tushish", "warn", "Faqat Windows'da tekshiriladi", optional=True)
+        add("autostart", "Avtomatik ishga tushish", "warn",
+            "Demo rejimida kerak emas" if DEMO else "Faqat Windows'da tekshiriladi", optional=True)
     # 9. Kompyuter o'chib / uxlab qolmayaptimi (oxirgi 7 kun, ish vaqtida)
     now = time.time()
     try:

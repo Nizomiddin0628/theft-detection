@@ -255,13 +255,19 @@ def cameras(t0: float, t1: float, now: float | None = None) -> dict:
 
     now = time.time() if now is None else now
     spec = db.get_setting("work_hours", "")
-    end = min(t1, now)
+    # Tugamagan oyna (bugun, joriy hafta): oxirgi 2 daqiqa hisobga olinmaydi — daqiqalik qator bir daqiqa kechikib
+    # yoziladi, aks holda ishlab turgan dastur "o'chiq" deb sanalardi
+    end = min(t1, now - 120) if t1 > now - 120 else t1
     # Dastur birinchi marta ishga tushgan daqiqadan oldingi vaqt "o'chiq" emas (yangi o'rnatilgan kompyuter)
     first = db.scalar("SELECT minute FROM metrics_minute WHERE source_id=0 ORDER BY minute LIMIT 1")
     start = max(t0, float(first)) if first is not None else end
     work = [m for m in range(int(start // 60 * 60), int(end), 60) if in_work_hours(m + 30, spec)]
     ws = set(work)
-    srcs = db.rows("SELECT id, name, kind, created_at FROM sources WHERE enabled=1 AND kind != 'file' ORDER BY id")
+    from .config import DEMO
+
+    # Video fayllar kamera emas (sinov) — demo rejimidan tashqari: u yerda namuna videolar kamera o'rnida (2.6.0)
+    srcs = db.rows("SELECT id, name, kind, created_at FROM sources WHERE enabled=1" +
+                   ("" if DEMO else " AND kind != 'file'") + " ORDER BY id")
     if not work:
         return {"work_min": 0, "app_off_min": 0, "cams": []}
     sysm = {int(r["minute"]) for r in db.rows("SELECT minute FROM metrics_minute WHERE source_id=0 AND minute >= ? "
