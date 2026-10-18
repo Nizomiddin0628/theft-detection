@@ -115,7 +115,7 @@ DEFAULT_SETTINGS = {
     "ml_weight": "10",
     "personal_items": "1",
     "calm_fps": "4",
-    "model_set": "yolo11",
+    "model_set": "yolo11",         # 2.7.0: ochiq to'plam (open-m) panelda tavsiya — yiqilishda yomonroq (docs/MODELS.md)
     "ai_runtime": "auto",
     "runtime_auto": "",
     "show_objects": "0",
@@ -181,4 +181,4 @@ SETTINGS_MIGRATIONS = {
 SETTINGS_VERSION = max(SETTINGS_MIGRATIONS)
 
 APP_NAME = "Hushyor AI"
-APP_VERSION = "2.6.0"
+APP_VERSION = "2.7.0"

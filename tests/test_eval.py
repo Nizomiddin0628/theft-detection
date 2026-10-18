@@ -1,13 +1,23 @@
 """Aniqlik sinovi (baholash) testlari: solishtirish mantig'i va to'liq API (haqiqiy model bilan, ~20 s video).
+2.7.0: vaqtinchalik ma'lumot papkasida; ikki to'plam — YOLO11 va ochiq open-ml (fayllari repoda).
 
 Ishga tushirish:  python -m tests.test_eval
 """
 from __future__ import annotations
 
+import os
 import sys
+import tempfile
 import time
+from pathlib import Path
 
-from app import db, evaluation
+os.environ["HUSHYOR_DATA_DIR"] = tempfile.mkdtemp(prefix="hushyor_eval_")   # hech qachon jonli data/ emas
+os.environ["TELEGRAM_BOT_TOKEN"] = ""
+os.environ.setdefault("ADMIN_PASSWORD", "admin123")
+os.environ.pop("HUSHYOR_MODEL_SET", None)
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from app import db, evaluation  # noqa: E402
 
 results: list[bool] = []
 
@@ -79,7 +89,7 @@ def test_api() -> None:
     ok("Tarix ro'yxatida ko'rinadi", any(x["id"] == run_id for x in c.get("/api/eval/runs").json()))
     ok("Sahifa ochiladi", c.get("/eval").status_code == 200)
     # Ikki model to'plamini bir xil videolarda solishtirish
-    r = c.post("/api/eval/run", json={"model_sets": ["yolo11", "open"]})
+    r = c.post("/api/eval/run", json={"model_sets": ["yolo11", "open-ml"]})
     ok("Ikki to'plam navbat bilan baholanadi", r.status_code == 200 and len(r.json()["run_ids"]) == 2, r.text[:120])
     t0 = time.time()
     while time.time() - t0 < 600 and c.get("/api/eval/status").json()["running"]:
@@ -87,7 +97,7 @@ def test_api() -> None:
     runs = {x["id"]: x for x in c.get("/api/eval/runs").json()}
     rr = [runs[i] for i in r.json()["run_ids"]]
     ok("Har biri tugadi, modeli va og'irligi yozilgan", all(x["status"] == "tayyor" and x["speed"] for x in rr) and
-       [x["settings"]["model_set"] for x in rr] == ["yolo11", "open"],
+       [x["settings"]["model_set"] for x in rr] == ["yolo11", "open-ml"],
        " | ".join(f"{x['settings']['model_set']}: TP {x['tp']} FP {x['fp']} FN {x['fn']}, {x['speed']}×" for x in rr))
     ok("Jonli kameralar modeli o'zgarmadi", db.get_setting("model_set") in (None, "yolo11"))
     c.post(f"/api/eval/videos/{vid}/delete")

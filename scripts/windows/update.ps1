@@ -218,11 +218,19 @@ if ($LASTEXITCODE -ne 0 -or -not $v) {
     exit 1
 }
 Ok "versiya: $v"
+# 2.7.0: ochiq to'plam (YOLOX + MoveNet) fayli - MoveNet Thunder (25 MB, GitHub, SHA-256). Ixtiyoriy: yuklanmasa
+# AI model sahifasida "Yuklab olish" qoladi. Dastur ishga tushgandan keyin yuklanadi (kameralar kutib turmasin;
+# fayl atomar yoziladi - .part, keyin almashtirish)
+function Invoke-ModelPrefetch {
+    $pf = @(& $venvPy -c "from app.ai import model_zoo as m; f = getattr(m, 'prefetch', None); print(', '.join(f()) or 'hammasi bor') if f else print('-')" 2>&1 | ForEach-Object { "$_" })
+    if ($LASTEXITCODE -eq 0) { Ok "model fayllari: $($pf | Select-Object -Last 1)" }
+    else { Warn "MoveNet Thunder yuklanmadi (internet?) - kerak bo'lsa AI model sahifasida 'Yuklab olish'" }
+}
 
 # ---------------------------------------------------------------- [7/7] ishga tushirish
 Write-Host "[7/7] Ishga tushirish" -ForegroundColor Cyan
-if ($NoStart) { Warn "o'tkazib yuborildi (-NoStart)"; exit 0 }
-if (-not $tasks) { Warn "avtomatik start vazifasi yo'q - install_windows.bat ni ishga tushiring"; exit 0 }
+if ($NoStart) { Warn "o'tkazib yuborildi (-NoStart)"; Invoke-ModelPrefetch; exit 0 }
+if (-not $tasks) { Warn "avtomatik start vazifasi yo'q - install_windows.bat ni ishga tushiring"; Invoke-ModelPrefetch; exit 0 }
 foreach ($t in $tasks) { Start-ScheduledTask -TaskName $t; Ok "$t ishga tushdi" }
 if ($tasks -contains "HushyorAI") {
     $hv = Test-Health 120
@@ -238,5 +246,6 @@ if ($tasks -contains "HushyorAI") {
     }
     Ok "panel javob beryapti (versiya $hv)"
 }
+Invoke-ModelPrefetch
 if ($stage) { Remove-Item -Recurse -Force (Join-Path $env:TEMP "hushyor_update_$stamp") -ErrorAction SilentlyContinue }
 Write-Host "Tayyor. Zaxira: data\backups\update_$stamp" -ForegroundColor Green

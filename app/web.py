@@ -6,6 +6,7 @@ import csv
 import hmac
 import io
 import json
+import os
 import platform
 import re
 import shutil
@@ -135,7 +136,8 @@ def _warmup() -> None:
         from .ai.engine import Engine
         from .ml.model import BehaviorModel
 
-        Engine.get()
+        eng = Engine.get()
+        _ensure_model_set(eng)
         if BehaviorModel.get() is None:
             # Model fayli yo'q yoki boshqa scikit-learn versiyasida saqlangan — shu kompyuterda qayta o'qitamiz
             log.warning("Xulq modeli topilmadi/yuklanmadi — sintetik ma'lumotda avtomatik o'qitilmoqda (~1 daqiqa)")
@@ -150,6 +152,33 @@ def _warmup() -> None:
                 train_state["running"] = False
     except Exception as e:
         log.error("Modellarni yuklashda xato: %s", e)
+
+
+def _ensure_model_set(eng) -> None:
+    """2.7.0: tanlangan to'plam fayli yo'q (masalan, open-m tanlangan, MoveNet Thunder o'chirilgan yoki buzuq bo'lib
+    chetga olingan) — fonda GitHub'dan yuklab olinadi va modellar qayta yuklanadi; shu orada zaxira to'plam ishlaydi
+    (Engine). Internet bo'lmasa — jurnalda va AI model sahifasida xato, zaxira bilan ishlash davom etadi."""
+    from .ai import model_zoo
+    from .ai.engine import Engine
+
+    want = db.get_setting("model_set") or model_zoo.DEFAULT_SET
+    if DEMO or os.environ.get("HUSHYOR_MODEL_SET") or want not in model_zoo.MODEL_SETS or eng.model_set == want:
+        return                                   # (sinovda to'plam muhit o'zgaruvchisi bilan qotirilgan)
+    miss = model_zoo.missing(want)
+    if not miss or any("url" not in model_zoo.FILES[k] for k in miss):
+        return
+    log.warning("%s fayllari yo'q (%s) — fonda yuklab olinmoqda, hozircha %s ishlaydi", want, ", ".join(miss),
+                eng.model_set)
+
+    def work():
+        model_zoo.ensure_set(want)
+        new = Engine.reload(model_set=want)
+        log.info("Model to'plami tayyor: %s", new.model_set)
+        return new.info()
+    try:
+        _models_bg("tanlangan to'plam fayli yuklab olinmoqda", work)
+    except HTTPException:
+        pass                                     # boshqa model vazifasi ketmoqda
 
 
 _metrics = None
@@ -1621,6 +1650,9 @@ def _model_key_from_name(filename: str) -> str | None:
     for k in ("rtmpose-t", "rtmpose-s", "yolox-nano", "yolox-tiny"):
         if k in n:
             return k
+    for k in ("thunder", "lightning"):              # 2.7.0: movenet_singlepose_thunder_4.onnx, movenet_thunder.onnx
+        if "movenet" in n and k in n:
+            return f"movenet-{k}"
     return None
 
 
@@ -1635,7 +1667,7 @@ def api_models():
         active = {"error": str(e)}
     s = db.get_settings()
     bench = dict(active.get("runtime_info") or {})
-    return {"active": active, "sets": model_zoo.status(), "model_set": s.get("model_set", "yolo11"),
+    return {"active": active, "sets": model_zoo.status(), "model_set": s.get("model_set", model_zoo.DEFAULT_SET),
             "ai_runtime": s.get("ai_runtime", "auto"), "openvino": runtime.openvino_available(),
             "bench": bench, "state": models_state}
 
@@ -1647,14 +1679,15 @@ async def api_models_activate(request: Request):
     from .ai.engine import Engine
 
     d = await body_data(request)
-    ms = d.get("model_set") or db.get_setting("model_set") or "yolo11"
+    ms = d.get("model_set") or db.get_setting("model_set") or model_zoo.DEFAULT_SET
     rt = d.get("ai_runtime") or db.get_setting("ai_runtime") or "auto"
     if not isinstance(ms, str) or ms not in model_zoo.MODEL_SETS:
         raise HTTPException(400, "Noto'g'ri model to'plami")
     if not isinstance(rt, str) or rt not in ("auto", *runtime.RUNTIMES):
         raise HTTPException(400, "Noto'g'ri muhit")
-    if model_zoo.missing(ms):
-        raise HTTPException(400, "Model fayllari yo'q: " + ", ".join(model_zoo.missing(ms)) + " — avval yuklab oling")
+    if model_zoo.missing_required(ms):        # buyum modeli ixtiyoriy (yo'q bo'lsa skelet va qoidalar ishlaydi)
+        raise HTTPException(400, "Model fayllari yo'q: " + ", ".join(model_zoo.missing_required(ms)) +
+                            " — avval yuklab oling")
     if rt == "openvino" and not runtime.openvino_available():
         raise HTTPException(400, "OpenVINO o'rnatilmagan: pip install openvino")
 
@@ -1693,7 +1726,7 @@ async def api_models_download(request: Request):
 
     _no_demo("model yuklab olish")
     d = await body_data(request)
-    ms = d.get("model_set", "open")
+    ms = d.get("model_set", model_zoo.OPEN_SET)
     if not isinstance(ms, str) or ms not in model_zoo.MODEL_SETS:
         raise HTTPException(400, "Noto'g'ri model to'plami")
     _models_bg("yuklab olinmoqda", lambda: model_zoo.ensure_set(ms))
@@ -1709,7 +1742,8 @@ def api_models_upload(file: UploadFile = File(...)):
     name = (file.filename or "").lower()
     key = _model_key_from_name(name)
     if key not in model_zoo.FILES:
-        raise HTTPException(400, "Fayl nomidan model aniqlanmadi (rtmpose-t, rtmpose-s, yolox_nano, yolox_tiny)")
+        raise HTTPException(400, "Fayl nomidan model aniqlanmadi (movenet_thunder, movenet_lightning, yolox_nano, "
+                                 "yolox_tiny, rtmpose-t, rtmpose-s)")
     _models_claim("qo'lda yuklanmoqda")
     tmp = UPLOADS_DIR / f"_model_{int(time.time())}_{Path(name).name}"
     dst = model_zoo.path(key)

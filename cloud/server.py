@@ -47,7 +47,7 @@ from .db import CLIPS_DIR, DATA_DIR
 from .live import hub
 
 log = logging.getLogger("hushyor.cloud")
-VERSION = "2.6.0"
+VERSION = "2.7.0"
 
 API_VERSION = 1
 ROOT = Path(__file__).resolve().parent

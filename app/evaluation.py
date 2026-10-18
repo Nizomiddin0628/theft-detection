@@ -55,7 +55,7 @@ def engine_for(model_set: str | None):
     eng = _engines.get(model_set)
     if eng is None:
         # Jonli kameralar bilan bir xil muhit; tezlik o'lchovi qayta o'tkazilmaydi va saqlanmaydi
-        eng = Engine(model_set=model_set, runtime_pref=main.runtime, save_bench=False)
+        eng = Engine(model_set=model_set, runtime_pref=main.runtime, save_bench=False, strict=True)
         if eng.model_set != model_set:
             raise ValueError(f"{model_set} modellari topilmadi")
         _engines[model_set] = eng
@@ -310,8 +310,8 @@ class EvalRunner:
         for m in sets:
             if m not in model_zoo.MODEL_SETS:
                 raise ValueError(f"Noto'g'ri model to'plami: {m}")
-            if model_zoo.missing(m):
-                raise ValueError(f"{m}: model fayllari yo'q ({', '.join(model_zoo.missing(m))})")
+            if model_zoo.missing_required(m):
+                raise ValueError(f"{m}: model fayllari yo'q ({', '.join(model_zoo.missing_required(m))})")
         run_ids = []
         for m in sets:
             snap = {k: s.get(k) for k in SETTING_KEYS}

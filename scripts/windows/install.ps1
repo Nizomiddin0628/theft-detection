@@ -185,8 +185,16 @@ Step 4 "O'zini tekshirish"
 $check = & $venvPy -c "import cv2, onnxruntime, fastapi, uvicorn, sklearn, httpx, numpy; print('ok', cv2.__version__, onnxruntime.__version__)" 2>&1
 if ($LASTEXITCODE -ne 0) { Fail "kutubxona yuklanmadi: $check" }
 Ok "kutubxonalar: $check"
-foreach ($m in @("models\yolo11n-pose.onnx", "models\yolo11n.onnx")) {
+foreach ($m in @("models\yolox_tiny.onnx", "models\movenet_lightning.onnx", "models\yolo11n-pose.onnx", "models\yolo11n.onnx")) {
     if (Test-Path (Join-Path $root $m)) { Ok $m } else { Warn "$m yo'q (GitHub'dan qayta yuklang)" }
+}
+# 2.7.0: ochiq to'plam (YOLOX + MoveNet Thunder, Apache-2.0) - Thunder fayli (25 MB) repoda yo'q, GitHub'dan
+# yuklab olinadi (SHA-256 tekshiriladi), shunda AI model sahifasida darhol solishtirish/o'tish mumkin. Ixtiyoriy.
+if (Test-Path (Join-Path $root "models\movenet_thunder.onnx")) { Ok "models\movenet_thunder.onnx" } else {
+    Write-Host "   MoveNet Thunder (25 MB) yuklab olinmoqda..."
+    $dl = & $venvPy -c "from app.ai import model_zoo; model_zoo.ensure('movenet-thunder'); print('ok')" 2>&1
+    if ($LASTEXITCODE -eq 0) { Ok "models\movenet_thunder.onnx (SHA-256 tekshirildi)" }
+    else { Warn "MoveNet Thunder yuklanmadi (internet?) - kerak bo'lsa AI model sahifasida 'Yuklab olish'" }
 }
 $port = Read-EnvValue "PORT"
 if (-not $port) { $port = "8000" }

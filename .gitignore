@@ -14,3 +14,11 @@ cloud/panel/.next/
 cloud/panel/out/
 cloud/panel/*.tsbuildinfo
 cloud/panel/next-env.d.ts
+
+# Yuklab olinadigan / vaqtinchalik model fayllari (2.7.0): repoga qo'shilmaydi
+models/movenet_thunder.onnx
+models/rtmpose_*.onnx
+models/*.broken
+models/*.bak
+models/*.part
+models/*.keep

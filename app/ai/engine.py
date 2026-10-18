@@ -251,9 +251,16 @@ class Engine:
         from . import model_zoo
 
         s = db.get_settings()
-        want = model_set or s.get("model_set", "yolo11")
+        # HUSHYOR_MODEL_SET — sinov va baholash uchun (sozlamadan ustun); odatda bo'sh. Berilsa — qat'iy: fayli yo'q
+        # bo'lsa xato (zaxira to'plam natijasi so'ralgan to'plamniki deb o'tib ketmasin)
+        env_set = os.environ.get("HUSHYOR_MODEL_SET") if not model_set else None
+        if env_set:
+            strict = True
+            if env_set not in model_zoo.MODEL_SETS:
+                raise ValueError(f"HUSHYOR_MODEL_SET={env_set}: bunday to'plam yo'q ({', '.join(model_zoo.MODEL_SETS)})")
+        want = model_set or env_set or s.get("model_set", model_zoo.DEFAULT_SET)
         if want not in model_zoo.MODEL_SETS:
-            want = "yolo11"
+            want = model_zoo.DEFAULT_SET
         self.threads = ai_threads()
         pref = runtime_pref or s.get("ai_runtime", "auto")
         try:
@@ -261,8 +268,21 @@ class Engine:
         except Exception as e:  # noqa: BLE001 — buzuq/yo'q model kameralarni to'xtatmasin
             if want == "yolo11" or strict:
                 raise
-            log.error("%s modellarini yuklab bo'lmadi (%s) — YOLO11 ishlatiladi", want, e)
-            self._build("yolo11", pref, s, save_bench)
+            # 2.7.0: avval litsenziyasi toza zaxira (open-ml — MoveNet Lightning dastur bilan birga keladi), keyin YOLO11
+            log.error("%s modellarini yuklab bo'lmadi: %s", want, e)
+            last = e
+            for fb in model_zoo.FALLBACK:
+                if fb == want or model_zoo.missing_required(fb):
+                    continue
+                log.warning("Vaqtincha %s ishlatiladi (AI model sahifasida ko'rinadi)", fb)
+                try:
+                    self._build(fb, pref, s, save_bench)
+                    break
+                except Exception as e2:  # noqa: BLE001
+                    log.error("%s ham yuklanmadi: %s", fb, e2)
+                    last = e2
+            else:
+                raise last
         # Bir nechta kamera bir vaqtda modelni chaqirsa, oqimlar bir-biriga xalaqit beradi —
         # navbat bilan ishlatish umumiy tezlikni oshiradi va kompyuterni qotirmaydi
         self.run_lock = PriorityLock()
@@ -275,11 +295,13 @@ class Engine:
 
         ms = model_zoo.MODEL_SETS[want]
         # Buyum detektori ixtiyoriy: fayli bo'lmasa skelet va qoidalar ishlayveradi (faqat "qo'lda buyum" yo'q)
-        miss = [k for k in model_zoo.missing(want) if k != ms.get("det")]
+        miss = model_zoo.missing_required(want)
         if miss:
             raise FileNotFoundError(f"model fayli yo'q: {', '.join(miss)}")
         self.model_set = want
         self.pose_name = ms["pose"]
+        self.pose_kind = model_zoo.kind(self.pose_name)
+        self.person_size = int(ms.get("person_size") or 0)
         self.person_name = ms.get("person")
         self.det_name = ms.get("det")
         probe = model_zoo.path(self.person_name or self.pose_name)
@@ -326,7 +348,7 @@ class Engine:
                 raise ValueError(f"{model_zoo.path(key).name} statik o'lchamli — dastur orqali qayta yuklab oling")
         self.providers = self.pose.providers
         self.fixed_size = None
-        if self.person is None and self.pose.fixed_hw:
+        if self.person is None and self.pose_kind == "yolo" and self.pose.fixed_hw:
             self.fixed_size = self.pose.fixed_hw[0]
         self.licenses = sorted({model_zoo.FILES[k]["license"]
                                 for k in (self.pose_name, self.person_name, self.det_name if self.det else None) if k})
@@ -394,10 +416,13 @@ class Engine:
         return persons
 
     def _persons_topdown(self, frame: np.ndarray, size: int, conf: float, iou: float, prio: int) -> list[Person]:
-        """Ikki bosqich: YOLOX odamlarni topadi, RTMPose har odamni alohida (kattalashtirib) skeletlaydi."""
+        """Ikki bosqich: YOLOX odamlarni topadi, RTMPose yoki MoveNet har odamni alohida (kattalashtirib) skeletlaydi."""
         from . import model_zoo
 
-        img, r, left, top = letterbox(frame, self._size(size), rect=True)
+        size = self._size(size)
+        if self.person_size:
+            size = min(size, self.person_size)       # 2.7.0: open-m — odam detektori ≤ 512 px (aniqlik o'sha, tezroq)
+        img, r, left, top = letterbox(frame, size, rect=True)
         x = np.ascontiguousarray(img.transpose(2, 0, 1)[None].astype(np.float32))   # YOLOX: BGR, 0..255
         with self.run_lock.hold(prio):
             out = self.person(x)
@@ -412,8 +437,13 @@ class Engine:
             H, W = frame.shape[:2]
             boxes[:, [0, 2]] = ((boxes[:, [0, 2]] - left) / r).clip(0, W - 1)
             boxes[:, [1, 3]] = ((boxes[:, [1, 3]] - top) / r).clip(0, H - 1)
-            crops, metas = self._rtm_crops(frame, boxes)
-            sx, sy = self._rtm_run(crops)
+            if self.pose_kind == "movenet":
+                kps = self._movenet(frame, boxes)
+            else:
+                crops, metas = self._rtm_crops(frame, boxes)
+                sx, sy = self._rtm_run(crops)
+        if self.pose_kind == "movenet":
+            return [Person(box=boxes[i].astype(np.float32), score=float(sc[i]), kpts=k) for i, k in enumerate(kps)]
         kx, ky = sx.argmax(2), sy.argmax(2)
         vals = model_zoo.calibrate(self.pose_name, 0.5 * (sx.max(2) + sy.max(2)))
         persons = []
@@ -442,6 +472,28 @@ class Engine:
             crops.append(((crop.astype(np.float32) - RTM_MEAN) / RTM_STD).transpose(2, 0, 1))
             metas.append((cx, cy, bw, bh))
         return np.ascontiguousarray(np.stack(crops)), metas
+
+    def _movenet(self, frame: np.ndarray, boxes: np.ndarray, pad: float = 1.25) -> list[np.ndarray]:
+        """MoveNet (bitta odam): kvadrat kesma (odam ramkasi × pad, markazda), RGB 0..255 int32 → 17 nuqta (y, x,
+        ishonch; kesmaga nisbatan 0..1). Nuqta ishonchi YOLO11 shkalasiga o'tkaziladi (tahlilchi chegaralari)."""
+        from . import model_zoo
+
+        S = int(model_zoo.FILES[self.pose_name]["input"])
+        rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        out = []
+        for b in boxes:
+            cx, cy = (b[0] + b[2]) / 2, (b[1] + b[3]) / 2
+            side = max(b[2] - b[0], b[3] - b[1], 2.0) * pad
+            s = S / side
+            M = np.array([[s, 0, S / 2 - s * cx], [0, s, S / 2 - s * cy]], np.float32)
+            crop = cv2.warpAffine(rgb, M, (S, S), flags=cv2.INTER_LINEAR)
+            y = np.asarray(self.pose(crop[None].astype(np.int32))).reshape(-1, 17, 3)[0]
+            k = np.empty((17, 3), np.float32)
+            k[:, 0] = y[:, 1] * side + cx - side / 2
+            k[:, 1] = y[:, 0] * side + cy - side / 2
+            k[:, 2] = model_zoo.calibrate(self.pose_name, y[:, 2].astype(np.float32))
+            out.append(k)
+        return out
 
     def _rtm_run(self, crops: np.ndarray):
         sx, sy = self.pose.run_all(crops)[:2]

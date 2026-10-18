@@ -22,8 +22,8 @@
       <li>Kamera oqimi o'qiladi va har bir kadr oxirgi {{ (settings.pre_sec|float + settings.post_sec|float + 4)|int }} soniyalik xotiraga (halqali bufer) yoziladi.</li>
       <li>Har kamera o'z holatiga qarab ishlaydi — kuch faqat kerak joyga sarflanadi:
         <b>bo'sh</b> (odam yo'q) — model deyarli ishlamaydi, faqat arzon harakat tekshiruvi;
-        <b>tinch</b> (odam bor, qo'li hech narsaga uzatilmagan) — sekundiga {{ settings.calm_fps }} marta odam va 17 ta tana nuqtasi (YOLO11-pose);
-        <b>faol</b> (qo'l polkaga uzatildi, buyum ushladi, yashirish joyiga bordi) — sekundiga {{ settings.ai_fps }} marta, buyum esa faqat o'sha qo'l atrofida qidiriladi (YOLO11).
+        <b>tinch</b> (odam bor, qo'li hech narsaga uzatilmagan) — sekundiga {{ settings.calm_fps }} marta odam va 17 ta tana nuqtasi (YOLO11-pose yoki ochiq YOLOX + MoveNet);
+        <b>faol</b> (qo'l polkaga uzatildi, buyum ushladi, yashirish joyiga bordi) — sekundiga {{ settings.ai_fps }} marta, buyum esa faqat o'sha qo'l atrofida qidiriladi (YOLOX yoki YOLO11).
         Ko'p kamerada faol kameralar navbatda birinchi turadi.</li>
       <li>Har bir odamga raqam beriladi va qo'llarining harakati kuzatiladi: polkaga uzatildimi, buyum ushladimi, keyin bel/cho'ntak, qorin yoki sumka zonasiga bordimi, buyum yo'qoldimi.</li>
       <li>Dalillar ballarga aylanadi (0–100). Yurib ketayotgan odam yoki orqa tomondan ko'rinish kabi holatlar ballni kamaytiradi. Ball {{ settings.threshold }} dan oshsa — signal.</li>
@@ -126,7 +126,7 @@
       <li>Kamera juda tik (tepadan pastga) qaragan bo'lsa, model baland ko'tarilgan qo'lni ko'pincha ko'rmaydi. Bunday kamerada "Polka" zonasini albatta chizing.</li>
       <li>Kameralar orasida odam kuzatilmaydi: "chiqish tomon ketmoqda" signali faqat polka va eshik bir kamerada ko'ringanda ishlaydi.</li>
       <li>Kassa va self-checkout firibgarligi (skanerlanmagan mahsulot) bu versiyada yo'q — buning uchun kassa (POS) tizimi bilan integratsiya kerak.</li>
-      <li>Standart YOLO11 modellari AGPL-3.0 litsenziyasida: tizimni sotish uchun Ultralytics litsenziyasi yoki <a href="/model">AI model</a> sahifasidagi ochiq (Apache-2.0) modellar kerak. Ochiq modellarni o'z videolaringizda <a href="/eval">Aniqlik sinovi</a> bilan solishtiring.</li>
+      <li>Standart YOLO11 modellari AGPL-3.0 litsenziyasida: tizimni sotish uchun Ultralytics litsenziyasi yoki <a href="/model">AI model</a> sahifasidagi ochiq to'plam (YOLOX + MoveNet, Apache-2.0) kerak — bir tugma bilan o'tiladi va qaytiladi. Ochiq to'plam sanash, navbat va oqimda bir xil, lekin past sifatli videoda yiqilishni yomonroq topadi: avval <a href="/eval">Aniqlik sinovi</a> va do'konda sahnalashtirilgan yiqilish bilan solishtiring. Tayyorlik ro'yxatida «Modellar litsenziyasi» bandi bor.</li>
       <li>Bo'sh va tinch kameralar deyarli kuch sarflamaydi, shuning uchun oddiy protsessorda ham bir nechta kamera ishlaydi. Bir vaqtda 3–4 tadan ko'p kamerada faol harakat bo'lsa, ular sekinlashadi — <a href="/system">Tizim holati</a>da kuzating. Ko'p kamera uchun NVIDIA GPU li server kerak.</li>
     </ul>
 

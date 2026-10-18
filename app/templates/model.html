@@ -5,6 +5,7 @@
 <div class="card" style="margin-bottom:16px">
   <div class="card-h"><h2>Ko'rish modellari</h2><span class="muted small">odam, skelet va buyumni topadi</span><div class="grow"></div><span class="badge" id="vstate"></span></div>
   <div class="card-b">
+    <div id="vlic" class="note hidden" style="margin-bottom:12px"></div>
     <div class="grid g3" id="vsets"></div>
     <div class="row" style="margin-top:14px;gap:12px;align-items:flex-end">
       <div class="field" style="margin:0;min-width:240px"><label class="f">Ishlash muhiti</label>
@@ -15,7 +16,7 @@
     </div>
     <div class="row small" style="margin-top:12px;gap:10px">
       <label class="btn sm ghost" style="cursor:pointer">{{ icon('upload', 14) }} Model faylini qo'lda yuklash<input type="file" id="vfile" accept=".zip,.onnx" style="display:none"></label>
-      <span class="muted">Internetdan yuklanmasa: rasmiy saytdan olingan RTMPose zip yoki YOLOX onnx fayli.</span>
+      <span class="muted">Internetdan yuklanmasa: MoveNet onnx (movenet_thunder.onnx — GitHub), YOLOX onnx yoki RTMPose zip fayli.</span>
     </div>
     <div class="note" style="margin-top:12px">{{ icon('info') }}<div class="small">Qaysi to'plam sizning do'koningizda aniqroq ishlashini <a href="/eval">Aniqlik sinovi</a> sahifasida o'z videolaringizda solishtiring: to'plamni tanlab, "Baholashni boshlash" ni bosing va natijalar tarixini taqqoslang. Tanlash kameralarni to'xtatmaydi — keyingi kadrdan yangi model ishlaydi.</div></div>
   </div>
@@ -209,6 +210,16 @@ async function loadV() {
       <div class="small muted" style="margin:6px 0">${H.esc(m.hint)}</div>
       <div class="small" style="margin-bottom:10px">${parts}</div>${btn}</div></div>`;
   }).join("");
+  // 2.7.0: litsenziya — sotish uchun ochiq to'plam; tanlangani ishlamayotgan bo'lsa (fayl yuklanmoqda) — aytiladi
+  const lic = document.getElementById("vlic"), aset = r.sets[act.model_set] || {}, want = r.sets[r.model_set] || {};
+  let msg = "";
+  if (act.model_set && r.model_set && act.model_set !== r.model_set)
+    msg = `Tanlangan: <b>${H.esc(want.label || r.model_set)}</b>, hozir ishlayapti: <b>${H.esc(aset.label || act.model_set)}</b> (zaxira)` +
+      (r.state.busy ? " — fayl yuklab olinmoqda." : (want.missing && want.missing.length ? " — fayl yo'q: «Yuklab olish» ni bosing." : "."));
+  else if (aset.license && aset.license !== "Apache-2.0")
+    msg = `Faol to'plam litsenziyasi <b>${H.esc(aset.license)}</b>: mahsulotni sotish uchun Ultralytics litsenziyasi yoki ochiq to'plam (YOLOX + MoveNet, Apache-2.0) kerak. Ochiq to'plam sanash, navbat va oqimda bir xil, lekin past sifatli videoda yiqilishni yomonroq topadi va xulq modeli YOLO11 skeletlarida o'qitilgan — avval <a href="/eval">Aniqlik sinovi</a>da o'z videolaringizda solishtiring, do'konda sahnalashtirilgan yiqilish bilan tekshiring, o'tgach xulq modelini qayta o'qiting. Batafsil: docs/MODELS.md.`;
+  lic.innerHTML = msg ? `{{ icon('info') }}<div class="small">${msg}</div>` : "";
+  lic.className = "note" + (msg ? (aset.license && aset.license !== "Apache-2.0" ? " warn" : "") : " hidden");
   document.getElementById("vrt").value = r.ai_runtime;
   const b = r.bench || {};
   document.getElementById("vbench").textContent = (b.onnxruntime || b.openvino)

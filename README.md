@@ -8,6 +8,28 @@ klipini avtomatik kesib, **Telegram botga** sabablari bilan yuboradi. Qo'riqchi 
 
 ---
 
+## 2.7.0 — 11-bosqich: litsenziyasi toza modellar (o'lchov va tanlov)
+
+* **Yangi ochiq to'plam `open-m`:** YOLOX-tiny (odam, ≤ 512 px) + **MoveNet Thunder** (Google, skelet) + YOLOX-tiny
+  (buyum) — hammasi **Apache-2.0**, sotish mumkin. Tez varianti `open-ml` (MoveNet Lightning, repoda; yiqilishda
+  ishonchsizroq — do'kon namunasida 1 xato). *AI model → Ko'rish modellari* da bir tugma bilan o'tiladi va qaytiladi;
+  kameralar to'xtamaydi.
+* **Rostini aytsam — standart qilinmadi.** Sanash (5/5), navbat (7/7), oqim (9/9), web + AI + Telegram (50/50) va do'kon
+  namunalarida xato yiqilish (0) — YOLO11 bilan bir xil. Lekin ochiq yiqilish videolarida **0/5** (YOLO11 — 3/5):
+  YOLOX past sifatli videodagi qariyalarni ko'pincha ko'rmaydi. O'g'irlik namunasida (1 hodisa) open-m topmadi va 1 xato
+  berdi — xulq tahlili YOLO11 skeletlarida sozlangan; o'tilsa xulq modelini qayta o'qitish kerak. YOLOX-s, D-FINE-N, MoveNet MultiPose va 640 px ham
+  sinab ko'rildi — yetarli emas. Shuning uchun standart **YOLO11** qoldi, ochiq to'plam — sotish uchun tavsiya.
+  Jadval va tafsilotlar: **docs/MODELS.md**.
+* **Litsenziya ko'rinadi:** AI model sahifasida AGPL ogohlantirishi; tayyorlik ro'yxatida «Modellar litsenziyasi» bandi
+  (ixtiyoriy, demoda yo'q). Sotishdan oldin: Ultralytics litsenziyasi yoki ochiq to'plam (avval Aniqlik sinovi va
+  do'konda sahnalashtirilgan yiqilish).
+* **MoveNet Thunder** (25 MB) repoda yo'q: o'rnatuvchi va yangilash skripti GitHub'dan yuklab oladi (o'zgarmas commit,
+  SHA-256 tekshiriladi), yoki sahifadagi "Yuklab olish" / qo'lda yuklash. Tanlangan ochiq to'plam fayli yo'q yoki buzuq
+  bo'lsa — `open-ml`, keyin `yolo11` (kameralar to'xtamaydi), fayl fonda qayta yuklanadi.
+* YOLOX-**nano** odam detektori sifatida rad etildi: sanash chizig'ida ortiqcha "chiqdi + kirdi" juftlari (3/5).
+* Sinov: `python -m tests.test_models` (76 ta: zaxira zanjiri, SHA-256, tayyorlik bandi, API, ONNX Runtime/OpenVINO).
+  Istalgan sinovni boshqa to'plam bilan: `HUSHYOR_MODEL_SET=open-m python -m tests.test_safety_video`.
+
 ## 2.6.0 — 10-bosqich: demo, sayt va so'rovlar
 
 * **Do'kon demosi — bitta buyruq:** `demo_windows.bat` → http://127.0.0.1:8090 (`demo` / `demo12345`). Alohida papka
@@ -791,14 +813,14 @@ python -m tests.test_activity             # kamera rejimlari, model navbati, mah
 python -m tests.test_zones                # zonalar: API va qoidalar
 python -m tests.test_eval                 # aniqlik sinovi: solishtirish va API
 python -m tests.test_bot_menu             # eski bot menyusini tozalash
-python -m tests.test_models               # ko'rish modellari: to'plamlar, ONNX Runtime / OpenVINO, API
+python -m tests.test_models               # ko'rish modellari: to'plamlar, ONNX Runtime / OpenVINO, API, 2.7.0 zaxira/SHA-256/litsenziya
 python -m tests.test_fixes                # 1.4.1 tuzatishlari: login himoyasi, CSRF, model yuklash, Telegram navbati
 python -m tests.test_run                  # 1.9.1 run.py haqiqiy jarayon: ishga tushish, to'xtatish, nazoratchi
 python -m tests.test_sync                 # 1.5.0 edge agent: bulut navbati, uzilish, takrorlanmaslik, tartib
 python -m tests.test_cloud                # 1.6.0 bulut: rollar, filial tokeni, edge ulanishi, review → edge (SQLite; CLOUD_TEST_PG_URL bilan PostgreSQL ham)
 python -m tests.test_notify               # 1.7.0 bildirishnomalar: Telegram/email/push, rollar, eskalatsiya, aloqa uzilishi, SSE
 python -m tests.test_panel                # 1.7.0 bulut paneli haqiqiy brauzerda (requirements-dev.txt + playwright install chromium)
-python -m app.ai.model_zoo open           # ochiq modellarni yuklab olish (internet kerak)
+python -m app.ai.model_zoo open-m         # ochiq modellarni yuklab olish (MoveNet Thunder, internet kerak)
 python -m tests.test_latency 100          # signal tezligi: 100 hodisa, Telegram rasm/klip va web panel
 python -m tests.test_health               # kamera uzilishi va tiklanishi xabarlari
 python -m tests.test_web video.mp4        # to'liq sinov: web + AI + soxta Telegram API

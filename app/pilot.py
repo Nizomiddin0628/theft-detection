@@ -187,6 +187,26 @@ def _items() -> list[dict]:
     else:
         add("autostart", "Avtomatik ishga tushish", "warn",
             "Demo rejimida kerak emas" if DEMO else "Faqat Windows'da tekshiriladi", optional=True)
+    # 8a. Modellar litsenziyasi (2.7.0) — ishlayotgan to'plam (zaxiraga o'tgan bo'lsa ham haqiqiysi). Demoda yo'q
+    # (mijozga ko'rsatiladi; litsenziya — sotuvchining ichki masalasi)
+    if not DEMO:
+        try:
+            from .ai import model_zoo
+            from .ai.engine import Engine
+
+            eng = Engine._instance
+            ms = eng.model_set if eng is not None else (s.get("model_set") or model_zoo.DEFAULT_SET)
+            info = model_zoo.MODEL_SETS.get(ms, {})
+            if info.get("license") == "Apache-2.0":
+                add("license", "Modellar litsenziyasi", "ok", f"{info.get('label', ms)} — Apache-2.0, sotish mumkin",
+                    "/model", optional=True)
+            else:
+                add("license", "Modellar litsenziyasi", "warn",
+                    f"{info.get('label', ms)} — {info.get('license', '?')}: sotish uchun Ultralytics litsenziyasi yoki "
+                    "ochiq to'plam (YOLOX + MoveNet, AI model sahifasida). Ochiq to'plam yiqilishni yomonroq topadi — "
+                    "avval do'konda sinang", "/model", optional=True)
+        except Exception:  # noqa: BLE001
+            log.exception("Model litsenziyasini aniqlab bo'lmadi")
     # 9. Kompyuter o'chib / uxlab qolmayaptimi (oxirgi 7 kun, ish vaqtida)
     now = time.time()
     try:
