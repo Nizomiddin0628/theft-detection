@@ -15,6 +15,7 @@ bildirishnomalar: CLOUD_TELEGRAM_BOT_TOKEN, CLOUD_PUBLIC_URL, CLOUD_SMTP_*, CLOU
 Panel: cloud/panel_dist (Next.js statik build) — shu server `/` da beradi.
 2.6.0: sayt (site/) — `/sayt/` (aloqa: CLOUD_SITE_*), saytdagi so'rovlar — `POST /api/v1/leads` (cloud/leads.py; xabar:
 CLOUD_LEADS_CHAT, CLOUD_LEADS_EMAIL), `python -m cloud.server --leads`. Demo: `python -m cloud.demo` (cloud/demo.py).
+2.8.0: saytning yangi bosh sahnasi (CSS animatsiya, site/fonts — IBM Plex Sans, OFL).
 """
 from __future__ import annotations
 
@@ -26,6 +27,7 @@ import hmac
 import json
 import logging
 import math
+import mimetypes
 import os
 import re
 import threading
@@ -47,7 +49,7 @@ from .db import CLIPS_DIR, DATA_DIR
 from .live import hub
 
 log = logging.getLogger("hushyor.cloud")
-VERSION = "2.7.0"
+VERSION = "2.8.0"
 
 API_VERSION = 1
 ROOT = Path(__file__).resolve().parent
@@ -65,6 +67,7 @@ ENV_BRANCH_MAX = 20                 # muhit (CLOUD_EDGE_TOKENS) tokeni bilan o'z
 SESSION_COOKIE = "hc_session"       # panel sessiyasi (HttpOnly, SameSite=Strict)
 PANEL_DIR = ROOT / "panel_dist"     # Next.js statik build (cloud/panel → npm run build)
 SITE_DIR = ROOT.parent / "site"     # 2.6.0: landing sayt (/sayt/) — oddiy HTML/CSS/JS, tashqi manbasiz
+mimetypes.add_type("font/woff2", ".woff2")   # 2.8.0: sayt shrifti (eski Python/Windows reyestrida yo'q bo'lishi mumkin)
 EMAIL_RE = re.compile(r"[^@\s]{1,100}@[^@\s]{1,100}\.[^@\s]{2,20}")
 # 2.6.0: python -m cloud.demo (namuna kompaniya) — faqat alohida "demo" papkasida (haqiqiy bulut bazasida hech qachon)
 DEMO = os.environ.get("CLOUD_DEMO") == "1" and DATA_DIR.name == "demo"

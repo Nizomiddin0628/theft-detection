@@ -8,6 +8,22 @@ klipini avtomatik kesib, **Telegram botga** sabablari bilan yuboradi. Qo'riqchi 
 
 ---
 
+## 2.8.0 — sayt: jonli bosh sahna va animatsiyalar
+
+* **Bosh sahna — mahsulotning o'zi ishlab turgani:** kamera ko'rinishida xaridor polkadan mahsulot olib cho'ntagiga
+  soladi → tizim skeletini chizadi, rang xavf bilan yashil → sariq → qizilga o'tadi, ramka "#7 xavf 82" (paneldagi
+  kabi) → Telegram'ga xabar keladi → qo'riqchi ✅ bosadi. Ostida 4 qadam (kamera → AI → Telegram → qo'riqchi) shu
+  vaqtda yonadi. ~6,5 s, bir marta; telefonda sahna ekranga chiqqanda boshlanadi; "Yana ko'rish" tugmasi.
+* **Hammasi CSS va o'z fayllarimiz:** tashqi kutubxona, CDN, shrift serveri yo'q; CSP o'zgarmadi (ichki skript va
+  inline style yo'q). Shrift — IBM Plex Sans (bulut paneli bilan bir xil, `site/fonts`, OFL).
+* **Kirish imkoniyati:** tizimda "harakatni kamaytirish" yoqilgan bo'lsa — animatsiya yo'q, sahna oxirgi holatda;
+  skriptsiz ham o'ynaydi. Sahna tavsifi ekran o'quvchi uchun yozilgan; tablar klaviatura bilan (← → Home End).
+* **Yangilangan bo'limlar:** imkoniyatlar (asosiysi — o'g'irlik, oxirida — hisobot), panel rasmlari ramkada va yangi
+  "Bosh sahifa" tabi, ishga tushish qadamlari chiziqda, pilot mezonlari jadvalda. Bosilganda yumshoq animatsiya: tab
+  almashishi, savol ochilishi, yuborilgan formadagi belgi.
+* Telefon (360 px), planshet (820, 1024) va kompyuter (1366) kengligida gorizontal siljish yo'q — sinovda tekshiriladi
+  (`python -m tests.test_demo`: sahna o'ynashi, "Yana ko'rish", harakat kamaytirilgan rejim, tablar, forma).
+
 ## 2.7.0 — 11-bosqich: litsenziyasi toza modellar (o'lchov va tanlov)
 
 * **Yangi ochiq to'plam `open-m`:** YOLOX-tiny (odam, ≤ 512 px) + **MoveNet Thunder** (Google, skelet) + YOLOX-tiny
@@ -844,7 +860,7 @@ python -m tests.test_reports_cloud        # 2.4.0 bulutda taqqoslash va haftalik
 python tests/report_gate.py               # 2.4.0 hisobot darvozasi (14 kun, o'z vaqtida, raqamlar, foydali tavsiyalar)
 python -m tests.test_pilot                # 2.5.0 pilot: tayyorlik, darvozalar, pilot darvozasi, baho so'rovi, diagnostika, bulut
 python tests/pilot_gate.py                # 2.5.0 pilot darvozasi va barcha bosqichlar jadvali
-python -m tests.test_demo                 # 2.6.0 demo (edge va bulut), sayt (telefon kengligi), so'rovlar va xabarlar
+python -m tests.test_demo                 # 2.6.0 demo (edge va bulut), sayt (telefon kengligi, 2.8.0 bosh sahna), so'rovlar va xabarlar
 python -m cloud.server --leads            # 2.6.0 saytdagi so'rovlar va 10-bosqich darvozasi
 ```
 

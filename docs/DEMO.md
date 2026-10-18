@@ -83,6 +83,11 @@ uzilsa, videolar qayerda, xato qiladimi, yuzni taniydimi, ko'p filial.
 
 * Fayllar: `site/` (`index.html`, `style.css`, `app.js`, `img/`). Tashqi shrift, CDN va skript yo'q; qat'iy CSP
   (ichki skript taqiqlangan). Telefon birinchi — 360 px kenglikda ham gorizontal siljish yo'q.
+* 2.8.0: bosh qismda jonli sahna — mahsulotning o'z ko'rinishi: kamera → skelet (xavf rangi yashil → sariq → qizil) va
+  "#7 xavf 82" ramkasi → Telegram xabari → qo'riqchi ✅ bosadi; ostida shu 4 qadam bir vaqtda yonadi. Animatsiya CSS da
+  (~6,5 s, bir marta; sahna ekranga chiqqanda boshlanadi, "Yana ko'rish" — qaytadan; skript o'chiq bo'lsa ham o'ynaydi,
+  faqat tugmasiz). Tizimda "harakatni kamaytirish" yoqilgan bo'lsa — sahna darhol oxirgi holatda. Shrift — IBM Plex Sans (`site/fonts`,
+  OFL litsenziyasi), bulut paneli bilan bir xil. Tablar, savollar va yuborilgan forma bosilganda yumshoq animatsiya.
 * Bulut serveri `/sayt/` da beradi. Aloqa qatorlari **`.env` dan** (berilmagani ko'rsatilmaydi — raqam o'ylab
   topilmaydi):
 

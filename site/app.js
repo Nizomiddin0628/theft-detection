@@ -1,8 +1,10 @@
-/* Hushyor AI — landing sayt (2.6.0): aloqa ma'lumotlari (sozlama.js), ekranlar tablari, so'rov formasi. */
+/* Hushyor AI — landing sayt (2.8.0): aloqa ma'lumotlari (sozlama.js), bosh sahnani qayta ko'rsatish, ekranlar
+   tablari, so'rov formasi. Animatsiyaning o'zi — style.css da (CSS); bu yerda faqat foydalanuvchi bosgandagi qism. */
 (function () {
   "use strict";
   var cfg = window.HUSHYOR_SITE || {};
   var opened = Date.now();
+  var motion = !(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
   document.body.classList.remove("no-js");
 
   function el(tag, attrs, text) {
@@ -34,26 +36,68 @@
   var demo = document.getElementById("demo-link");
   if (demo && cfg.demo) demo.classList.remove("hidden");
 
-  // ---- ekranlar: tablar (klaviatura: ← →)
+  // ---- bosh sahna. Animatsiya CSS da (skriptsiz ham o'ynaydi). Skript bo'lsa: sahna ekranga chiqqanda boshidan
+  // boshlanadi (telefonda u birinchi ekrandan pastda) va "Yana ko'rish" bilan qaytariladi (Web Animations API)
+  var stage = document.getElementById("stage");
+  var replay = document.getElementById("replay");
+  if (stage && replay && motion && typeof stage.getAnimations === "function") {
+    var restart = function (run) {
+      stage.getAnimations({ subtree: true }).forEach(function (a) {
+        try {
+          a.currentTime = 0;
+          if (run) a.play(); else a.pause();
+        } catch (e) { /* eski brauzer — o'tkazib yuboriladi */ }
+      });
+    };
+    replay.hidden = false;
+    replay.addEventListener("click", function () { restart(true); });
+    if ("IntersectionObserver" in window) {
+      // Birinchi javob: sahna allaqachon ko'rinib turgan bo'lsa (kompyuter) — o'ynayotgan animatsiyaga tegilmaydi
+      // (sekin yuklanganda ham orqaga sakramaydi); ko'rinmasa (telefon) — to'xtatiladi va ko'ringanda boshidan
+      var first = true;
+      var io = new IntersectionObserver(function (ents) {
+        var vis = ents.some(function (e) { return e.isIntersecting; });
+        if (first) {
+          first = false;
+          if (vis) io.disconnect(); else restart(false);
+          return;
+        }
+        if (vis) { io.disconnect(); restart(true); }
+      }, { threshold: 0.35 });
+      io.observe(stage.querySelector(".monitor") || stage);
+    }
+  }
+
+  // ---- ekranlar: tablar (klaviatura: ← → Home End)
   var tabs = Array.prototype.slice.call(document.querySelectorAll('.tabs [role="tab"]'));
-  function show(i, focus) {
+  function show(i, focus, animate) {
     tabs.forEach(function (t, j) {
       var on = i === j;
       t.setAttribute("aria-selected", on ? "true" : "false");
       t.tabIndex = on ? 0 : -1;
       var p = document.getElementById(t.getAttribute("aria-controls"));
-      if (p) p.hidden = !on;
+      if (!p) return;
+      p.hidden = !on;
+      p.classList.remove("in");
+      if (on && animate) {
+        void p.offsetWidth;            // animatsiya har bosishda qaytadan boshlansin
+        p.classList.add("in");
+      }
     });
     if (focus) tabs[i].focus();
   }
   tabs.forEach(function (t, i) {
-    t.addEventListener("click", function () { show(i, false); });
+    t.addEventListener("click", function () { show(i, false, true); });
     t.addEventListener("keydown", function (e) {
-      if (e.key === "ArrowRight") { e.preventDefault(); show((i + 1) % tabs.length, true); }
-      if (e.key === "ArrowLeft") { e.preventDefault(); show((i - 1 + tabs.length) % tabs.length, true); }
+      var n = tabs.length, k = null;
+      if (e.key === "ArrowRight") k = (i + 1) % n;
+      if (e.key === "ArrowLeft") k = (i - 1 + n) % n;
+      if (e.key === "Home") k = 0;
+      if (e.key === "End") k = n - 1;
+      if (k !== null) { e.preventDefault(); show(k, true, true); }
     });
   });
-  if (tabs.length) show(0, false);
+  if (tabs.length) show(0, false, false);
 
   // ---- so'rov formasi → POST /api/v1/leads
   var form = document.getElementById("lead-form");
@@ -70,8 +114,10 @@
     ["utm_source", "utm_campaign"].forEach(function (k) { if (q.get(k)) parts.push(k.slice(4) + "=" + q.get(k)); });
     return parts.join(" · ").slice(0, 200);
   }
+  form.addEventListener("input", function () { form.classList.remove("sent"); });
   form.addEventListener("submit", function (e) {
     e.preventDefault();
+    form.classList.remove("sent");
     var f = form.elements;
     var name = f.name.value.trim();
     var phone = f.phone.value.trim();
@@ -97,6 +143,7 @@
         if (x.ok) {
           form.reset();
           say("Rahmat! So'rovingiz qabul qilindi — tez orada bog'lanamiz.", true);
+          form.classList.add("sent");
         } else {
           say((x.d && x.d.detail) || "Yuborib bo'lmadi — birozdan keyin qayta urinib ko'ring.", false);
         }

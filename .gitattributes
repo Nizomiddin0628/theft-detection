@@ -13,5 +13,6 @@
 *.jpg binary
 *.png binary
 *.pdf binary
+*.woff2 binary
 # Bulut panelining tayyor build fayllari o'zgarishsiz saqlansin (Windows CRLF almashtirishi Next.js RSC fayllarini buzadi)
 cloud/panel_dist/** -text

@@ -326,6 +326,13 @@ def cloud_suite(label: str) -> None:
        and not re.search(r"<script(?![^>]*\bsrc=)", html_) and " on" + "click=" not in html_)
     ok(f"{label}: tashqi manba yo'q (shrift, CDN, skript)", not re.search(r'(src|href)="https?://', html_)
        and "@import" not in (ROOT / "site" / "style.css").read_text(encoding="utf-8"))
+    ok(f"{label}: inline style yo'q (CSP style-src 'self'), shrift va litsenziyasi beriladi",
+       ' style="' not in html_ and "<style" not in html_
+       and c.get("/sayt/fonts/ibm-plex-sans-latin.woff2").headers.get("content-type", "").startswith("font/woff2")
+       and c.get("/sayt/fonts/OFL.txt").status_code == 200)
+    vers = set(re.findall(r'\?v=([\w.]+)"', html_))
+    ok(f"{label}: style.css va app.js keshi versiya bilan yangilanadi (?v= = {cloud.VERSION})", vers == {cloud.VERSION},
+       str(vers))
     imgs = re.findall(r'src="(img/[^"]+)"', html_)
     ok(f"{label}: barcha rasmlar bor va beriladi", imgs and all(c.get("/sayt/" + i).status_code == 200 for i in imgs)
        and all(c.get("/sayt/" + f).status_code == 200 for f in ("app.js", "style.css")), str(imgs))
@@ -631,7 +638,8 @@ def cloud_suite(label: str) -> None:
 
 
 def browser_suite() -> None:
-    """Sayt telefon kengligida: gorizontal siljish yo'q, forma yuboriladi (haqiqiy brauzer)."""
+    """Sayt telefon kengligida: gorizontal siljish yo'q, bosh sahna animatsiyasi (2.8.0), tablar, forma yuboriladi
+    (haqiqiy brauzer); harakat kamaytirilganda — animatsiyasiz."""
     print("\n--- Sayt brauzerda (telefon va kompyuter) ---")
     try:
         from playwright.sync_api import sync_playwright
@@ -656,7 +664,7 @@ def browser_suite() -> None:
     try:
         with sync_playwright() as pw:
             b = pw.chromium.launch()
-            for name, vp, mob in (("telefon", {"width": 360, "height": 740}, True),
+            for name, vp, mob in (("telefon", {"width": 360, "height": 640}, True),
                                   ("kompyuter", {"width": 1366, "height": 900}, False)):
                 ctx = b.new_context(viewport=vp, is_mobile=mob, has_touch=mob)
                 pg = ctx.new_page()
@@ -667,8 +675,42 @@ def browser_suite() -> None:
                 pg.wait_for_load_state("networkidle")
                 sw = pg.evaluate("document.documentElement.scrollWidth")
                 ok(f"{name}: gorizontal siljish yo'q, xato yo'q", sw <= vp["width"] and not errs, f"{sw} {errs[:2]}")
+                ok(f"{name}: shrift o'zimizdan yuklandi (IBM Plex Sans)", pg.evaluate(
+                    "document.fonts.load('16px \"IBM Plex Sans\"').then(f => f.length > 0 && "
+                    "f.every(x => x.status === 'loaded'))"))
+                # 2.8.0: bosh sahna — ekranga chiqqanda o'ynaydi (telefonda u birinchi ekrandan pastda), oxirida
+                # Telegram xabari va "Yana ko'rish"
+                anims = "document.getElementById('stage').getAnimations({subtree: true})"
+                tg_op = "Number(getComputedStyle(document.querySelector('.tg')).opacity)"
+                if mob:
+                    ok("telefon: sahna ko'rinmaguncha kutadi (animatsiya to'xtab turadi)", pg.evaluate(
+                        anims + ".every(a => a.playState === 'paused')") and pg.evaluate(tg_op) == 0)
+                    pg.evaluate("document.getElementById('stage').scrollIntoView()")
+                n_an = pg.evaluate(anims + ".length")
+                s2_op = "Number(getComputedStyle(document.querySelector('.tg-ok .s2')).opacity)"
+                for _ in range(60):                      # ~6,5 s sahna; sekin kompyuterda ham kutadi (≤ 15 s)
+                    if pg.evaluate(s2_op) == 1 and pg.evaluate(anims + ".every(a => a.playState === 'finished')"):
+                        break
+                    pg.wait_for_timeout(250)
+                ok(f"{name}: sahna o'ynadi — Telegram xabari, 'Tasdiqlandi', 'Yana ko'rish'", n_an > 40 and
+                   pg.evaluate(tg_op) == 1 and pg.evaluate(
+                       "Number(getComputedStyle(document.querySelector('.tg-ok .s2')).opacity)") == 1
+                   and pg.is_visible("#replay"), f"{n_an}")
+                pg.click("#replay")
+                pg.wait_for_timeout(300)
+                ok(f"{name}: 'Yana ko'rish' sahnani boshidan o'ynatadi", pg.evaluate(tg_op) == 0 and pg.evaluate(
+                    anims + ".some(a => a.playState === 'running')"))
                 pg.click('[role="tab"]:has-text("Kassa navbati")')
-                ok(f"{name}: ekranlar tablari ishlaydi", pg.is_visible("#sh-2") and not pg.is_visible("#sh-1"))
+                ok(f"{name}: ekranlar tablari ishlaydi", pg.is_visible("#sh-2") and not pg.is_visible("#sh-0")
+                   and not pg.is_visible("#sh-1"))
+                pg.keyboard.press("ArrowRight")
+                ok(f"{name}: tablar klaviatura bilan (→)", pg.is_visible("#sh-3") and pg.evaluate(
+                    "document.activeElement.id") == "tb-3")
+                pg.keyboard.press("End")
+                end_ok = pg.is_visible("#sh-6")
+                pg.keyboard.press("Home")
+                ok(f"{name}: tablar klaviatura bilan (End, Home)", end_ok and pg.is_visible("#sh-0") and pg.evaluate(
+                    "document.activeElement.id") == "tb-0")
                 pg.click('button[type="submit"]')
                 ok(f"{name}: bo'sh forma — xabar, yuborilmaydi", "Ismingizni" in pg.inner_text("#form-msg"))
                 pg.wait_for_timeout(3100)                # odam kabi: forma ochilganidan ≥ 3 s
@@ -678,7 +720,26 @@ def browser_suite() -> None:
                 pg.click('button[type="submit"]')
                 # (wait_for_function ishlatilmaydi: saytning CSP'si sahifada eval'ni taqiqlaydi)
                 pg.locator("#form-msg", has_text="Rahmat").wait_for(timeout=10000)
-                ok(f"{name}: forma yuborildi — 'Rahmat' va forma tozalandi", pg.input_value('input[name="name"]') == "")
+                ok(f"{name}: forma yuborildi — 'Rahmat' (belgi bilan) va forma tozalandi",
+                   pg.input_value('input[name="name"]') == "" and pg.is_visible("#lead-form .done-ico"))
+                ctx.close()
+            # Harakat kamaytirilgan (tizim sozlamasi): animatsiya yo'q, sahna darhol oxirgi holatda
+            ctx = b.new_context(viewport={"width": 1366, "height": 900}, reduced_motion="reduce")
+            pg = ctx.new_page()
+            pg.goto(f"http://127.0.0.1:{port}/sayt/")
+            pg.wait_for_load_state("networkidle")
+            ok("harakat kamaytirilgan: animatsiya yo'q, xabar va ramka darhol ko'rinadi, 'Yana ko'rish' yo'q",
+               pg.evaluate("document.getElementById('stage').getAnimations({subtree: true}).length") == 0
+               and pg.evaluate("getComputedStyle(document.querySelector('.tg')).opacity") == "1"
+               and pg.evaluate("getComputedStyle(document.querySelector('.tag-b')).opacity") == "1"
+               and not pg.is_visible("#replay"))
+            ctx.close()
+            for w, h in ((820, 1180), (1024, 768)):          # planshet: Telegram xabari sahifadan chiqib ketmasin
+                ctx = b.new_context(viewport={"width": w, "height": h})
+                pg = ctx.new_page()
+                pg.goto(f"http://127.0.0.1:{port}/sayt/")
+                pg.wait_for_load_state("networkidle")
+                ok(f"planshet {w}px: gorizontal siljish yo'q", pg.evaluate("document.documentElement.scrollWidth") <= w)
                 ctx.close()
             b.close()
     finally:
