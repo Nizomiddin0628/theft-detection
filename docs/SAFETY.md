@@ -26,18 +26,24 @@ yiqilish, yotish, gavjumlik (kadr bo'yicha) va olov.
 
 Har kuzatuvda (trek) skelet bo'yicha holat (`classify`):
 
-* **H_ref** — tik bo'y: oxirgi 3 s dagi tik kadrlarning eng kattasi; skeletdan taxmin (yelka→son→tizza→to'piq / 0,8 —
+* **H_ref** — tik bo'y: oxirgi 1 s dagi tik kadrlarning eng kattasi (2.3.1 gacha 3 s edi: kameradan tez uzoqlashayotgan
+  odam 3 s da ~1,7 marta kichrayadi va eski katta bo'yga nisbatan "yerda" ko'rinardi — 72 soatlik sinovda eshik tomon
+  ketgan har odam "yiqildi" deb chiqqan); yiqilish paytida (tik kadr yo'q) oxirgi qiymat saqlanadi; skeletdan taxmin (yelka→son→tizza→to'piq / 0,8 —
   yon tomonga yotgan odamda ham to'g'ri) va trekdagi eng katta ramka.
 * **yotgan**: son pastda (`hip_low = (ramka pasti − son) / H_ref ≤ 0,25`) VA gavda yotiq (tik balandligi ≤ 0,15·H yoki
   burchak ≥ 55°) yoki ramka ≤ 0,45·H yoki ramka ≥ 1,3 yassi. **Lekin** gavda tik (≥ 0,2·H, < 40°) bo'lsa —
   o'tirgan/cho'kkalagan, yotgan emas. Gavda aniq yotiq va past bo'lsa son biroz balandroq (≤ 0,33) bo'lishi mumkin.
   Son ko'rinmasa: ramka ≥ 1,2 yassi va ≤ 0,5·H. Ramka kadr pastiga tegsa (oyoq kadrdan tashqarida) — faqat juda yassi.
 * **tik**: son o'z ramkasi bo'yining ≥ 0,4 qismida va ramka ≥ 0,6·H (uzoqlashayotgan odam kichrayadi — shuning uchun
-  o'z bo'yiga nisbatan).
+  o'z bo'yiga nisbatan). Odam "yerda" bo'lgan (yoki yiqilish tasdiq kutilayotgan) paytda H_ref yiqilishdan oldingi
+  qiymatda qotadi: kamera o'qi bo'ylab yotgan odam rasmda qisqa va tor — aks holda bir necha soniyada "o'z bo'yidagi
+  tik odam" bo'lib qolardi (2.3.1).
 
 **Yiqilish**: oxirgi "tik" kadrdan ≤ 2 s ichida "yotgan"; yoki *cho'kib yiqilish* — tik → son yerda ≤ 2 s, keyin ≤ 1,5 s
 ichida yotdi, hammasi ≤ 2,5 s. **Tasdiq**: keyingi 2 s ichida tik turmadi. Trek yo'qolsa (yerdagi odamni detektor
 ko'pincha topmaydi) — yerda deb hisoblanadi; o'sha joyda **o'sha bo'yli** tik odam paydo bo'lsa — bekor (turib ketgan).
+Tasdiq kutilayotganda odamning oyog'i (ramka pasti) ramka o'lchamining 0,8 qismidan ko'p siljisa — yurib ketyapti, bekor
+(2.3.1: eshik tomon ketayotgan odam bir kadrda "yerda" ko'rinsa ham signal bo'lmaydi).
 Kuzatuvchi trekka ulamagan past ishonchli (0,25–0,4) detektsiya yo'qolgan trek o'rnida bo'lsa — o'sha odamning davomi.
 To'silishdan keyin yangi ID — yo'qolgan trek o'rnida, tik bo'lmasa — o'sha odam (holati meros).
 

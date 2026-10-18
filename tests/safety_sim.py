@@ -219,3 +219,29 @@ def people(specs: list[tuple], dur: float, fps: float = 8.0, hpx: float = 400.0,
 def burst(fn, t0: float, t1: float):
     """fn faqat [t0, t1) oralig'ida, qolgan vaqt — tik turish."""
     return lambda t: fn(t) if t0 <= t < t1 else STAND
+
+
+# ----------------------------------------------------------------------------- 2.3.1: kamera o'qi bo'ylab
+def axis_lying(f: float) -> np.ndarray:
+    """Kamera o'qi bo'ylab (kameradan uzoqqa yoki kameraga qarab) yotgan odam: rasmda qisqa (f × bo'y) va tor."""
+    b = STAND.copy()
+    b[:, 1] = b[:, 1] * f + 0.02
+    return b
+
+
+def walk_away(fps: float, noise: float = 0.0, occlude: bool = False, seed: int = 3, dur: float = 4.0,
+              shrink: float = 0.13, rise: float = 90.0, gone_sec: float = 5.0) -> list:
+    """Kameradan tez uzoqlashib (soniyasiga shrink ulushga kichrayib, rasmda yuqoriga) ketayotgan odam, oxirida
+    (occlude) eshik/devor ortiga kirib boshi yo'qoladi, keyin umuman ko'rinmay qoladi (soak: "eshikdan chiqqan odam")."""
+    rng = np.random.default_rng(seed)
+    out = []
+    n = int(dur * fps)
+    for i in range(n):
+        t = i / fps
+        k, b = to_image(STAND, 400 + 40 * t, 700 - rise * t, 400 * (1 - shrink * t), rng=rng, noise=noise)
+        if occlude and t > dur - 0.6:
+            b[1] = b[1] + 0.35 * (b[3] - b[1])
+            k[:7, 2] = 0.1
+        out.append((t, [Pp(1, b, k)]))
+    out += [(n / fps + j / fps, []) for j in range(int(gone_sec * fps))]
+    return out

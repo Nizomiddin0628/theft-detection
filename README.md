@@ -8,6 +8,23 @@ klipini avtomatik kesib, **Telegram botga** sabablari bilan yuboradi. Qo'riqchi 
 
 ---
 
+## 2.3.1 — tuzatishlar (72 soatlik sinov topgan)
+
+* **Yiqilish: xato signal tuzatildi.** Kameradan tez uzoqlashib, eshik tomon ketayotgan odam "yiqildi" deb chiqardi
+  (sinov videosida 45 daqiqada 19 ta xato signal). Sabab: tik bo'y oxirgi 3 s dagi eng katta qiymatdan olinardi — odam
+  shu vaqtda ~1,7 marta kichrayadi. Endi 1 s (odam yerda bo'lganda esa yiqilishdan oldingi qiymatda qotadi — kamera
+  o'qi bo'ylab yotgan odam ham topiladi); tasdiq kutilayotganda odam yurib ketsa — signal bekor. Yiqilish videolarida
+  topish o'zgarmadi (ambianic 3/5), sintetik sinovlar 174/174 (yangi: kamera o'qi bo'ylab yiqilish, eshikdan chiqish).
+* **Telegram: signal yo'qolmaydi.** Telegram (yoki internet) bir daqiqa ishlamay tursa, o'sha paytdagi signal xabari
+  butunlay yo'qolardi (faqat 3 ta tezkor urinish bor edi). Endi yetmagan har chatga 10 s, 30 s, 1, 2, 4 daqiqadan keyin
+  qayta yuboriladi (15 daqiqadan eski hodisa — yo'q; yangi signallardan keyin navbatda); klip bosqichi bilan
+  takrorlanmaydi va video o'sha xabarga qo'shiladi. Dastur qayta ishga tushsa, kutilayotgan qayta urinishlar yo'qoladi.
+* **72 soatlik sinov (tests/soak.py):** Windows'da xotira to'g'ri o'lchanadi (`.venv\Scripts\python.exe` kichik
+  ishga tushirgich — haqiqiy dastur uning bola jarayoni; avval faqat ~4 MB ko'rinardi va xotira oqishini sezmasdi);
+  xavfsizlik signallari (2.2.0 dan sarlavhasi boshqa) "yetmagan" deb sanalmaydi.
+* **Yangilash skripti** avtomatik ishga tushgan dasturni (`HushyorAI`, `HushyorCloud` vazifalari) o'zi to'xtatadi
+  (jarayon chiqishini kutib) va oxirida — xato yoki Ctrl+C bo'lsa ham — qayta yoqadi. `install_autostart.ps1` panel manzilini `.env` dagi PORT bo'yicha yozadi.
+
 ## 2.3.0 — 7-bosqich: o'g'irlik v2 (qayta o'qitish, champion/challenger), janjal, dalil paketi
 
 * **Champion / challenger** (AI model sahifasi): yangi xulq modeli endi sukut bo'yicha **challenger** sifatida o'qitiladi

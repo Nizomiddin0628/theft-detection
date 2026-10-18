@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import io
 import os
+import re
 import shutil
 import sys
 import tempfile
@@ -414,6 +415,62 @@ def telegram_suite() -> None:
     ok("Klip tarmoq xatosi bilan yetmadi → avtomatik qayta yuborildi va yetdi", got and logs and logs[0]["ok"] == 0
        and logs[-1]["ok"] == 1, str([x["ok"] for x in logs]))
     tg.FAIL_NEXT.clear()
+
+    # 2.3.1: signal xabari Telegram ishlamay turgan paytda yetmadi (rasm ham, matn ham — har biri 3 urinish) →
+    # keyinroq qayta yuboriladi (avval butunlay yo'qolardi: soak sinovida "telegram 5xx" paytidagi hodisalar)
+    alert_retry0 = tb.ALERT_RETRY
+    tb.ALERT_RETRY = (0.8, 0.8, 0.8)
+    def sent_for(e, method):
+        return [c for c in tg.calls(method)
+                if re.search(rf"#{e}\b", str(c["data"].get("caption") or c["data"].get("text") or ""))]
+    e4 = db.insert_event({"source_id": 1, "source_name": "Kassa", "created_at": time.time(), "t_detect": time.time(),
+                          "score": 80, "level": "yuqori", "kind": "pocket", "reasons": ["sabab"], "breakdown": {},
+                          "track_id": 4, "status": "yangi", "thumb_path": snap.name})
+    tg.FAIL_NEXT.update({"sendPhoto": 3, "sendMessage": 3})
+    bot.notify_alert(e4)
+    got = wait(lambda: db.row("SELECT * FROM tg_messages WHERE event_id=?", (e4,)), 15)
+    time.sleep(1.0)
+    n_ok = len(sent_for(e4, "sendPhoto")) - 3 + len(sent_for(e4, "sendMessage")) - 3
+    ok("Signal xabari Telegram 5xx paytida yetmadi → keyinroq qayta yuborildi, bir marta", got and n_ok == 1,
+       f"xabar: {bool(got)}, muvaffaqiyatli yuborish: {n_ok}")
+    tg.FAIL_NEXT.clear()
+    # Qayta urinish kutilayotganda klip tayyor bo'ldi: klip bosqichi to'liq xabar (video) yuboradi, qayta urinish
+    # o'sha chatni o'tkazib yuboradi — takror yo'q
+    tb.ALERT_RETRY = (2.5, 2.5)
+    e5 = db.insert_event({"source_id": 1, "source_name": "Kassa", "created_at": time.time(), "t_detect": time.time(),
+                          "score": 80, "level": "yuqori", "kind": "bag", "reasons": ["sabab"], "breakdown": {},
+                          "track_id": 5, "status": "yangi", "thumb_path": snap.name})
+    tg.FAIL_NEXT.update({"sendPhoto": 3, "sendMessage": 3})
+    bot.notify_alert(e5)
+    wait(lambda: len(sent_for(e5, "sendMessage")) >= 3, 10)
+    time.sleep(0.3)
+    db.update_event(e5, clip_path=clip.name)
+    bot.notify_clip(e5)
+    vid = wait(lambda: db.scalar("SELECT kind FROM tg_messages WHERE event_id=?", (e5,)) == "video", 15)
+    time.sleep(3.5)                       # qayta urinish vaqti o'tdi
+    total = len(sent_for(e5, "sendVideo")) + len(sent_for(e5, "sendPhoto")) - 3 + len(sent_for(e5, "sendMessage")) - 3
+    ok("Klip qayta urinishdan oldin yetdi — qayta urinish takror yubormaydi", vid and total == 1,
+       f"video: {bool(vid)}, jami xabar: {total}")
+    tg.FAIL_NEXT.clear()
+    # Poyga: klip bosqichi "xabar yo'q" deb to'liq yuborishga o'tdi, lekin qulfni kutayotganda signal qayta urinishi
+    # rasm yubordi — klip bosqichi o'sha rasmga videoni qo'shishi kerak (aks holda chatda video bo'lmasdi)
+    e6 = db.insert_event({"source_id": 1, "source_name": "Kassa", "created_at": time.time(), "t_detect": time.time(),
+                          "score": 80, "level": "yuqori", "kind": "bag", "reasons": ["sabab"], "breakdown": {},
+                          "track_id": 6, "status": "yangi", "thumb_path": snap.name, "clip_path": clip.name})
+    orig_full = bot._send_full
+
+    def full_lost_race(event_id, opts, t_q):
+        db.execute("INSERT OR REPLACE INTO tg_messages(event_id, chat_id, message_id, kind) VALUES(?,?,?,?)",
+                   (event_id, 5001, 777, "photo"))
+        return []
+    bot._send_full = full_lost_race
+    n_ed = len(tg.calls("editMessageMedia"))
+    bot._send_clip(e6, None, time.time())
+    bot._send_full = orig_full
+    ok("Poyga: qayta urinish yuborgan rasmga klip videosi qo'shiladi", len(tg.calls("editMessageMedia")) > n_ed
+       and db.scalar("SELECT kind FROM tg_messages WHERE event_id=?", (e6,)) == "video",
+       str(db.scalar("SELECT kind FROM tg_messages WHERE event_id=?", (e6,))))
+    tb.ALERT_RETRY = alert_retry0
 
     # Klip yaratilmagan: "tayyorlanmoqda" o'rniga ogohlantirish
     e3 = db.insert_event({"source_id": 1, "source_name": "Kassa", "created_at": time.time(), "t_detect": time.time(),

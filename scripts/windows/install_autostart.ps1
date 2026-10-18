@@ -58,7 +58,14 @@ Write-Host ""
 Write-Host "Tayyor: '$TaskName' vazifasi yaratildi." -ForegroundColor Green
 Write-Host "  * Har safar Windows'ga kirganingizda Hushyor AI o'zi ishga tushadi (oynasiz)."
 Write-Host "  * Dastur to'xtasa yoki qotsa, nazoratchi uni qayta ishga tushiradi."
-Write-Host "  * Web panel: http://localhost:8000  (30-60 soniyadan keyin ochiladi)"
+$port = "8000"
+$envFile = Join-Path $root ".env"
+if ($env:PORT -match '^\s*(\d+)\s*$') { $port = $Matches[1] }
+elseif (Test-Path $envFile) {
+    $l = Select-String -Path $envFile -Pattern '^\s*(export\s+)?PORT\s*=\s*["'']?\s*(\d+)' | Select-Object -First 1
+    if ($l) { $port = $l.Matches[0].Groups[2].Value }
+}
+Write-Host "  * Web panel: http://localhost:$port  (30-60 soniyadan keyin ochiladi)"
 Write-Host "  * Jurnal:   $root\data\logs\"
 Write-Host "  * Holatni ko'rish:  Get-ScheduledTask -TaskName $TaskName"
 Write-Host "  * O'chirish:        powershell -ExecutionPolicy Bypass -File scripts\windows\uninstall_autostart.ps1"

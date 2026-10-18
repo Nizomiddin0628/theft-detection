@@ -45,6 +45,16 @@ PHOTO_LIMIT = 9_500_000      # rasm 10 MB gacha
 WORKERS = 6                  # navbatdan o'zi oladigan bajaruvchilar (ustuvorlik haqiqatan ishlaydi)
 CLIP_RETRY_SEC = 15.0        # klip tarmoq xatosi bilan yetmasa — shuncha soniyadan keyin qayta
 CLIP_RETRIES = 2
+# 2.3.1: signal xabari (rasm) Telegram ishlamay turgan paytda yetmasa — keyinroq qayta (avval yo'qolib ketardi).
+# Jami ~7,5 daqiqa; hodisa ALERT_MAX_AGE dan eski bo'lsa endi yuborilmaydi (kech xabar chalg'itadi)
+ALERT_RETRY = (10.0, 30.0, 60.0, 120.0, 240.0)
+ALERT_MAX_AGE = 900.0
+TRANSIENT = (0, 429, 500, 502, 503, 504)
+
+
+def _transient(res) -> bool:
+    """Tarmoq yoki Telegram serveri xatosi (keyinroq o'tishi mumkin). 400/403 (bloklangan, noto'g'ri so'rov) — yo'q."""
+    return not res or (not res.get("ok") and int(res.get("error_code") or 0) in TRANSIENT)
 CODE_TRIES = 5               # ulanish kodi: bitta chatdan 10 daqiqada shuncha xato urinish — blok
 CODE_ROTATE_AFTER = 30       # hamma chatlardan 10 daqiqada shuncha xato — kod avtomatik almashadi
 
@@ -187,6 +197,9 @@ class TelegramBot:
         self._code_fails: dict[int, list[float]] = defaultdict(list)
         self._code_fails_all: list[float] = []
         self._chat_locks: dict[int, threading.Lock] = defaultdict(threading.Lock)
+        # Hodisa bo'yicha qulf (signal qayta urinishi va klip bosqichi bir-birini takrorlamasin): doimiy 64 ta qulf
+        self._ev_locks = [threading.Lock() for _ in range(64)]
+        self._timers: set = set()
         self._chat_next: dict[int, float] = {}
         self._alert_done: dict[int, threading.Event] = {}
         self._kb_done: set[int] = set()   # eski pastki tugmalar (reply keyboard) tozalangan chatlar
@@ -262,6 +275,8 @@ class TelegramBot:
     def stop(self) -> None:
         """Toza to'xtash: navbat kutilmaydi, davom etayotgan yuklashlar (2 daqiqalik video ham) uziladi."""
         self.stop_evt.set()
+        for tm in list(self._timers):
+            tm.cancel()
         for p in (self.io_pool, self.cb_pool):
             p.shutdown(wait=False, cancel_futures=True)
         try:
@@ -759,7 +774,10 @@ class TelegramBot:
             return thumb.read_bytes()
         return None
 
-    def _send_alert(self, event_id: int, _b, t_q: float) -> None:
+    def _send_alert(self, event_id: int, opts, t_q: float) -> None:
+        if opts and opts.get("retry"):
+            self._retry_alert(event_id, opts, t_q)
+            return
         done = self._alert_done.setdefault(event_id, threading.Event())
         try:
             ev = db.get_event(event_id)
@@ -787,6 +805,7 @@ class TelegramBot:
                                                        "reply_markup": json.loads(markup)}, chat_id=chat_id)
                 except Exception as e:
                     self._log(event_id, "alert", chat_id, t_ev, t_q, time.time(), None, str(e))
+                    self._schedule_alert_retry(event_id, 0, [chat_id])
                     return
                 t_sent = time.time()
                 self._log(event_id, "alert", chat_id, t_ev, t_q, t_sent, res)
@@ -796,28 +815,74 @@ class TelegramBot:
                     self.sent += 1
                 else:
                     log.warning("Hodisa #%d yuborilmadi (%s): %s", event_id, chat_id, self.last_error)
+                    if _transient(res):
+                        # har chat o'z natijasi ma'lum bo'lganda (60 s dan keyin ham) — qayta urinish rejalashtiriladi
+                        self._schedule_alert_retry(event_id, 0, [chat_id])
 
             # Rasm kichik (~100 KB) — barcha chatlarga parallel yuboriladi
             futs = [self.io_pool.submit(self._safe, one, c) for c in subs]
-            wait(futs, timeout=60)
+            # Telegram osilib qolsa bitta chat ~3 daqiqa (3 × 30 s rasm + 3 × 30 s matn) — klip bosqichi shuni kutadi
+            wait(futs, timeout=240)
             db.update_event(event_id, telegram_sent=1)
         finally:
             done.set()
+
+    def _schedule_alert_retry(self, event_id: int, n: int, chats: list[int]) -> None:
+        if self.stop_evt.is_set():
+            return
+        if n >= len(ALERT_RETRY):
+            log.error("Hodisa #%d xabari %d ta chatga yetmadi (%d urinish) — Telegram uzoq ishlamadi", event_id,
+                      len(chats), n + 1)
+            return
+        log.warning("Hodisa #%d xabari %d ta chatga yetmadi — %.0f s dan keyin qayta (%d/%d)", event_id, len(chats),
+                    ALERT_RETRY[n], n + 1, len(ALERT_RETRY))
+
+        def fire():
+            self._timers.discard(t)
+            if not self.stop_evt.is_set():
+                # yangi signallardan keyin (PRIO_CLIP): eski hodisaning qayta urinishi yangi signalni kechiktirmasin
+                self._enqueue(PRIO_CLIP, "alert", event_id, {"retry": n + 1, "chats": list(chats)})
+        t = threading.Timer(ALERT_RETRY[n], fire)
+        t.daemon = True
+        self._timers.add(t)
+        t.start()
+
+    def _retry_alert(self, event_id: int, opts: dict, t_q: float) -> None:
+        """Yetmagan chatlarga qayta: klip tayyor bo'lsa — video bilan, bo'lmasa rasm (keyin klip o'sha xabarga
+        qo'shiladi). Shu orada boshqa yo'l bilan (klip bosqichi) yetib bo'lgan chatlar o'tkazib yuboriladi."""
+        ev = self._enabled_for(event_id)         # Telegram o'chirilgan / chegara o'zgargan bo'lsa — yubormaymiz
+        if not ev:
+            return
+        if time.time() - float(ev.get("created_at") or 0) > ALERT_MAX_AGE:
+            log.error("Hodisa #%d xabari yuborilmadi: %.0f daqiqadan eski", event_id, ALERT_MAX_AGE / 60)
+            return
+        chats = [int(c) for c in opts.get("chats") or []]
+        # retries=0: tashqi jadval (ALERT_RETRY) o'zi qayta uradi — osilgan Telegram bajaruvchilarni band qilmasin
+        failed = self._send_full(event_id, {"chats": chats, "only_missing": True, "retries": 0}, t_q)
+        if failed:
+            self._schedule_alert_retry(event_id, int(opts["retry"]), failed)
 
     def _send_clip(self, event_id: int, opts, t_q: float) -> None:
         """opts: None (birinchi urinish) yoki {"retry": n, "chats": [...]} — tarmoq xatosi bo'lgan chatlarga qayta."""
         opts = opts or {}
         retry = int(opts.get("retry", 0))
         done = self._alert_done.get(event_id)
-        if done is not None:
-            done.wait(60)   # rasm xabarlari yuborilib bo'lishini kutish (message_id kerak)
+        if done is not None and not done.wait(60):   # rasm xabarlari yuborilib bo'lishini kutish (message_id kerak)
+            # Signal bosqichi hali tugamagan (Telegram osilgan): keyinroq — aks holda o'sha chatga ikkinchi xabar ketardi
+            tm = threading.Timer(CLIP_RETRY_SEC, self._enqueue, (PRIO_CLIP, "clip", event_id, opts or None))
+            tm.daemon = True
+            tm.start()
+            return
         ev = db.get_event(event_id)
         if not ev:
             return
         msgs = db.rows("SELECT * FROM tg_messages WHERE event_id=?", (event_id,))
         if not msgs and not retry:
-            self._send_full(event_id, None, t_q)
-            return
+            self._send_full(event_id, {"only_missing": True}, t_q)
+            # Shu orada signal qayta urinishi rasm yuborgan bo'lishi mumkin — unga video qo'shiladi (pastda)
+            msgs = db.rows("SELECT * FROM tg_messages WHERE event_id=?", (event_id,))
+            if not any(m["kind"] in ("photo", "text") for m in msgs):
+                return
         # Video allaqachon qo'shilgan xabarlar o'tkazib yuboriladi (takroriy chaqiruv yoki qayta urinish)
         msgs = [m for m in msgs if m["kind"] in ("photo", "text")]
         if opts.get("chats") is not None:
@@ -909,16 +974,35 @@ class TelegramBot:
             else:
                 log.error("Hodisa #%d klipi %d ta chatga yuborilmadi (%d urinish)", event_id, len(failed), retry + 1)
 
-    def _send_full(self, event_id: int, _b, t_q: float) -> None:
-        """Bor narsa bilan bitta xabar (qayta yuborish yoki rasm bosqichi o'tkazib yuborilgan bo'lsa)."""
+    def _send_full(self, event_id: int, opts, t_q: float) -> list[int]:
+        """Bor narsa bilan bitta xabar (qayta yuborish yoki rasm bosqichi o'tkazib yuborilgan bo'lsa).
+        opts: {"chats": [...]} — faqat shu chatlarga; {"only_missing": True} — xabari yetib bo'lgan chatlar o'tkazib
+        yuboriladi (signal qayta urinishi va klip bosqichi bir-birini takrorlamasin). Qaytaradi: vaqtinchalik xato bilan
+        yetmagan chatlar."""
+        opts = opts or {}
+        with self._ev_locks[int(event_id) % len(self._ev_locks)]:
+            return self._send_full_locked(event_id, opts, t_q)
+
+    def _send_full_locked(self, event_id: int, opts: dict, t_q: float) -> list[int]:
         ev = db.get_event(event_id)
         subs = self._subs()
+        if opts.get("chats") is not None:
+            want = {int(c) for c in opts["chats"]}
+            subs = [c for c in subs if int(c) in want]
+        if opts.get("only_missing"):
+            have = {int(r["chat_id"]) for r in db.rows("SELECT chat_id FROM tg_messages WHERE event_id=?", (event_id,))}
+            subs = [c for c in subs if int(c) not in have]
+        failed: list[int] = []
         if not ev or not subs:
-            return
+            return failed
         cap = self._caption(ev)
         markup = json.dumps(self._markup(ev))
         clip = CLIPS_DIR / ev["clip_path"] if ev.get("clip_path") else None
         send_video = db.flag("telegram_send_video") and clip and clip.exists() and clip.stat().st_size < VIDEO_LIMIT
+        rt = int(opts.get("retries", 2))
+        # Klip hali tayyor emas — rasm/matn xabarida "klip tayyorlanmoqda" (keyin video shu xabarga qo'shiladi)
+        cap_wait = (self._caption(ev, clip_pending=True)
+                    if db.flag("telegram_send_video") and not ev.get("clip_path") and not ev.get("clip_error") else cap)
         photo = self._photo_bytes(ev)
         thumb = CLIPS_DIR / ev["thumb_path"] if ev.get("thumb_path") else None
         small = _small_jpeg(thumb) if thumb and thumb.exists() else None
@@ -932,7 +1016,7 @@ class TelegramBot:
                     if file_id:
                         res = self.api("sendVideo", {"chat_id": chat_id, "video": file_id[0], "caption": cap,
                                                      "parse_mode": "HTML", "reply_markup": json.loads(markup)},
-                                       chat_id=chat_id)
+                                       chat_id=chat_id, retries=rt)
                     else:
                         with open(clip, "rb") as fv:
                             files = {"video": (clip.name, fv, "video/mp4")}
@@ -940,28 +1024,33 @@ class TelegramBot:
                                 files["thumbnail"] = ("thumb.jpg", small, "image/jpeg")
                             res = self.api("sendVideo", {"chat_id": str(chat_id), "caption": cap, "parse_mode": "HTML",
                                                          "supports_streaming": "true", "reply_markup": markup},
-                                           files=files, timeout=120, chat_id=chat_id)
+                                           files=files, timeout=120, chat_id=chat_id, retries=rt)
                         v = (res or {}).get("result", {}).get("video") if res and res.get("ok") else None
                         if v:
                             file_id.append(v["file_id"])
                 if (not res or not res.get("ok")) and photo:
                     kind = "photo"
-                    res = self.api("sendPhoto", {"chat_id": str(chat_id), "caption": cap, "parse_mode": "HTML",
+                    res = self.api("sendPhoto", {"chat_id": str(chat_id), "caption": cap_wait, "parse_mode": "HTML",
                                                  "reply_markup": markup},
-                                   files={"photo": (f"hodisa_{event_id}.jpg", photo, "image/jpeg")}, chat_id=chat_id)
+                                   files={"photo": (f"hodisa_{event_id}.jpg", photo, "image/jpeg")}, chat_id=chat_id,
+                                   retries=rt)
                 if not res or not res.get("ok"):
                     kind = "text"
-                    res = self.api("sendMessage", {"chat_id": chat_id, "text": cap, "parse_mode": "HTML",
-                                                   "reply_markup": json.loads(markup)}, chat_id=chat_id)
+                    res = self.api("sendMessage", {"chat_id": chat_id, "text": cap_wait, "parse_mode": "HTML",
+                                                   "reply_markup": json.loads(markup)}, chat_id=chat_id, retries=rt)
             except Exception as e:
                 self._log(event_id, "full", chat_id, t_ev, t_q, time.time(), None, str(e))
+                failed.append(chat_id)
                 continue
             self._log(event_id, "full", chat_id, t_ev, t_q, time.time(), res)
             if res and res.get("ok"):
                 db.execute("INSERT OR REPLACE INTO tg_messages(event_id, chat_id, message_id, kind) VALUES(?,?,?,?)",
                            (event_id, chat_id, res["result"]["message_id"], kind))
                 self.sent += 1
+            elif _transient(res):
+                failed.append(chat_id)
         db.update_event(event_id, telegram_sent=1)
+        return failed
 
     def _send_text(self, chat_id: int, text: str, _t_q: float) -> None:
         self._reply(chat_id, text)

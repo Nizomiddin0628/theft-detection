@@ -136,6 +136,26 @@ def sweep_suite() -> None:
         fp += bool(run_falls([(8, sim.const(sim.STAND))], fps=fps, hpx=300, noise=0.01, scale_fn=fn))
     ok(f"Salbiy harakatlar (cho'kkalash, egilish, tiz cho'kish, polga o'tirish, uzoqlashish/yaqinlashish): "
        f"{fp}/{n} xato signal", fp == 0)
+    # 2.3.1: kamera o'qi bo'ylab yiqilish (yotgan odam rasmda qisqa va tor — "uzoqdagi tik odam"ga o'xshaydi) — 2.3.0
+    # topgan holatlar topilishda davom etsin; tez uzoqlashib eshikdan chiqqan odam — signal yo'q
+    miss = []
+    for f, fps, noise in [(0.42, fp_, nz) for fp_ in (4, 8, 15) for nz in (0.0, 0.01)] + [(0.48, fp_, 0.01) for fp_ in (4, 8, 15)]:
+        segs = [(3, sim.const(sim.STAND)), (0.6, sim.morph(sim.STAND, sim.axis_lying(f))), (8, sim.const(sim.axis_lying(f)))]
+        got = [k for _, k in run_falls(segs, fps=fps, noise=noise, seed=1)]
+        if got != ["fall"]:
+            miss.append(f"{f}/{fps}/{noise}: {got}")
+    ok("Kamera o'qi bo'ylab yiqilish (yotgan ramka bo'yning 0,42–0,48 qismi) — topiladi", not miss, "; ".join(miss))
+    bad = []
+    for fps, noise, occ in itertools.product((4, 8, 15), (0.0, 0.01, 0.02), (False, True)):
+        fd = safety.FallDetector()
+        al = []
+        seq = sim.walk_away(fps, noise, occ)
+        for t, ps in seq:
+            al += fd.update(ps, t, 720)
+        al += fd.flush(seq[-1][0] + 10)
+        if al:
+            bad.append(f"{fps}/{noise}/{occ}: {[a['kind'] for a in al]}")
+    ok("Tez uzoqlashib eshik ortiga kirib ketgan odam — signal yo'q", not bad, "; ".join(bad))
 
 
 def track_suite() -> None:

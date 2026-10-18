@@ -71,8 +71,10 @@ FALL_WINDOW = 2.0        # "tik" holatdan "yotgan" holatgacha ko'pi bilan shunch
 FALL_CONFIRM = 2.0       # yotgan holatdan keyin shuncha soniya tik turmasa — signal
 COLLAPSE_LIE = 1.5       # cho'kib yiqilish: son yerga tekkandan yotgan holatgacha ko'pi bilan
 COLLAPSE_TOTAL = 2.5     # cho'kib yiqilish: tik holatdan yotgan holatgacha jami ko'pi bilan
-HREF_SEC = 3.0           # tik bo'yi (H_ref): oxirgi shuncha soniyadagi tik kadrlarning eng kattasi (uzoqlashgan odam
-                         # kichrayadi — eski katta qiymat uni "cho'kkalagan" qilib ko'rsatmasin)
+HREF_SEC = 1.0           # tik bo'yi (H_ref): oxirgi shuncha soniyadagi tik kadrlarning (va skelet bo'yining) eng kattasi.
+                         # 2.3.1: 3 s edi — kameradan tez uzoqlashayotgan odam 3 s da ~1,7 marta kichrayadi va eski katta
+                         # bo'yga nisbatan "yerda" ko'rinardi (soak: eshik tomon ketgan odam "yiqildi"). Yiqilish paytida
+                         # (tik kadr yo'q) oxirgi qiymat saqlanadi (TrackSt.h_ref)
 LOST_KEEP = 6.0          # yo'qolgan trek shuncha soniya eslab qolinadi (to'silish, yotgan odamni detektor ko'rmasligi)
 INHERIT_GAP = 3.0        # yangi trek shu vaqt ichida yo'qolgan trek o'rnida paydo bo'lsa — o'sha odam
 LYING_GAP = 6.0          # yotgan holat kuzatuvlari orasidagi eng katta uzilish (detektor goh ko'rmaydi)
@@ -81,6 +83,7 @@ LYING_MOVE = 0.6         # oynada markaz siljishi (H_ref ulushi) shundan kam —
 FALL_SUPPRESS_LYING = 300.0   # yiqilish signali bo'lgan odam uchun shuncha vaqt "yotibdi" signali berilmaydi
 LYING_REPEAT = 600.0     # o'sha joyda "yotibdi" signali shuncha vaqtda bir marta
 SPOT_COOLDOWN = 60.0     # bir joyda (bir odam) takroriy yiqilish signali
+WALK_CANCEL = 0.8        # kutayotgan yiqilish: oyoq shuncha × ramka o'lchamidan ko'p siljisa — yurib ketyapti, bekor
 SENS = {"normal": {"hip": 0.25, "collapse": False}, "high": {"hip": 0.33, "collapse": True}}
 
 # --- boshqa qoidalar
@@ -219,6 +222,7 @@ class TrackSt:
     floor_t: float | None = None       # tik holatdan keyin son birinchi marta pastga (≤ chegara) tushgan vaqt
     pending: dict | None = None        # {"t_down", "deadline", "box", "reasons"}
     fall_alert_t: float = -1e9
+    down_href: float = 0.0             # "yerda" holati boshlangandagi tik bo'y (tik turguncha o'zgarmaydi)
     lying_alerted: bool = False
     kpts: np.ndarray | None = None
 
@@ -246,8 +250,14 @@ class FallDetector:
     # ------------------------------------------------------------------
     def _h_ref(self, st: TrackSt, t: float) -> float:
         ups = [h for tt, h in st.ups if 0 <= t - tt <= HREF_SEC]
-        sk = [v for tt, v in st.skel if 0 <= t - tt <= 3.0]
+        sk = [v for tt, v in st.skel if 0 <= t - tt <= HREF_SEC]
         base = max(ups) if ups else (st.h_ref or st.h_max)
+        # Odam yerda (yoki yiqilish tasdiq kutilmoqda): tik bo'y yiqilishdan oldingi qiymatda qotadi. Aks holda kamera
+        # o'qi bo'ylab yotgan odam (qisqa, tor ramka) bir necha soniyada "o'z bo'yidagi tik odam" bo'lib qolardi (2.3.1)
+        if st.down_href:
+            base = max(base, st.down_href)
+        if st.pending is not None:
+            base = max(base, float(st.pending.get("h_ref") or 0.0))
         return max(base, max(sk) if sk else 0.0, 1.0)
 
     def _inherit(self, tid: int, box, kpts, t: float, frame_h: int, hip_thr: float) -> TrackSt | None:
@@ -364,15 +374,25 @@ class FallDetector:
         if pose.state == UP:
             st.last_up_t, st.last_up_h = t, h
             st.down_since = st.floor_t = None
+            st.down_href = 0.0
             st.lying_alerted = False
             st.pending = None                    # turib ketdi (yoki hech yiqilmagan) — kutayotgan signal bekor
         else:
             if (st.floor_t is None and pose.hip_low is not None and not pose.truncated
                     and pose.hip_low <= cfg["hip"]):
                 st.floor_t = t
+            pd = st.pending
+            if pd is not None:
+                # Yiqilgan odam joyida qoladi; oyog'i (ramka pasti) joyidan ancha siljigan bo'lsa — yurib ketyapti
+                # (masalan, eshik tomon ketayotgan odam bir kadrda "yerda" ko'ringan) — signal bekor (2.3.1)
+                fx0, fy0 = float(pd["box"][0] + pd["box"][2]) / 2, float(pd["box"][3])
+                fx1, fy1 = float(box[0] + box[2]) / 2, float(box[3])
+                if math.hypot(fx1 - fx0, fy1 - fy0) > WALK_CANCEL * max(h, float(box[2] - box[0]), 1.0):
+                    st.pending = None
         if pose.state == DOWN:
             if st.down_since is None:
                 st.down_since = t
+                st.down_href = st.h_ref
             # Yiqilish: tik → yotgan ≤ 2 s; yoki "cho'kib yiqilish": tik → son yerda ≤ 2 s, keyin ≤ 1,5 s ichida yotdi va
             # hammasi ≤ 2,5 s (polga sekin o'tirib, keyin yotgan odam — yiqilish emas, u "odam yotibdi" qoidasida)
             quick = 0 <= t - prev_up_t <= FALL_WINDOW or (

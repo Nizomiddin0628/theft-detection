@@ -581,8 +581,8 @@ def misc_suite() -> None:
     ok("start_windows.bat: birinchi PORT qatori, qo'shtirnoq/bo'shliqsiz, tizim muhitidagi PORT ustun",
        b"if not defined HPORT set \"HPORT=%%b\"" in bat and b'%HPORT:"=%' in bat and b"%HPORT: =%" in bat
        and b'set "HPORT=%PORT%"' in bat)
-    ok("Versiya 2.3.0 (edge va bulut)", config.APP_VERSION == "2.3.0" and
-       __import__("cloud.server", fromlist=["VERSION"]).VERSION == "2.3.0")
+    ok("Versiya 2.3.1 (edge va bulut)", config.APP_VERSION == "2.3.1" and
+       __import__("cloud.server", fromlist=["VERSION"]).VERSION == "2.3.1")
 
 
 def main() -> int:

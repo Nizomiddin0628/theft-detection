@@ -179,7 +179,7 @@ class FakeTelegram:
                 media = None
         if isinstance(media, dict):
             text = media.get("caption") or text
-        rec = {"t": now(), "method": method, "chat": str(data.get("chat_id", "")), "text": str(text)[:400],
+        rec = {"t": now(), "method": method, "chat": str(data.get("chat_id", "")), "text": str(text)[:4096],
                "files": nfiles, "ok": mode in (None, "slow"), "mode": mode, "mid": None}
         self.calls.append(rec)
         if mode == "hang":
@@ -429,6 +429,7 @@ class Child:
                                   stdin=subprocess.DEVNULL, creationflags=flags)
         log.close()
         self.ps = psutil.Process(self.p.pid)
+        self._pcache = {}
         try:
             self.ps.cpu_percent(None)
         except Exception:  # noqa: BLE001
@@ -453,18 +454,48 @@ class Child:
             self.p.kill()
             self.p.wait(15)
 
+    def _tree(self) -> list:
+        """Jarayon va uning bolalari. Windows'da .venv\\Scripts\\python.exe — kichik ishga tushirgich (~4 MB): haqiqiy
+        Python uning bola jarayoni. Faqat ishga tushirgichni o'lchasak, xotira oqishi umuman ko'rinmasdi (2.4.0)."""
+        import psutil
+
+        procs = [self.ps]
+        try:
+            procs += self.ps.children(recursive=True)
+        except Exception:  # noqa: BLE001
+            pass
+        cache = getattr(self, "_pcache", {})
+        out = []
+        for p in procs:
+            q = cache.get(p.pid)
+            if q is None:
+                q = p
+                try:
+                    q.cpu_percent(None)               # birinchi o'lchov — keyingisi uchun asos
+                except Exception:  # noqa: BLE001
+                    pass
+            out.append(q)
+        self._pcache = {p.pid: p for p in out}
+        return out
+
     def sample(self) -> dict:
         out = {"rss": None, "threads": None, "handles": None, "cpu": None}
         if not self.alive() or self.ps is None:
             return out
-        try:
-            with self.ps.oneshot():
-                out["rss"] = round(self.ps.memory_info().rss / 2 ** 20, 1)
-                out["threads"] = self.ps.num_threads()
-                out["handles"] = self.ps.num_handles() if os.name == "nt" else self.ps.num_fds()
-                out["cpu"] = round(self.ps.cpu_percent(None), 1)
-        except Exception:  # noqa: BLE001
-            pass
+        rss = thr = hd = cpu = 0.0
+        ok = False
+        for p in self._tree():
+            try:
+                with p.oneshot():
+                    rss += p.memory_info().rss
+                    thr += p.num_threads()
+                    hd += p.num_handles() if os.name == "nt" else p.num_fds()
+                    cpu += p.cpu_percent(None)
+                ok = True
+            except Exception:  # noqa: BLE001
+                continue
+        if ok:
+            out.update(rss=round(rss / 2 ** 20, 1), threads=int(thr), handles=int(hd), cpu=round(cpu, 1))
         return out
 
 
@@ -1142,7 +1173,11 @@ class Soak:
 
         # --- bulut → Telegram (qorovul): yangi hodisa uchun aynan bir marta, hodisa bo'yicha (tg_sent: uid ↔ message_id).
         # 10 daqiqadan eski (navbatdan kech kelgan) hodisa uchun xabar yo'q — loyiha qoidasi
-        g_ok = [c for c in self.tg_cloud.ok_calls(self.GUARD_CHAT) if "Shubhali harakat" in c["text"]]
+        # Hodisa xabari: "🎯 <turi>" qatori bor (2.2.0 dan xavfsizlik hodisalari sarlavhasi boshqa — "🆘 Yiqilish" va
+        # h.k., shuning uchun "Shubhali harakat" bo'yicha ajratish ularni "yetmagan" deb ko'rsatardi); eslatma emas
+        g_ok = [c for c in self.tg_cloud.ok_calls(self.GUARD_CHAT)
+                if c["method"] in ("sendMessage", "sendPhoto", "sendVideo") and "🎯" in c["text"]
+                and "Javobsiz hodisa" not in c["text"]]
         sent_rows = self.cloud_rows("SELECT uid, message_id FROM tg_sent WHERE kind='event' AND chat_id=:c AND "
                                     "message_id IS NOT NULL", {"c": str(self.GUARD_CHAT)})
         by_mid = {int(r["message_id"]): r["uid"] for r in sent_rows}
