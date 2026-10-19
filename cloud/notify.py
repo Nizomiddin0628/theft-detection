@@ -180,6 +180,22 @@ def flow_today_text(b: dict, day0: float) -> str:
     return "bo'limlar: " + ", ".join(f"{esc(k)} {v}" for k, v in top)
 
 
+def fmt_sum(n) -> str:
+    """3.1.0: 150000 → "150 000 so'm"."""
+    try:
+        v = int(n or 0)
+    except (TypeError, ValueError):
+        v = 0
+    return f"{v:,}".replace(",", " ") + " so'm"
+
+
+def _loss_ok(ev: dict) -> bool:
+    """Zarar summasi shu hodisaga yoziladimi (do'kondagi o'g'irlik signali, video tahlili emas)."""
+    from .service import loss_allowed
+
+    return loss_allowed(ev)
+
+
 def fmt_dur(sec: float) -> str:
     sec = max(0, int(sec))
     if sec >= 3600:
@@ -339,10 +355,31 @@ def notify_branch(branch_id: int, kind: str, ref: str, payload: dict, pref: str,
 def _event_payload(ev: dict, branch: dict) -> dict:
     d = cdb.json_load(ev.get("data")) or {}
     skew = float(branch.get("clock_skew") or 0)
-    return {"uid": ev["uid"], "branch_id": branch["id"], "branch": branch.get("name"), "camera": ev.get("source_name"),
-            "kind": ev.get("kind"), "score": float(ev.get("score") or 0), "level": d.get("level"),
-            "reasons": [str(r) for r in (d.get("reasons") or [])][:6], "local_id": ev.get("local_id"),
-            "t_event": float(ev.get("created_at") or 0) + skew, "status": ev.get("status")}
+    p = {"uid": ev["uid"], "branch_id": branch["id"], "branch": branch.get("name"), "camera": ev.get("source_name"),
+         "kind": ev.get("kind"), "score": float(ev.get("score") or 0), "level": d.get("level"),
+         "reasons": [str(r) for r in (d.get("reasons") or [])][:6], "local_id": ev.get("local_id"),
+         "t_event": float(ev.get("created_at") or 0) + skew, "status": ev.get("status"),
+         "loss_sum": ev.get("loss_sum")}
+    if d.get("job_id") is not None:
+        p["video"] = True
+        p["video_time"] = d.get("video_time")
+        t = _test_of(ev, d)
+        if t:
+            p["test"] = {"id": t["id"], "filename": t["filename"], "user_id": t.get("user_id")}
+    return p
+
+
+def _test_of(ev: dict, d: dict | None = None) -> dict | None:
+    """3.1.0: bulut Video sinovi hodisasi — qaysi sinov (edge hodisada cloud_test_id yuboradi; shu filialniki)."""
+    d = d if d is not None else (cdb.json_load(ev.get("data")) or {})
+    try:
+        tid = int(d.get("cloud_test_id") or 0)
+    except (TypeError, ValueError):
+        return None
+    if tid <= 0:
+        return None
+    return cdb.row("SELECT id, filename, user_id, job_id FROM video_tests WHERE id=:i AND branch_id=:b",
+                   {"i": tid, "b": ev["branch_id"]})
 
 
 # ----------------------------------------------------------------------------- hodisa trigerlari
@@ -365,13 +402,102 @@ def on_new_event(uid: str) -> int:
     br = cdb.row("SELECT * FROM branches WHERE id=:b", {"b": ev["branch_id"]}) or {"id": ev["branch_id"]}
     d = cdb.json_load(ev.get("data")) or {}
     if d.get("job_id") is not None:
-        return 0
+        return _on_test_event(ev, d, br)
     p = _event_payload(ev, br)
     if time.time() - p["t_event"] > NOTIFY_MAX_AGE or (ev.get("status") or "yangi") != "yangi":
         return 0
     # 2.2.0: xavfsizlik signali (yiqilish, tungi kirish...) — egasining min_score chegarasi (75) uni to'smaydi
     return notify_branch(br["id"], "event", uid, p, "event",
                          score=None if p.get("kind") in SAFETY_KINDS else p["score"])
+
+
+TEST_TG_MAX = 20                         # 3.1.0: bitta Video sinovidan ko'pi bilan shuncha signal xabari (qolgani — natijada)
+
+
+def _on_test_event(ev: dict, d: dict, br: dict) -> int:
+    """3.1.0: bulut Video sinovidagi signal — sinovni yuklagan xodimga, faqat Telegram'da (email/push — yakuniy natija
+    bilan bir marta), sozlamadan qat'i nazar (sinovni o'zi boshlagan), sinovga ko'pi bilan TEST_TG_MAX ta. Do'kondagi
+    yuklangan video (Video tahlili) — bulutda xabar yo'q (edge boti yuboradi)."""
+    t = _test_of(ev, d)
+    if not t or not t.get("user_id"):
+        return 0
+    if t.get("job_id") and d.get("job_id") != t["job_id"]:
+        return 0                                     # boshqa (qayta tahlil qilingan eski) vazifa hodisasi
+    u = cdb.row("SELECT * FROM users WHERE id=:u AND active=:a", {"u": t["user_id"], "a": True})
+    if not u:
+        return 0
+    p = _event_payload(ev, br)
+    if time.time() - p["t_event"] > NOTIFY_MAX_AGE or (ev.get("status") or "yangi") != "yangi":
+        return 0
+    tgs = [tg for tg in targets(u["id"]) if tg["channel"] == "telegram"]
+    if not tgs:
+        return 0
+    prefix = f"vt:{int(t['id'])}:"
+    if not cdb.upsert(cdb.notify_once, {"key": (prefix + ev["uid"])[:200], "at": time.time()}, ["key"]):
+        return 0                                     # shu hodisa uchun allaqachon (takroriy qabul)
+    sent = cdb.scalar("SELECT COUNT(*) FROM notify_once WHERE key LIKE :p", {"p": prefix + "%"}) or 0
+    if sent > TEST_TG_MAX:
+        return 0
+    for tg in tgs:
+        enqueue(u["id"], tg, "event", ev["uid"], p)
+    return len(tgs)
+
+
+def on_video_test_done(tid: int) -> int:
+    """3.1.0: Video sinovi tugadi (tayyor / xato / bekor) — yuklagan xodimga qisqa natija (bir marta)."""
+    t = cdb.row("SELECT t.*, b.name AS branch_name FROM video_tests t JOIN branches b ON b.id=t.branch_id "
+                "WHERE t.id=:i", {"i": int(tid)})
+    if not t or not t.get("user_id") or t.get("status") not in ("tayyor", "xato"):
+        return 0                                     # bekor qilinganini xodim o'zi bilib turibdi
+    with cdb.engine().begin() as c:                   # bir marta (ikki hello bir vaqtda kelsa ham)
+        got = c.execute(cdb.video_tests.update().where(cdb.video_tests.c.id == int(tid),
+                                                       func.coalesce(cdb.video_tests.c.notified, False).is_(False))
+                        .values(notified=True)).rowcount
+    if not got:
+        return 0
+    u = cdb.row("SELECT * FROM users WHERE id=:u AND active=:a", {"u": t["user_id"], "a": True})
+    if not u:
+        return 0
+    from . import video_tests
+
+    evs = video_tests.events_for(t) if t.get("status") == "tayyor" else []
+    kinds: dict[str, int] = {}
+    for e in evs:
+        kinds[e["kind"]] = kinds.get(e["kind"], 0) + 1
+    # hodisalarning bir qismi hali yo'lda bo'lishi mumkin — edge aytgan son (t.events) ham hisobga olinadi
+    total = max(len(evs), int(t.get("events") or 0))
+    p = {"test_id": t["id"], "filename": t["filename"], "branch": t.get("branch_name"), "status": t["status"],
+         "error": t.get("error"), "duration": t.get("duration"), "events": total,
+         "kinds": kinds if len(evs) == total else {}, "capped": total > TEST_TG_MAX,
+         "brief": metrics_brief(cdb.json_load(t.get("metrics"))), "t_event": time.time()}
+    n = 0
+    for tg in targets(u["id"]):
+        enqueue(u["id"], tg, "vtest", str(t["id"]), p)
+        n += 1
+    return n
+
+
+def metrics_brief(m: dict | None) -> list[str]:
+    """Edge'dagi app/ai/video_metrics.brief bilan bir xil (bulutda app paketi yo'q)."""
+    if not isinstance(m, dict):
+        return []
+    out = []
+    for q in m.get("queue") or []:
+        if not isinstance(q, dict):
+            continue
+        s_ = f"🧾 {q.get('name')}: eng uzun navbat {int(q.get('max_len') or 0)} kishi"
+        if q.get("served"):
+            s_ += f", {int(q['served'])} xaridor o'tdi, o'rtacha kutish {fmt_dur(q.get('avg_wait') or 0)}"
+        out.append(s_)
+    for ln in m.get("lines") or []:
+        if isinstance(ln, dict):
+            out.append(f"🚪 {ln.get('name')}: kirdi {int(ln.get('in') or 0)}, chiqdi {int(ln.get('out') or 0)}"
+                       + (f" (xodim {int(ln['staff'])})" if ln.get("staff") else ""))
+    areas = [a for a in (m.get("areas") or []) if isinstance(a, dict) and a.get("kind") == "polka"]
+    if areas:
+        out.append("🗺 Bo'limlar (to'xtaganlar): " + ", ".join(f"{a.get('name')} {int(a.get('visitors') or 0)}"
+                                                              for a in areas[:4]))
+    return out[:12]
 
 
 def _clip_for(s: dict) -> bool:
@@ -615,6 +741,12 @@ def _event_text(p: dict, kind: str) -> str:
         what += f" — ball <b>{p.get('score', 0):.0f}</b>" + (f" ({esc(p.get('level'))})" if p.get("level") else "")
     lines = [head, f"🏪 {esc(p.get('branch'))}", f"📷 Kamera: {esc(p.get('camera'))}", f"🕒 {fmt_time(p.get('t_event'))}",
              what]
+    test = p.get("test") if isinstance(p.get("test"), dict) else None
+    if test:
+        # 3.1.0: bulut Video sinovi — videoning qaysi soniyasi
+        vt = p.get("video_time")
+        lines.insert(0, f"🧪 <b>Video sinovi</b>: {esc(test.get('filename'))}"
+                        + (f" — videoning {float(vt):.1f}-soniyasi" if isinstance(vt, (int, float)) else ""))
     if p.get("reasons"):
         lines += ["", "<b>Nima bo'ldi:</b>" if safe else "<b>Sabablar:</b>"] + [f"• {esc(r)}" for r in p["reasons"][:5]]
     if not safe:
@@ -629,6 +761,8 @@ def _plain(s: str) -> str:
 
 def render(kind: str, p: dict) -> tuple[str, str, str]:
     """(sarlavha, matn HTML (Telegram), havola yo'li)."""
+    if kind == "vtest":
+        return _vtest_render(p)
     if kind in ("event", "escalation"):
         if kind == "escalation":
             title = f"Javobsiz hodisa: {p.get('branch')}"
@@ -636,6 +770,8 @@ def render(kind: str, p: dict) -> tuple[str, str, str]:
             title = f"{KIND_UZ[p['kind']]}: {p.get('branch')}, {p.get('camera') or ''}".rstrip(", ")
         else:
             title = f"Shubhali harakat: {p.get('branch')}, ball {p.get('score', 0):.0f}"
+        if isinstance(p.get("test"), dict):
+            title = f"Video sinovi ({p['test'].get('filename')}): {KIND_UZ.get(p.get('kind'), p.get('kind'))}"
         return title, _event_text(p, kind), f"/events/?uid={p.get('uid')}"
     if kind == "camera":
         if p.get("state") == "down":
@@ -668,6 +804,29 @@ def render(kind: str, p: dict) -> tuple[str, str, str]:
         return (f"{p.get('title') or 'Navbat'}: {p.get('branch') or ''}".strip(": "),
                 f"{head}\n🏪 {where}\n{body}" if where else f"{head}\n{body}", "/queues/")
     return ("Hushyor AI", esc(json.dumps(p, ensure_ascii=False))[:500], "/")
+
+
+def _vtest_render(p: dict) -> tuple[str, str, str]:
+    """3.1.0: Video sinovi yakuniy natijasi."""
+    name = p.get("filename") or "video"
+    if p.get("status") == "xato":
+        return (f"Video sinovi: xato — {name}",
+                f"🧪 <b>Video sinovi tugamadi:</b> {esc(name)}\n🏪 {esc(p.get('branch'))}\nSabab: {esc(p.get('error') or '—')}",
+                "/videos/")
+    n = int(p.get("events") or 0)
+    lines = [f"🧪 <b>Video sinovi tayyor:</b> {esc(name)}", f"🏪 {esc(p.get('branch'))}"
+             + (f" · video {fmt_dur(p['duration'])}" if p.get("duration") else "")]
+    if n:
+        kinds = p.get("kinds") or {}
+        lines.append(f"🎯 Signallar: <b>{n}</b>" + (" — " + ", ".join(f"{esc(KIND_UZ.get(k, k))} {v}" for k, v in kinds.items())
+                                                   if kinds else ""))
+    else:
+        lines.append("🎯 Signal topilmadi")
+    lines += [esc(x) for x in (p.get("brief") or [])[:10]]
+    if p.get("capped"):
+        lines.append(f"Telegram'ga birinchi {TEST_TG_MAX} ta signal yuborildi, qolganlari — panelda.")
+    lines.append("Natija, kliplar va o'lchovlar — panelda (Video sinovi).")
+    return f"Video sinovi tayyor: {name} — {n} ta signal", "\n".join(lines)[:3900], "/videos/"
 
 
 # ----------------------------------------------------------------------------- Telegram
@@ -754,10 +913,12 @@ def send_telegram(row: dict, t: dict) -> None:
             _clip_for({"id": sent_id, "uid": p["uid"], "target_id": t["id"], "message_id": mid})
         return
     if kind == "clip":
-        ev = cdb.row("SELECT clip_file, branch_id, local_id FROM events WHERE uid=:u", {"u": p["uid"]})
+        ev = cdb.row("SELECT clip_file, clip_clean, branch_id, local_id FROM events WHERE uid=:u", {"u": p["uid"]})
         if not ev or not ev.get("clip_file"):
             raise Permanent("klip yo'q")
         path = CLIPS_DIR / ev["clip_file"]
+        if ev.get("clip_clean") and (CLIPS_DIR / ev["clip_clean"]).is_file():
+            path = CLIPS_DIR / ev["clip_clean"]          # 3.1.0: Telegram'ga chizmalarsiz (toza) video
         br = cdb.row("SELECT name FROM branches WHERE id=:b", {"b": ev["branch_id"]}) or {}
         cap = f"🎬 Klip: {esc(br.get('name'))}, hodisa #{ev.get('local_id')}"
         fid = cdb.scalar("SELECT file_id FROM tg_sent WHERE uid=:u AND kind='clip' AND file_id IS NOT NULL LIMIT 1",
@@ -787,7 +948,14 @@ def send_telegram(row: dict, t: dict) -> None:
         st = p.get("status")
         markup = {"inline_keyboard": []}
         if st in ("tasdiqlangan", "rad_etilgan"):
-            text_ += f"\n\n<b>{STATUS_UZ[st]}</b> — {esc(p.get('by'))}, {fmt_time(time.time())}"
+            d = cdb.json_load(ev.get("data")) or {}
+            when_ = d.get("reviewed_at") if isinstance(d.get("reviewed_at"), (int, float)) else time.time()
+            text_ += f"\n\n<b>{STATUS_UZ[st]}</b> — {esc(p.get('by'))}, {fmt_time(when_)}"
+            if st == "tasdiqlangan" and ev.get("loss_sum"):
+                text_ += f"\n💰 Taxminiy zarar: <b>{fmt_sum(ev['loss_sum'])}</b>"
+            if st == "tasdiqlangan" and _loss_ok(ev):
+                markup = {"inline_keyboard": [[{"text": "💰 Summani o'zgartirish" if ev.get("loss_sum")
+                                                else "💰 Zarar summasini kiritish", "callback_data": f"m:{int(p['sent_id'])}"}]]}
         else:
             markup = _review_markup(int(p["sent_id"]), p["uid"])
         try:
@@ -1109,12 +1277,98 @@ def new_link(user: dict) -> dict:
     return {"code": code, "link": f"https://t.me/{bot}?start={code}" if bot else None, "bot": bot, "expires_in": LINK_TTL}
 
 
+LOSS_WAIT_SEC = 600.0     # 3.1.0: ✅ dan keyin zarar summasi shuncha vaqt kutiladi
+
+
 class TelegramPoller(threading.Thread):
-    """Bulut botiga kelgan xabarlar: /start <kod> (bog'lash), /holat, /bugun, tugmalar (✅/❌)."""
+    """Bulut botiga kelgan xabarlar: /start <kod> (bog'lash), /holat, /bugun, tugmalar (✅/❌), zarar summasi (3.1.0)."""
 
     def __init__(self):
         super().__init__(daemon=True, name="cloud-tg")
         self.stop_evt = threading.Event()
+
+    @property
+    def loss_wait(self) -> dict:
+        """chat -> {so'rov xabari: (hodisa uid, xodim id, Telegram foydalanuvchisi, muddat)} (sinovlarda __init__siz
+        yaratilgan obyektda ham ishlaydi)."""
+        return self.__dict__.setdefault("_loss_wait", {})
+
+    def loss_ask(self, chat_id, uid: str, user: dict, tg_from: dict | None, group: bool = False) -> None:
+        """3.1.0: tasdiqlangan o'g'irlik — taxminiy zarar summasini so'rash. So'rov xabari hodisaga bog'lanadi: javob shu
+        xabarga (reply) yozilsa — aynan shu hodisaga; shaxsiy chatda oddiy xabar ham oxirgi so'rovga. Guruhda faqat
+        tugmani bosgan odamga (eslatiladi, selective)."""
+        tg_from = tg_from or {}
+        ev = cdb.row("SELECT e.kind, e.source_name, e.created_at, e.branch_id, b.name AS branch FROM events e "
+                     "JOIN branches b ON b.id=e.branch_id WHERE e.uid=:u", {"u": uid}) or {}
+        what = ", ".join(x for x in (KIND_UZ.get(ev.get("kind"), ev.get("kind") or ""), ev.get("branch") or "",
+                                     ev.get("source_name") or "", fmt_time(ev.get("created_at"))) if x)
+        who = ""
+        if group and tg_from.get("id"):
+            who = f'<a href="tg://user?id={int(tg_from["id"])}">{esc(tg_from.get("first_name") or tg_from.get("username") or "")}</a>, '
+        try:
+            res = _tg("sendMessage", {"chat_id": chat_id, "parse_mode": "HTML",
+                                      "text": f"💰 {who}taxminiy zarar summasini yozing — shu xabarga javob qilib (so'mda, "
+                                              f"masalan <b>150000</b> yoki <b>150 ming</b>).\nHodisa: {esc(what)}\n"
+                                              "Kerak bo'lmasa — /otkaz",
+                                      "reply_markup": {"force_reply": True, "selective": bool(group),
+                                                       "input_field_placeholder": "masalan 150000"}})
+        except (Retry, Permanent) as e:
+            log.warning("Bulut boti summani so'ray olmadi: %s", e)
+            return
+        mid = (res.get("result") or {}).get("message_id")
+        now = time.time()
+        waits = {k: v for k, v in self.loss_wait.get(str(chat_id), {}).items() if v[3] > now}
+        waits[int(mid) if mid else -int(now * 1000)] = (uid, user["id"], tg_from.get("id"), now + LOSS_WAIT_SEC)
+        self.loss_wait[str(chat_id)] = waits
+
+    def loss_take(self, chat_id, msg: dict, text_: str, cmd: str) -> bool:
+        """Summa so'ralgan chatdagi javob. True — xabar shu yerda ishlandi."""
+        now = time.time()
+        waits = {k: v for k, v in self.loss_wait.get(str(chat_id), {}).items() if v[3] > now}
+        if not waits:
+            self.loss_wait.pop(str(chat_id), None)
+            return False
+        self.loss_wait[str(chat_id)] = waits
+        rt = (msg.get("reply_to_message") or {}).get("message_id")
+        private = (msg.get("chat") or {}).get("type") in (None, "private")
+        if rt in waits:
+            key = rt
+        elif private:
+            key = max(waits)
+        else:
+            return False                                 # guruh: faqat so'rov xabariga javob
+        uid, user_id, tg_user, _until = waits[key]
+        frm = msg.get("from") or {}
+        if tg_user is not None and frm.get("id") is not None and frm.get("id") != tg_user:
+            return False                                 # boshqa a'zoning javobi
+        if cmd in ("/otkaz", "/bekor"):
+            waits.pop(key, None)
+            self.reply(chat_id, "Yaxshi, summa yozilmadi. Keyin xabardagi 💰 tugmasi bilan kiritish mumkin.")
+            return True
+        if not text_ or text_.startswith("/") or (rt != key and not any(ch.isdigit() for ch in text_)):
+            return False                                 # buyruq yoki summa emas — odatdagidek
+        from . import service
+
+        try:
+            amount = service.parse_sum(text_)
+        except ValueError as e:
+            self.reply(chat_id, f"❌ {esc(e)}. Masalan: 150000 (yoki /otkaz)")
+            return True
+        waits.pop(key, None)
+        u = cdb.row("SELECT * FROM users WHERE id=:u AND active=:a", {"u": user_id, "a": True})
+        if not u:
+            self.reply(chat_id, "❌ Foydalanuvchi faol emas.")
+            return True
+        try:
+            service.set_loss(u, uid, amount, via="Telegram")
+        except service.NotFound:
+            self.reply(chat_id, "Hodisa topilmadi yoki ruxsat yo'q.")
+            return True
+        except service.NotAllowed as e:
+            self.reply(chat_id, f"❌ {esc(e)}")
+            return True
+        self.reply(chat_id, f"💰 Saqlandi: <b>{fmt_sum(amount)}</b>" if amount else "Summa olib tashlandi.")
+        return True
 
     def stop(self) -> None:
         self.stop_evt.set()
@@ -1221,6 +1475,8 @@ class TelegramPoller(threading.Thread):
             self.reply(chat_id, "👋 Bu Hushyor AI bulut boti. Ulanish uchun panelda <b>Sozlamalar → Telegram → Ulash</b> ni bosing.")
             return
         u = users[0]
+        if self.loss_take(chat_id, msg, text_, cmd):
+            return
         if cmd == "/holat":
             lines = ["🏪 <b>Do'konlar</b>"]
             for b in cdb.rows("SELECT * FROM branches WHERE company_id=:c ORDER BY id", {"c": u["company_id"]}):
@@ -1286,6 +1542,7 @@ class TelegramPoller(threading.Thread):
                 pass
         m = re.fullmatch(r"r:(\d{1,12}):(ok|no)", cb.get("data") or "")
         chat_id = str(((cb.get("message") or {}).get("chat") or {}).get("id"))
+        group = (((cb.get("message") or {}).get("chat") or {}).get("type") or "private") != "private"
         lm = re.fullmatch(r"l:(\d{1,12}):(boglanildi|pilot|rad)", cb.get("data") or "")
         if lm:
             # 2.6.0: sayt so'rovi holati — faqat so'rovlar chatidan (CLOUD_LEADS_CHAT)
@@ -1310,6 +1567,23 @@ class TelegramPoller(threading.Thread):
             except (Retry, Permanent):
                 pass
             return
+        mm = re.fullmatch(r"m:(\d{1,12})", cb.get("data") or "")
+        if mm:
+            # 3.1.0: tasdiqlangan o'g'irlik — zarar summasini kiritish/o'zgartirish
+            s = cdb.row("SELECT * FROM tg_sent WHERE id=:i", {"i": int(mm.group(1))})
+            t = cdb.row("SELECT * FROM notify_targets WHERE id=:t AND enabled=:e", {"t": s["target_id"], "e": True}) if s else None
+            u = cdb.row("SELECT * FROM users WHERE id=:u AND active=:a", {"u": t["user_id"], "a": True}) if t else None
+            if not s or not t or not u or str(t["address"]) != chat_id:
+                answer("Ruxsat yo'q")
+                return
+            ev = cdb.row("SELECT * FROM events WHERE uid=:u", {"u": s["uid"]})
+            if not ev or ev["branch_id"] not in cdb.branch_ids_for(u) or ev.get("status") != "tasdiqlangan" \
+                    or not _loss_ok(ev):
+                answer("Summa faqat tasdiqlangan o'g'irlik signaliga yoziladi")
+                return
+            answer("")
+            self.loss_ask(chat_id, s["uid"], u, cb.get("from"), group)
+            return
         if not m:
             answer("")
             return
@@ -1331,6 +1605,10 @@ class TelegramPoller(threading.Thread):
             answer("Hodisa topilmadi yoki ruxsat yo'q")
             return
         answer("✅ Tasdiqlandi" if status == "tasdiqlangan" else "❌ Xato signal deb belgilandi")
+        if status == "tasdiqlangan":
+            ev = cdb.row("SELECT * FROM events WHERE uid=:u", {"u": s["uid"]})
+            if ev and _loss_ok(ev):
+                self.loss_ask(chat_id, s["uid"], u, cb.get("from"), group)
 
 
 _worker: Worker | None = None

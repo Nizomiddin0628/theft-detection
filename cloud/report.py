@@ -78,19 +78,22 @@ def compare(ids: list[int], t0: float, t1: float, off: int = 0, now: float | Non
         a["long_sec"] += r["long_sec"]
         a["obs"] += r["t_obs"]
     ev: dict[int, dict] = {}
-    for r in cdb.rows(f"SELECT branch_id, kind, status, data FROM events WHERE branch_id IN ({inl}) "
+    for r in cdb.rows(f"SELECT branch_id, kind, status, loss_sum, data FROM events WHERE branch_id IN ({inl}) "
                       "AND created_at >= :a AND created_at < :b", {"a": t0, "b": t1}):
         d = cdb.json_load(r.get("data")) or {}
         if isinstance(d, dict) and d.get("job_id") is not None:
             continue                                             # video tahlili — jonli signal emas
         a = ev.setdefault(r["branch_id"], {"total": 0, "confirmed": 0, "rejected": 0, "unreviewed": 0, "safety": 0,
-                                           "safety_unreviewed": 0})
+                                           "safety_unreviewed": 0, "loss": 0, "loss_n": 0})
         if r["kind"] in SAFETY_KINDS:
             a["safety"] += 1
             a["safety_unreviewed"] += r["status"] not in ("tasdiqlangan", "rad_etilgan")
             continue
         a["total"] += 1
         a[{"tasdiqlangan": "confirmed", "rad_etilgan": "rejected"}.get(r["status"], "unreviewed")] += 1
+        if r["status"] == "tasdiqlangan" and r.get("loss_sum"):
+            a["loss"] += int(r["loss_sum"])                      # 3.1.0: oldini olingan zarar (qo'lda kiritilgan)
+            a["loss_n"] += 1
     end = min(t1, now)
     up = {r["branch_id"]: int(r["n"]) for r in cdb.rows(
         f"SELECT branch_id, COUNT(*) AS n FROM metrics_minute WHERE branch_id IN ({inl}) AND source_id=0 "
@@ -109,7 +112,8 @@ def compare(ids: list[int], t0: float, t1: float, off: int = 0, now: float | Non
     for bid in ids:
         b = names.get(bid) or {"name": str(bid)}
         qq = q.get(bid)
-        e = ev.get(bid) or {"total": 0, "confirmed": 0, "rejected": 0, "unreviewed": 0, "safety": 0, "safety_unreviewed": 0}
+        e = ev.get(bid) or {"total": 0, "confirmed": 0, "rejected": 0, "unreviewed": 0, "safety": 0, "safety_unreviewed": 0,
+                            "loss": 0, "loss_n": 0}
         reviewed = e["confirmed"] + e["rejected"]
         out.append({
             "id": bid, "name": b["name"], "version": b.get("version"),
@@ -117,7 +121,7 @@ def compare(ids: list[int], t0: float, t1: float, off: int = 0, now: float | Non
             "visits": {"in": vis.get(bid, 0), "prev_in": pvis.get(bid, 0), "change_pct": _pct(vis.get(bid, 0), pvis.get(bid, 0))},
             "queue": ({"served": qq["served"], "avg_wait": round(qq["wait_sum"] / qq["wait_n"], 1) if qq["wait_n"] else None,
                        "max_wait": round(qq["wait_max"], 1), "long_sec": round(qq["long_sec"])} if qq and qq["obs"] else None),
-            "theft": {**{k: e[k] for k in ("total", "confirmed", "rejected", "unreviewed")},
+            "theft": {**{k: e[k] for k in ("total", "confirmed", "rejected", "unreviewed", "loss", "loss_n")},
                       "false_share": round(e["rejected"] / reviewed, 3) if reviewed else None},
             "safety": {"total": e["safety"], "unreviewed": e["safety_unreviewed"]},
             "uptime": uptime(bid),
@@ -129,7 +133,8 @@ def compare(ids: list[int], t0: float, t1: float, off: int = 0, now: float | Non
     total = {"visits": tot_in, "prev_visits": tot_prev, "change_pct": _pct(tot_in, tot_prev),
              "served": served, "avg_wait": round(wsum / served, 1) if served else None,
              "theft": sum(x["theft"]["total"] for x in out), "safety": sum(x["safety"]["total"] for x in out),
-             "unreviewed": sum(x["theft"]["unreviewed"] for x in out)}
+             "unreviewed": sum(x["theft"]["unreviewed"] for x in out),
+             "loss": sum(x["theft"]["loss"] for x in out), "loss_n": sum(x["theft"]["loss_n"] for x in out)}
     return {"branches": sorted(out, key=lambda x: -x["visits"]["in"]), "total": total, "recs": recommend(out)}
 
 
@@ -181,6 +186,8 @@ def digest_text(c: dict, lbl: str, company: str) -> str:
     lines = [f"📊 <b>Haftalik xulosa — {esc(company)}</b>", f"🗓 {esc(lbl)}", "",
              f"👥 Tashriflar: <b>{t.get('visits', 0)}</b>" + (f" ({'+' if ch > 0 else ''}{ch:.0f}%)" if ch is not None else ""),
              f"⚠️ O'g'irlik signallari: {t.get('theft', 0)} (javobsiz {t.get('unreviewed', 0)}) · 🛟 xavfsizlik: {t.get('safety', 0)}"]
+    if t.get("loss"):
+        lines.append(f"💰 Oldini olingan zarar: <b>{t['loss']:,} so'm</b> ({t.get('loss_n', 0)} ta holat)".replace(",", " "))
     if t.get("avg_wait") is not None:
         lines.append(f"🧾 Navbat: {t['served']} xaridor, o'rtacha kutish {round(t['avg_wait'])} s")
     if c["branches"]:

@@ -12,6 +12,12 @@
     <div class="card">
       <div class="card-b">
         {% if ev.clip_url %}
+        {% if ev.clip_clean_url %}
+        <div class="tabs" id="clip-mode" role="group" aria-label="Klip ko'rinishi" style="margin-bottom:10px;display:inline-flex">
+          <button class="on" data-mode="mark" aria-pressed="true" onclick="clipMode('mark')" title="Skelet, ramka va sabablar chizilgan">Belgili</button>
+          <button data-mode="clean" aria-pressed="false" onclick="clipMode('clean')" title="Chizmalarsiz — Telegram'ga shu ketadi">Toza</button>
+        </div>
+        {% endif %}
         <div class="video-box"><video id="clip" src="{{ ev.clip_url }}" controls autoplay muted loop playsinline poster="{{ ev.thumb_url or '' }}"></video></div>
         {% if ev.susp_offset is not none %}
         <div class="susp-bar" id="susp-bar" title="Qizil — shubhali harakat"><i id="susp-seg"></i><b id="susp-head"></b></div>
@@ -26,7 +32,7 @@
         {% endif %}
         <div class="row" style="margin-top:12px">
           {% if ev.clip_url and ev.susp_offset is not none %}<button class="btn primary" onclick="toSusp()">{{ icon('eye', 16) }} Shubhali lahzaga o'tish</button>{% endif %}
-          {% if ev.clip_url %}<a class="btn" href="{{ ev.clip_url }}" download>{{ icon('download', 16) }} Klipni yuklab olish</a>{% endif %}
+          {% if ev.clip_url %}<a class="btn" id="clip-dl" href="{{ ev.clip_url }}" download>{{ icon('download', 16) }} Klipni yuklab olish</a>{% endif %}
           <button class="btn" onclick="resend(this)">{{ icon('send', 16) }} Telegramga qayta yuborish</button>
           <a class="btn" href="/api/events/{{ ev.id }}/evidence.zip" title="Klip, rasmlar, PDF hisobot va SHA-256 xeshlar">{{ icon('download', 16) }} Dalil paketi (ZIP + PDF)</a>
           <div style="flex:1"></div>
@@ -73,6 +79,16 @@
         <button class="btn" onclick="rev('rad_etilgan', this)">{{ icon('x', 16) }} Xato signal</button>
         <button class="btn ghost sm" onclick="rev('yangi', this)">Bekor qilish</button>
       </div>
+      {% if ev.loss_allowed %}
+      <div id="loss-box" style="margin-top:14px">
+        <label class="f" for="loss">Taxminiy zarar (so'm)</label>
+        <div class="row" style="gap:8px">
+          <input id="loss" inputmode="numeric" placeholder="masalan 150000" value="{{ ev.loss_sum or '' }}" style="max-width:180px">
+          <button class="btn sm" id="loss-btn" onclick="saveLoss(this)">Saqlash</button>
+        </div>
+        <p class="hint" id="loss-hint" style="margin-top:6px"></p>
+      </div>
+      {% endif %}
       <label class="f" style="margin-top:14px">Izoh</label>
       <textarea id="note" placeholder="Masalan: mijoz telefonini cho'ntagiga solgan, mahsulot emas">{{ ev.note or '' }}</textarea>
       <button class="btn sm" style="margin-top:8px" onclick="saveNote(this)">Izohni saqlash</button>
@@ -89,6 +105,37 @@
 const EV = {{ ev|tojson }};
 function renderState(ev) {
   document.getElementById("rstate").innerHTML = H.statusBadge(ev.status) + (ev.reviewed_by ? ` <span class="muted small">${H.esc(ev.reviewed_by)} · ${H.esc(ev.reviewed_str || "")}</span>` : "");
+  // 3.1.0: zarar summasi — faqat tasdiqlangan o'g'irlik signaliga (qo'lda)
+  const lb = document.getElementById("loss-box");
+  if (lb) {
+    const ok = ev.status === "tasdiqlangan";
+    document.getElementById("loss").disabled = !ok;
+    document.getElementById("loss-btn").disabled = !ok;
+    document.getElementById("loss-hint").textContent = ok
+      ? (ev.loss_sum ? `Yozilgan: ${H.sum(ev.loss_sum)}${ev.loss_by ? " · " + ev.loss_by : ""}. Hisobotlarda «oldini olingan zarar» bo'lib chiqadi.` : "Tasdiqlangan o'g'irlik: taxminiy zararni yozing — hisobotlarda «oldini olingan zarar» bo'lib chiqadi.")
+      : "Summa signal tasdiqlangandan keyin yoziladi.";
+  }
+}
+async function saveLoss(btn) {
+  btn.disabled = true;
+  try {
+    const r = await H.post(`/api/events/${EV.id}/loss`, { loss_sum: document.getElementById("loss").value });
+    Object.assign(EV, r.event);
+    document.getElementById("loss").value = r.event.loss_sum || "";
+    renderState(r.event);
+    H.toast(r.event.loss_sum ? "💰 Summa saqlandi: " + H.sum(r.event.loss_sum) : "Summa olib tashlandi", "ok");
+  } finally { btn.disabled = false; }
+}
+function clipMode(m) {
+  const v = document.getElementById("clip");
+  if (!v) return;
+  const t = v.currentTime, playing = !v.paused;
+  v.src = m === "clean" ? EV.clip_clean_url : EV.clip_url;
+  v.poster = (m === "clean" ? EV.thumb_clean_url : EV.thumb_url) || "";
+  v.addEventListener("loadedmetadata", () => { v.currentTime = t; if (playing) v.play(); }, { once: true });
+  document.querySelectorAll("#clip-mode button").forEach((b) => { b.classList.toggle("on", b.dataset.mode === m); b.setAttribute("aria-pressed", String(b.dataset.mode === m)); });
+  const dl = document.getElementById("clip-dl");
+  if (dl) dl.href = v.src;
 }
 renderState(EV);
 const bd = EV.safety ? [] : (EV.breakdown || []);
@@ -98,7 +145,13 @@ if (document.getElementById("bd")) document.getElementById("bd").innerHTML = bd.
   <b class="num" style="text-align:right;color:${v >= 0 ? "#92400e" : "#15803d"}">${v > 0 ? "+" : ""}${v}</b></div>`).join("");
 async function rev(status, btn) {
   btn.disabled = true;
-  try { const r = await H.post(`/api/events/${EV.id}/review`, { status, note: document.getElementById("note").value }); renderState(r.event); H.toast("Saqlandi", "ok"); }
+  try {
+    const r = await H.post(`/api/events/${EV.id}/review`, { status, note: document.getElementById("note").value });
+    Object.assign(EV, r.event);
+    renderState(r.event);
+    H.toast("Saqlandi", "ok");
+    if (status === "tasdiqlangan" && document.getElementById("loss-box") && !r.event.loss_sum) document.getElementById("loss").focus();
+  }
   finally { btn.disabled = false; }
 }
 function toSusp() {

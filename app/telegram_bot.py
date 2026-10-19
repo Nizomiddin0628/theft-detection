@@ -49,6 +49,7 @@ CLIP_RETRIES = 2
 # Jami ~7,5 daqiqa; hodisa ALERT_MAX_AGE dan eski bo'lsa endi yuborilmaydi (kech xabar chalg'itadi)
 ALERT_RETRY = (10.0, 30.0, 60.0, 120.0, 240.0)
 ALERT_MAX_AGE = 900.0
+LOSS_WAIT_SEC = 600.0         # 3.1.0: ✅ dan keyin zarar summasi shuncha vaqt kutiladi
 TRANSIENT = (0, 429, 500, 502, 503, 504)
 
 
@@ -64,6 +65,8 @@ HELP = (
     "keyin o'sha xabarga video klip qo'shiladi. Videoni ko'rib <b>✅ Tasdiqlash</b> yoki "
     "<b>❌ Xato signal</b> tugmasini bosing. <b>👀 Ko'ryapman</b> — boshqalarga siz shug'ullanayotganingizni "
     "bildiradi.\n\n"
+    "O'g'irlik signalini ✅ tasdiqlasangiz, bot taxminiy zarar summasini so'raydi (so'mda) — hisobotlarda "
+    "«oldini olingan zarar» bo'lib chiqadi. Summasiz qoldirish — /otkaz.\n\n"
     "Buyruqlar:\n"
     "/holat — kameralar va bugungi statistika\n"
     "/oxirgi — oxirgi 5 ta hodisa\n"
@@ -199,6 +202,7 @@ class TelegramBot:
         self._code_fails: dict[int, list[float]] = defaultdict(list)
         self._code_fails_all: list[float] = []
         self._pilot_wait: dict[int, tuple] = {}   # 2.5.0: pilot bahosidan keyin izoh kutilmoqda (hafta, muddat, kim)
+        self._loss_wait: dict[int, dict] = {}     # 3.1.0: chat -> {so'rov xabari: (hodisa, muddat, kim)} — zarar summasi
         self._chat_locks: dict[int, threading.Lock] = defaultdict(threading.Lock)
         # Hodisa bo'yicha qulf (signal qayta urinishi va klip bosqichi bir-birini takrorlamasin): doimiy 64 ta qulf
         self._ev_locks = [threading.Lock() for _ in range(64)]
@@ -473,6 +477,8 @@ class TelegramBot:
                                  "Ulanish uchun web paneldagi <b>Telegram</b> bo'limida ko'rsatilgan "
                                  "6 xonali kodni shu yerga yuboring.")
             return
+        if self._loss_take(msg, text, cmd):
+            return
         if cmd in ("/start", "/yordam", "/help"):
             self._reply(chat_id, HELP)
         elif cmd == "/stop":
@@ -519,6 +525,78 @@ class TelegramBot:
             self._reply(chat_id, "📝 Izoh saqlandi — rahmat!")
         else:
             self._reply(chat_id, "Buyruqni tushunmadim. /yordam ni bosing.")
+
+    def _loss_ask(self, chat_id: int, ev_id: int, user: dict | None, group: bool = False) -> None:
+        """3.1.0: o'g'irlik signali tasdiqlandi — taxminiy zarar summasini so'rash (10 daqiqa kutiladi). So'rov xabari
+        hodisaga bog'lanadi: javob shu xabarga (reply) yozilsa — aynan shu hodisaga; shaxsiy chatda oddiy xabar ham
+        oxirgi so'rovga. Guruhda faqat tugmani bosgan odamga (eslatiladi, selective)."""
+        user = user or {}
+        ev = db.get_event(ev_id) or {}
+        what = ", ".join(x for x in (KIND_UZ.get(ev.get("kind"), ev.get("kind") or ""), ev.get("source_name") or "",
+                                     fmt_time(ev.get("created_at"))[-8:] if ev.get("created_at") else "") if x)
+        who = ""
+        if group and user.get("id"):
+            who = f'<a href="tg://user?id={int(user["id"])}">{esc(user.get("first_name") or user.get("username") or "")}</a>, '
+        res = self._reply(chat_id, f"💰 {who}hodisa #{ev_id} ({esc(what)}): taxminiy zarar summasini yozing — shu xabarga "
+                                   f"javob qilib (so'mda, masalan <b>150000</b> yoki <b>150 ming</b>).\nKerak bo'lmasa — /otkaz",
+                          {"force_reply": True, "selective": bool(group), "input_field_placeholder": "masalan 150000"})
+        mid = ((res or {}).get("result") or {}).get("message_id") if isinstance(res, dict) else None
+        now = time.time()
+        waits = {k: v for k, v in self._loss_wait.get(chat_id, {}).items() if v[1] > now}
+        waits[int(mid) if mid else -int(now * 1000)] = (ev_id, now + LOSS_WAIT_SEC, user.get("id"))
+        self._loss_wait[chat_id] = waits
+
+    def _loss_take(self, msg: dict, text: str, cmd: str) -> bool:
+        """Summa so'ralgan chatdagi javob. True — xabar shu yerda ishlandi (boshqa buyruqlarga o'tmaydi)."""
+        chat_id = msg["chat"]["id"]
+        now = time.time()
+        waits = {k: v for k, v in self._loss_wait.get(chat_id, {}).items() if v[1] > now}
+        if not waits:
+            self._loss_wait.pop(chat_id, None)
+            return False
+        self._loss_wait[chat_id] = waits
+        frm = msg.get("from") or {}
+        rt = (msg.get("reply_to_message") or {}).get("message_id")
+        private = (msg.get("chat") or {}).get("type") in (None, "private")
+        if rt in waits:
+            key = rt
+        elif private:
+            key = max(waits)                              # shaxsiy chat: oxirgi so'rov
+        else:
+            return False                                  # guruh: faqat so'rov xabariga javob
+        ev_id, _until, who_id = waits[key]
+        if who_id is not None and frm.get("id") is not None and frm.get("id") != who_id:
+            return False                                  # boshqa a'zoning javobi
+        if cmd in ("/otkaz", "/bekor"):
+            waits.pop(key, None)
+            self._reply(chat_id, "Yaxshi, summa yozilmadi. Keyin xabardagi 💰 tugmasi bilan kiritish mumkin.")
+            return True
+        if not text or text.startswith("/") or (rt != key and not any(ch.isdigit() for ch in text)):
+            return False                                  # buyruq yoki summa emas (masalan, pilot izohi) — odatdagidek
+        from . import losses
+
+        try:
+            amount = losses.parse_sum(text)
+        except ValueError as e:
+            self._reply(chat_id, f"❌ {html.escape(str(e))}. Masalan: 150000 (yoki /otkaz)")
+            return True
+        waits.pop(key, None)
+        who = str(frm.get("first_name") or frm.get("username") or self._who_name(chat_id))[:60]
+        ev = losses.set_loss(ev_id, amount, f"Telegram: {who}")
+        if not ev:
+            self._reply(chat_id, "Hodisa topilmadi yoki unga summa yozilmaydi.")
+            return True
+        self._reply(chat_id, f"💰 Saqlandi: <b>{losses.fmt_sum(amount)}</b> (hodisa #{ev_id})" if amount
+                    else f"Summa olib tashlandi (hodisa #{ev_id}).")
+        log.info("Hodisa #%d: zarar summasi %s (Telegram)", ev_id, amount)
+        self.refresh_event(ev_id)
+        if self.manager is not None:
+            self.manager.emit("update", ev_id)
+        return True
+
+    def _who_name(self, chat_id) -> str:
+        r = db.row("SELECT name, username FROM subscribers WHERE chat_id=?", (chat_id,)) or {}
+        return str(r.get("name") or r.get("username") or chat_id)[:60]
 
     def _pilot_comment_take(self, chat_id: int, user_id, text: str) -> bool:
         """2.5.0: pilot bahosidan keyin 10 daqiqa ichida o'sha odam yozgan oddiy matn — o'sha haftaga izoh (guruhda
@@ -593,6 +671,7 @@ class TelegramBot:
         user = cb.get("from", {})
         who = user.get("first_name") or user.get("username") or str(user.get("id"))
         chat_id = cb.get("message", {}).get("chat", {}).get("id")
+        group = (cb.get("message", {}).get("chat", {}).get("type") or "private") != "private"
 
         def answer(text: str = "", alert: bool = False):
             payload = {"callback_query_id": cb["id"]}
@@ -636,6 +715,19 @@ class TelegramBot:
             db.review_event(ev_id, status, f"Telegram: {who}")
             answer("✅ Tasdiqlandi. Rahmat!" if status == "tasdiqlangan" else "❌ Xato signal deb belgilandi. Rahmat!")
             log.info("Hodisa #%d: %s (%s)", ev_id, status, who)
+            from . import losses
+
+            if status == "tasdiqlangan" and losses.allowed(ev):
+                self._loss_ask(chat_id, ev_id, user, group)      # 3.1.0: taxminiy zarar (qo'lda)
+        elif action == "loss":
+            from . import losses
+
+            if ev.get("status") != "tasdiqlangan" or not losses.allowed(ev):
+                answer("Summa faqat tasdiqlangan o'g'irlik signaliga yoziladi")
+                return
+            answer()
+            self._loss_ask(chat_id, ev_id, user, group)
+            return
         elif action == "see":
             if ev.get("claimed_by") and ev["claimed_by"] != who:
                 answer(f"{ev['claimed_by']} allaqachon ko'ryapti")
@@ -726,7 +818,13 @@ class TelegramBot:
             susp_line = None
             if si["susp_offset"] is not None:
                 susp_line = f"⏱ Klipning <b>{si['susp_offset']:.0f}-soniyasida</b> (qizil belgi)"
+        test = None
+        if ev.get("job_id") is not None:
+            # 3.1.0: yuklangan video (bulut panelidagi Video sinovi yoki do'kon panelidagi Video tahlili)
+            j = db.row("SELECT filename, cloud_test_id FROM jobs WHERE id=?", (ev["job_id"],)) or {}
+            test = f"🧪 <b>Video sinovi</b>{' (bulut paneli)' if j.get('cloud_test_id') else ''}: {esc(j.get('filename') or '')}"
         lines = [
+            *([test] if test else []),
             f"<b>{esc(SAFETY_HEADLINES[ev['kind']])}</b>" if safe else "⚠️ <b>Shubhali harakat — tekshirib ko'ring</b>",
             f"🏪 {esc(store)}",
             f"📷 Kamera: {esc(ev.get('source_name'))}",
@@ -753,6 +851,10 @@ class TelegramBot:
         if ev.get("status") and ev["status"] != "yangi":
             mark = "✅ TASDIQLANDI" if ev["status"] == "tasdiqlangan" else "❌ XATO SIGNAL"
             lines += ["", f"<b>{mark}</b> — {esc(ev.get('reviewed_by'))}, {fmt_time(ev.get('reviewed_at'))}"]
+            if ev["status"] == "tasdiqlangan" and ev.get("loss_sum"):
+                from .losses import fmt_sum
+
+                lines.append(f"💰 Taxminiy zarar: <b>{fmt_sum(ev['loss_sum'])}</b>")
         cap = "\n".join(lines)
         if len(cap) > 1024:
             # HTML teglarni buzmaslik uchun sabablar qisqartiriladi, matn o'rtasidan kesilmaydi
@@ -769,6 +871,9 @@ class TelegramBot:
                 rows.append([{"text": "👀 Ko'ryapman", "callback_data": f"see:{ev['id']}"}])
         else:
             rows.append([{"text": "↩️ Qarorni o'zgartirish", "callback_data": f"undo:{ev['id']}"}])
+            if ev.get("status") == "tasdiqlangan" and ev.get("kind") not in SAFETY_KINDS and ev.get("job_id") is None:
+                rows.append([{"text": "💰 Summani o'zgartirish" if ev.get("loss_sum") else "💰 Zarar summasini kiritish",
+                              "callback_data": f"loss:{ev['id']}"}])
         if PUBLIC_URL and "localhost" not in PUBLIC_URL and "127.0.0.1" not in PUBLIC_URL:
             rows.append([{"text": "🔗 Panelda ochish", "url": f"{PUBLIC_URL}/events/{ev['id']}"}])
         return {"inline_keyboard": rows}
@@ -869,8 +974,18 @@ class TelegramBot:
     def _subs(self) -> list[int]:
         return [s["chat_id"] for s in db.rows("SELECT chat_id FROM subscribers WHERE active=1")]
 
+    @staticmethod
+    def _clean(ev: dict, key: str, clean_key: str) -> Path | None:
+        """3.1.0: Telegram'ga chizmalarsiz (toza) nusxa; u bo'lmasa — oddiy (belgili) fayl."""
+        for k in (clean_key, key):
+            if ev.get(k):
+                f = CLIPS_DIR / ev[k]
+                if f.exists():
+                    return f
+        return None
+
     def _photo_bytes(self, ev: dict) -> bytes | None:
-        thumb = CLIPS_DIR / ev["thumb_path"] if ev.get("thumb_path") else None
+        thumb = self._clean(ev, "thumb_path", "thumb_clean")
         if thumb and thumb.exists() and thumb.stat().st_size < PHOTO_LIMIT:
             return thumb.read_bytes()
         return None
@@ -991,7 +1106,7 @@ class TelegramBot:
             msgs = [m for m in msgs if int(m["chat_id"]) in want]
         if not msgs:
             return
-        clip = CLIPS_DIR / ev["clip_path"] if ev.get("clip_path") else None
+        clip = self._clean(ev, "clip_path", "clip_clean")
         use_video = (db.flag("telegram_send_video") and clip is not None and clip.exists()
                      and clip.stat().st_size < VIDEO_LIMIT)
         if not use_video:
@@ -999,7 +1114,7 @@ class TelegramBot:
             return
         cap = self._caption(ev)
         markup = self._markup(ev)
-        thumb = CLIPS_DIR / ev["thumb_path"] if ev.get("thumb_path") else None
+        thumb = self._clean(ev, "thumb_path", "thumb_clean")
         small = _small_jpeg(thumb) if thumb and thumb.exists() else None
         t_ev = event_time(ev)
         file_id: list[str] = []
@@ -1098,14 +1213,15 @@ class TelegramBot:
             return failed
         cap = self._caption(ev)
         markup = json.dumps(self._markup(ev))
-        clip = CLIPS_DIR / ev["clip_path"] if ev.get("clip_path") else None
+        clip = self._clean(ev, "clip_path", "clip_clean")
         send_video = db.flag("telegram_send_video") and clip and clip.exists() and clip.stat().st_size < VIDEO_LIMIT
         rt = int(opts.get("retries", 2))
         # Klip hali tayyor emas — rasm/matn xabarida "klip tayyorlanmoqda" (keyin video shu xabarga qo'shiladi)
         cap_wait = (self._caption(ev, clip_pending=True)
-                    if db.flag("telegram_send_video") and not ev.get("clip_path") and not ev.get("clip_error") else cap)
+                    if db.flag("telegram_send_video") and not (ev.get("clip_path") or ev.get("clip_clean"))
+                    and not ev.get("clip_error") else cap)
         photo = self._photo_bytes(ev)
-        thumb = CLIPS_DIR / ev["thumb_path"] if ev.get("thumb_path") else None
+        thumb = self._clean(ev, "thumb_path", "thumb_clean")
         small = _small_jpeg(thumb) if thumb and thumb.exists() else None
         t_ev = event_time(ev)
         file_id: list[str] = []
@@ -1162,7 +1278,9 @@ class TelegramBot:
             return
         markup = self._markup(ev)
         for m in db.rows("SELECT * FROM tg_messages WHERE event_id=?", (event_id,)):
-            pending = m["kind"] == "photo" and bool(db.flag("telegram_send_video")) and not ev.get("clip_path")
+            # 3.1.0: toza klip tayyor (belgili hali yozilmoqda) — klip bor deb olinadi, "tayyorlanmoqda" qolib ketmasin
+            pending = (m["kind"] == "photo" and bool(db.flag("telegram_send_video"))
+                       and not (ev.get("clip_path") or ev.get("clip_clean")))
             cap = self._caption(ev, clip_pending=pending)
             if m["kind"] in ("text", "text_video"):
                 self.api("editMessageText", {"chat_id": m["chat_id"], "message_id": m["message_id"], "text": cap,

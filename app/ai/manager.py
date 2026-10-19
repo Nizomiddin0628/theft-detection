@@ -217,7 +217,8 @@ class Manager:
         va Telegram'ga birinchi bo'lib shu rasm ketadi. Klip keyin finish_clip'da qo'shiladi.
         """
         now = time.time()
-        # 3.0.0: bulut panelidan yuborilgan video sinovi — do'kon qo'riqchilariga Telegram/ovozli signal yuborilmaydi
+        # 3.0.0: bulut panelidan yuborilgan video sinovi — do'kondagi panelda ovozli signal yo'q (ro'yxat yangilanadi).
+        # 3.1.0: Telegram'ga esa boradi ("🧪 Video sinovi" belgisi bilan) — signal aniqlansa xabar berish asosiy qoida
         cloud = _is_cloud_job(job_id)
         ev_id = db.insert_event({
             "source_id": source.get("id"),
@@ -247,9 +248,11 @@ class Manager:
         if snapshot is not None:
             try:
                 name = f"ev{ev_id:05d}_{time.strftime('%Y%m%d_%H%M%S')}_snap.jpg"
+                clean = name.replace("_snap.jpg", "_snap_clean.jpg")
                 if make_snapshot(snapshot["frame"], snapshot.get("ann"), alert["track_id"], snapshot.get("banner", ""),
-                                 snapshot.get("time_text"), CLIPS_DIR / name):
-                    db.update_event(ev_id, thumb_path=name)
+                                 snapshot.get("time_text"), CLIPS_DIR / name, clean_path=CLIPS_DIR / clean):
+                    db.update_event(ev_id, thumb_path=name,
+                                    thumb_clean=clean if (CLIPS_DIR / clean).exists() else None)
             except Exception:
                 log.exception("Hodisa #%d rasmini tayyorlab bo'lmadi", ev_id)
         pose_path = POSES_DIR / f"event_{ev_id:05d}.json"
@@ -259,9 +262,9 @@ class Manager:
         db.update_event(ev_id, pose_path=pose_path.name)
         log.info("Hodisa #%d: %s, ball %.0f (%s)", ev_id, alert["kind_label"], alert["score"],
                  source.get("name"))
-        # Klipni kutmasdan: web panelga va Telegram'ga darhol (bulut sinovi — faqat ro'yxat yangilanadi, ovozsiz)
+        # Klipni kutmasdan: web panelga va Telegram'ga darhol (bulut sinovi — panelda ovozsiz, Telegram'ga baribir)
         self.emit("update" if cloud else "new", ev_id)
-        if self.notifier is not None and not cloud:
+        if self.notifier is not None and _tg_allowed(job_id, cloud, ev_id):
             try:
                 self.notifier.notify_alert(ev_id)
             except Exception:
@@ -292,13 +295,42 @@ class Manager:
     def finish_clip(self, p: PendingClip, frames: list) -> None:
         stem = f"ev{p.event_id:05d}_{time.strftime('%Y%m%d_%H%M%S')}"
         susp = (p.susp_start, p.susp_end) if p.susp_start is not None else None
+        ev0 = db.get_event(p.event_id) or {}
+        tg_ok = self.notifier is not None and _tg_allowed(ev0.get("job_id"), None, p.event_id)
+        early = [False]
+        got: dict = {}
+
+        def on_clean(r: dict) -> None:
+            # 3.1.0: toza klip tayyor — Telegram belgili nusxani kutmaydi (u faqat toza nusxani yuboradi)
+            got.update(r)
+            upd_ = {"clip_clean": r["clip_clean"]}
+            if r.get("thumb_clean"):
+                upd_["thumb_clean"] = r["thumb_clean"]
+                if ev0.get("thumb_clean") and ev0["thumb_clean"] != r["thumb_clean"]:
+                    (CLIPS_DIR / ev0["thumb_clean"]).unlink(missing_ok=True)
+            db.update_event(p.event_id, **upd_)
+            if tg_ok:
+                early[0] = True
+                try:
+                    self.notifier.notify_clip(p.event_id)
+                except Exception:
+                    log.exception("Telegramga klip yuborishda xato")
         try:
-            res = make_clip(frames, p.t_event, p.track_id, p.banner, p.live, CLIPS_DIR, stem, p.box, susp)
+            res = make_clip(frames, p.t_event, p.track_id, p.banner, p.live, CLIPS_DIR, stem, p.box, susp,
+                            on_clean=on_clean)
         except Exception:
             log.exception("Klip yaratishda xato (hodisa #%d)", p.event_id)
-            res = {"clip": None, "thumb": None, "crop": None, "clip_start": None}
+            # toza nusxa allaqachon yozilgan bo'lsa (on_clean) — u yo'qolmasin
+            res = {"clip": None, "thumb": None, "crop": None, "clip_start": got.get("clip_start"),
+                   "clip_clean": got.get("clip_clean"), "thumb_clean": got.get("thumb_clean")}
+        if not res.get("clip") and res.get("clip_clean"):
+            # belgili nusxa yozilmadi — toza nusxa asosiy klip bo'ladi (bitta fayl ikki maydonda turmasin: bulutga
+            # ikki marta ketmasin, panelda bir xil ikki video almashtirilmasin)
+            res["clip"], res["clip_clean"] = res["clip_clean"], None
         old = db.get_event(p.event_id) or {}
         upd = {"clip_path": res["clip"], "crop_path": res["crop"], "clip_start": res.get("clip_start"),
+               # 3.1.0: chizmalarsiz nusxa (Telegram'ga shu ketadi). U yozilmasa — eski (belgili) klip yuboriladi
+               "clip_clean": res.get("clip_clean"),
                # Klip chiqmadi — Telegram xabarida "tayyorlanmoqda" o'rniga "klip yaratilmadi" yoziladi
                "clip_error": 0 if res["clip"] else 1}
         if res["thumb"]:
@@ -306,9 +338,13 @@ class Manager:
             # Signal lahzasidagi tezkor rasm endi kerak emas — klipdan olingan rasm bilan almashadi
             if old.get("thumb_path") and old["thumb_path"] != res["thumb"]:
                 (CLIPS_DIR / old["thumb_path"]).unlink(missing_ok=True)
+        if res.get("thumb_clean"):
+            upd["thumb_clean"] = res["thumb_clean"]
+            if old.get("thumb_clean") and old["thumb_clean"] != res["thumb_clean"]:
+                (CLIPS_DIR / old["thumb_clean"]).unlink(missing_ok=True)
         db.update_event(p.event_id, **upd)
         self.emit("clip", p.event_id)
-        if self.notifier is not None and not _is_cloud_job(old.get("job_id")):
+        if tg_ok and not early[0]:
             try:
                 self.notifier.notify_clip(p.event_id)
             except Exception:
@@ -454,6 +490,34 @@ class Manager:
                 pass
 
 
+CLOUD_TEST_TG_MAX = 20     # 3.1.0: bitta bulut sinovidan Telegram'ga ko'pi bilan shuncha signal (qolgani — natijada)
+
+
+def _tg_allowed(job_id, cloud: bool | None = None, event_id: int | None = None) -> bool:
+    """Telegram'ga yuboriladimi: jonli kamera va do'kondagi yuklangan video — doim; bulut Video sinovi — birinchi
+    CLOUD_TEST_TG_MAX ta signali (uzun videoda yuzlab xabar ketmasin)."""
+    if job_id is None:
+        return True
+    if cloud is None:
+        cloud = _is_cloud_job(job_id)
+    if not cloud:
+        return True
+    try:                      # shu hodisa sinovdagi nechanchi signal (keyingilari hisobga olinmaydi)
+        ids = [int(job_id)]
+        # dastur qayta ishga tushib sinov yangi qator bilan qaytadan tahlil qilingan bo'lsa — oldingi urinishlarda
+        # yuborilganlar ham sanaladi (har qayta urinish yangi 20 ta xabar bermasin)
+        try:
+            meta = json.loads(db.scalar("SELECT cloud_meta FROM jobs WHERE id=?", (int(job_id),)) or "{}")
+            ids += [int(x) for x in (meta.get("prev_jobs") or [])[:5]]
+        except (TypeError, ValueError, AttributeError):
+            pass
+        n = db.scalar(f"SELECT COUNT(*) FROM events WHERE job_id IN ({','.join('?' for _ in ids)}) AND id<=?",
+                      (*ids, int(event_id) if event_id is not None else 2 ** 62)) or 0
+    except Exception:  # noqa: BLE001
+        return True
+    return n <= CLOUD_TEST_TG_MAX
+
+
 def _is_cloud_job(job_id) -> bool:
     """3.0.0: vazifa bulut panelidagi Video sinovimi (jobs.cloud_test_id)."""
     if job_id is None:
@@ -499,7 +563,7 @@ def archive_feedback(ev: dict) -> None:
 
 def delete_event_files(ev: dict) -> None:
     for key, base in (("clip_path", CLIPS_DIR), ("thumb_path", CLIPS_DIR), ("crop_path", CLIPS_DIR),
-                      ("pose_path", POSES_DIR)):
+                      ("clip_clean", CLIPS_DIR), ("thumb_clean", CLIPS_DIR), ("pose_path", POSES_DIR)):
         name = ev.get(key)
         if name:
             try:

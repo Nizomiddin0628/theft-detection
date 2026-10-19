@@ -241,8 +241,11 @@ def signals(t0: float, t1: float) -> dict:
         s["n"] += int(r["n"])
         if r["status"] not in key:
             s["unreviewed"] += int(r["n"])
+    from . import losses
+
     return {"theft": {**tot, "false_share": round(tot["rejected"] / reviewed, 3) if reviewed else None,
                       "prev_total": int(prev),
+                      "loss": losses.totals(t0, t1),          # 3.1.0: qo'lda kiritilgan zarar (tasdiqlanganlar)
                       "cams": sorted(cams.values(), key=lambda c: -c["total"])},
             "safety": [safety[k] for k in SAFETY_KINDS if k in safety],
             "safety_unreviewed": sum(s["unreviewed"] for s in safety.values())}
@@ -399,6 +402,11 @@ def text(d: dict, report_id: int | None = None) -> str:
     th = d["theft"]
     lines.append(f"⚠️ O'g'irlik signallari: <b>{th['total']}</b> (✅ {th['confirmed']}, ❌ {th['rejected']}, "
                  f"🟡 {th['unreviewed']})")
+    from . import losses
+
+    ll = losses.line(th.get("loss") or {})
+    if ll:
+        lines.append(ll.replace(": ", ": <b>", 1).replace(" so'm", " so'm</b>", 1))
     if d["safety"]:
         lines.append("🛟 Xavfsizlik: " + ", ".join(f"{esc(s['label'])} {s['n']}" for s in d["safety"]))
     else:
@@ -512,6 +520,10 @@ def pdf(d: dict) -> bytes:
     doc.text("O'g'irlik signallari", size=12, bold=True)
     doc.kv("Jami", f"{th['total']} (oldin: {th['prev_total']})")
     doc.kv("Tasdiq / xato / javobsiz", f"{th['confirmed']} / {th['rejected']} / {th['unreviewed']}")
+    if (th.get("loss") or {}).get("sum"):
+        from .losses import fmt_sum
+
+        doc.kv("Oldini olingan zarar", f"{fmt_sum(th['loss']['sum'])} ({th['loss']['with_sum']} ta holat)")
     if th["cams"]:
         doc.table(["Kamera", "Jami", "Tasdiq", "Xato", "Javobsiz"],
                   [[c["name"], c["total"], c["confirmed"], c["rejected"], c["unreviewed"]] for c in th["cams"][:10]],

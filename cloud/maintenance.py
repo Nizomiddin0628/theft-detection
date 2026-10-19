@@ -50,7 +50,7 @@ def settings() -> dict:
 
 def _drop_files(ev: dict) -> int:
     freed = 0
-    for col in ("clip_file", "thumb_file"):
+    for col in ("clip_file", "thumb_file", "clip_clean"):
         rel = ev.get(col)
         if not rel:
             continue
@@ -58,7 +58,7 @@ def _drop_files(ev: dict) -> int:
         if CLIPS_DIR.resolve() in p.parents and p.is_file():
             freed += p.stat().st_size
             p.unlink(missing_ok=True)
-    cdb.execute("UPDATE events SET clip_file=NULL, thumb_file=NULL WHERE uid=:u", {"u": ev["uid"]})
+    cdb.execute("UPDATE events SET clip_file=NULL, thumb_file=NULL, clip_clean=NULL WHERE uid=:u", {"u": ev["uid"]})
     return freed
 
 
@@ -82,7 +82,7 @@ def prune_clips(now: float | None = None, cfg: dict | None = None) -> dict:
     out = {"expired": 0, "low_disk": 0, "parts": 0, "freed_mb": 0.0}
     freed = 0
     if cfg["clip_days"] > 0:
-        rows = cdb.rows("SELECT uid, clip_file, thumb_file, status FROM events WHERE (clip_file IS NOT NULL OR "
+        rows = cdb.rows("SELECT uid, clip_file, thumb_file, clip_clean, status FROM events WHERE (clip_file IS NOT NULL OR "
                         f"thumb_file IS NOT NULL) AND ((status <> 'tasdiqlangan' AND {_AGE} < :a) OR "
                         f"(status = 'tasdiqlangan' AND {_AGE} < :b))",
                         {"a": now - cfg["clip_days"] * 86400,
@@ -99,7 +99,7 @@ def prune_clips(now: float | None = None, cfg: dict | None = None) -> dict:
             before = free_gb()
             if before >= cfg["min_free_gb"]:
                 break
-            rows = cdb.rows("SELECT uid, clip_file, thumb_file FROM events WHERE clip_file IS NOT NULL AND "
+            rows = cdb.rows("SELECT uid, clip_file, thumb_file, clip_clean FROM events WHERE clip_file IS NOT NULL AND "
                             f"status <> 'tasdiqlangan' AND {_AGE} < :p ORDER BY {_AGE} LIMIT 20",
                             {"p": now - LOW_DISK_PROTECT_SEC})
             if not rows:

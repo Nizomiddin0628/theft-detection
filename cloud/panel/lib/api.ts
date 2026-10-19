@@ -182,6 +182,8 @@ export interface EventRow {
   source_name: string;
   clip_file: string | null;
   thumb_file: string | null;
+  clip_clean?: string | null;
+  loss_sum?: number | null;
   level?: string | null;
   reasons: string[];
   reviewed_by?: string | null;
@@ -201,6 +203,8 @@ export interface EventFull {
   source_name: string;
   clip_file: string | null;
   thumb_file: string | null;
+  clip_clean?: string | null;
+  loss_sum?: number | null;
   data: Record<string, unknown> | null;
 }
 
@@ -232,7 +236,7 @@ export interface CompareBranch {
   online: boolean;
   visits: { in: number; prev_in: number; change_pct: number | null };
   queue: { served: number; avg_wait: number | null; max_wait: number; long_sec: number } | null;
-  theft: { total: number; confirmed: number; rejected: number; unreviewed: number; false_share: number | null };
+  theft: { total: number; confirmed: number; rejected: number; unreviewed: number; false_share: number | null; loss?: number; loss_n?: number };
   safety: { total: number; unreviewed: number };
   uptime: number | null;
 }
@@ -244,7 +248,7 @@ export interface Compare {
   label: string;
   partial: boolean;
   branches: CompareBranch[];
-  total: { visits: number; prev_visits: number; change_pct: number | null; served: number; avg_wait: number | null; theft: number; safety: number; unreviewed: number };
+  total: { visits: number; prev_visits: number; change_pct: number | null; served: number; avg_wait: number | null; theft: number; safety: number; unreviewed: number; loss?: number; loss_n?: number };
   recs: { key: string; level: "warn" | "info"; text: string }[];
 }
 
@@ -358,6 +362,30 @@ export interface VideoTest {
   zone_source_name: string | null;
   job_id: number | null;
   active: boolean;
+  zones?: DrawnZone[];
+  metrics?: VideoMetrics | null;
+}
+// 3.1.0: video kadri ustiga chizilgan zona (nuqtalar 0..1)
+export type ZoneKind = "navbat" | "kassir" | "chiziq" | "polka" | "kassa" | "eshik" | "xodim" | "etiborsiz";
+export interface DrawnZone {
+  kind: ZoneKind;
+  name: string;
+  pts: [number, number][];
+}
+export interface VideoMetrics {
+  duration: number;
+  zones: number;
+  persons_max?: number;
+  queue: { name: string; max_len: number; avg_len: number; busy_pct: number; served: number; avg_wait: number | null; max_wait: number | null; series: [number, number][] }[];
+  lines: { name: string; in: number; out: number; staff: number }[];
+  areas: { name: string; kind: string; visitors: number; avg_dwell: number | null; reaches: number | null }[];
+}
+export interface Losses {
+  today: { sum: number; n: number };
+  month: { sum: number; n: number };
+  total: { sum: number; n: number };
+  missing: number;
+  branches: { id: number; name: string; month_sum: number; month_n: number }[];
 }
 export interface VideoTestBranch {
   id: number;
@@ -383,6 +411,7 @@ export interface VideoTestEvent {
   video_time: number | null;
   clip_file: string | null;
   thumb_file: string | null;
+  clip_clean?: string | null;
 }
 
 export class ApiError extends Error {

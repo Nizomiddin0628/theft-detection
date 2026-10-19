@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useState } from "react";
 
 import { api, type Compare, type CompareBranch } from "@/lib/api";
+import { som } from "@/lib/format";
 import { useData } from "@/lib/useData";
 
 const pad = (n: number) => String(n).padStart(2, "0");
@@ -104,6 +105,12 @@ export default function ComparePage() {
               <b>{t.safety}</b>
               <span>xavfsizlik signallari</span>
             </div>
+            {t.loss ? (
+              <div className="kpi">
+                <b data-testid="compare-loss">{som(t.loss)}</b>
+                <span>oldini olingan zarar ({t.loss_n ?? 0} ta holat)</span>
+              </div>
+            ) : null}
           </div>
           {d.recs.length ? (
             <>
@@ -134,6 +141,7 @@ export default function ComparePage() {
                     <th className="num">Signallar</th>
                     <th className="num">✅ / ❌ / javobsiz</th>
                     <th className="num">Xato ulushi</th>
+                    <th className="num">Oldini olingan zarar</th>
                     <th className="num">Xavfsizlik</th>
                     <th className="num">Ishlagan vaqt</th>
                   </tr>
@@ -156,6 +164,7 @@ export default function ComparePage() {
                         {b.theft.confirmed} / {b.theft.rejected} / {b.theft.unreviewed}
                       </td>
                       <td className={`num ${wFalse === b.id ? "warn" : ""}`}>{pct(b.theft.false_share)}</td>
+                      <td className="num">{b.theft.loss ? som(b.theft.loss) : "—"}</td>
                       <td className="num">{b.safety.total}</td>
                       <td className={`num ${wUp === b.id ? "warn" : ""}`}>{pct(b.uptime)}</td>
                     </tr>

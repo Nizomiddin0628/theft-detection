@@ -3,7 +3,7 @@
 Paket ichida:
   hodisa_<id>.pdf        hisobot: do'kon, kamera, vaqt, turi, ball, sabablar, ball tarkibi, kim qachon tekshirdi, izoh,
                          rasm (signal lahzasi) va odam qirqimi, har faylning SHA-256 xeshi
-  klip.mp4, rasm.jpg, odam.jpg   asl fayllar (o'zgartirilmagan)
+  klip.mp4, rasm.jpg, odam.jpg   asl fayllar (o'zgartirilmagan); klip_toza.mp4 — chizmalarsiz nusxa (3.1.0)
   manifest.json          hodisa ma'lumoti va har faylning SHA-256 / hajmi
   TEKSHIRISH.txt         xeshni Windows'da tekshirish: certutil -hashfile klip.mp4 SHA256
 
@@ -62,7 +62,8 @@ def build(event_id: int) -> tuple[bytes, str]:
     kind = KIND_UZ.get(ev.get("kind"), SAFE_LABELS.get(ev.get("kind"), ev.get("kind")))
     store = db.get_setting("store_name", "")
     files: list[tuple[str, bytes]] = []
-    for key, name in (("clip_path", "klip.mp4"), ("thumb_path", "rasm.jpg"), ("crop_path", "odam.jpg")):
+    for key, name in (("clip_path", "klip.mp4"), ("clip_clean", "klip_toza.mp4"),   # 3.1.0: chizmalarsiz nusxa ham
+                      ("thumb_path", "rasm.jpg"), ("crop_path", "odam.jpg")):
         fn = ev.get(key)
         p = CLIPS_DIR / fn if fn else None
         if p is not None and p.is_file():
@@ -91,6 +92,10 @@ def build(event_id: int) -> tuple[bytes, str]:
         doc.kv("Tekshirdi", f"{ev['reviewed_by']}, {_fmt(ev.get('reviewed_at'))}")
     if ev.get("note"):
         doc.kv("Izoh", ev["note"])
+    if ev.get("loss_sum") and ev.get("status") == "tasdiqlangan":
+        from .losses import fmt_sum
+
+        doc.kv("Taxminiy zarar", f"{fmt_sum(ev['loss_sum'])}" + (f" ({ev['loss_by']})" if ev.get("loss_by") else ""))
     doc.space(6)
     doc.text("Nima aniqlandi" if safe else "Sabablar", size=12, bold=True)
     for r in ev.get("reasons") or []:

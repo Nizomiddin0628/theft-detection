@@ -1900,3 +1900,75 @@ input[type="range"] {
     flex: 1 0 56px;
   }
 }
+
+/* 3.1.0: ikki-uch tugmali almashtirgich (klip: Belgili / Toza) va zarar summasi */
+.seg {
+  display: inline-flex;
+  gap: 2px;
+  padding: 3px;
+  border-radius: 9px;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+}
+.seg button {
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 13.5px;
+  font-weight: 500;
+  padding: 5px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.seg button[aria-pressed="true"] {
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
+}
+.seg button:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 1px;
+}
+.ev-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 10px;
+  flex-wrap: wrap;
+}
+.loss-box {
+  display: grid;
+  gap: 8px;
+}
+.loss-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.loss-row .input {
+  max-width: 190px;
+}
+.loss-sum {
+  font-size: 22px;
+  font-weight: 600;
+  color: var(--text);
+}
+.loss-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 28px;
+  align-items: baseline;
+  padding: 14px 18px;
+  margin-bottom: 20px;
+}
+.loss-strip .loss-main b {
+  font-size: 26px;
+  font-weight: 600;
+  color: var(--ok);
+}
+.loss-strip .small a {
+  margin-left: 6px;
+}

@@ -49,3 +49,10 @@ export function secs(v: number | null | undefined): string {
 }
 
 export const scoreTone = (score: number) => (score >= 75 ? "high" : score >= 50 ? "mid" : "low");
+
+// 3.1.0: 150000 → "150 000 so'm"
+export function som(n: number | null | undefined, unit = true): string {
+  const v = Math.round(Number(n) || 0);
+  const s = String(v).replace(/\B(?=(\d{3})+(?!\d))/g, " ");
+  return unit ? `${s} so'm` : s;
+}

@@ -1,6 +1,7 @@
 """Video manbalarini qayta ishlash: jonli kamera (veb-kamera, RTSP) va yuklangan video fayl."""
 from __future__ import annotations
 
+import json
 import os
 import platform
 import threading
@@ -187,6 +188,7 @@ class Processor:
     zones: zones_mod.ZoneSet = field(default_factory=zones_mod.ZoneSet)
     counter: "counting.LineCounter" = field(default=None)  # type: ignore[assignment]   # 1.9.0: sanash chizig'i
     safety: "safety.SafetyMonitor" = field(default=None)  # type: ignore[assignment]   # 2.2.0: xavfsizlik qoidalari
+    fixed_zones: zones_mod.ZoneSet | None = None        # 3.1.0: video kadri ustiga chizilgan zonalar (bulut Video sinovi)
 
     def __post_init__(self):
         if self.analyzer is None:
@@ -227,7 +229,7 @@ class Processor:
     # ------------------------------------------------------------------
     def step(self, frame: np.ndarray, t: float):
         h, w = frame.shape[:2]
-        self.zones = zones_mod.load(self.source_id)
+        self.zones = self.fixed_zones if self.fixed_zones is not None else zones_mod.load(self.source_id)
         motion = self._motion(frame)
         if self.mode == IDLE and motion < MOTION_FRAC and 0 <= t - self.last_full_t < IDLE_CHECK_SEC:
             # Bo'sh va jim kadr — modellar ishlatilmaydi
@@ -659,8 +661,20 @@ class FileJob(threading.Thread):
         pre, post = clip_window()
         ring = RingBuffer(seconds=pre + post + 3, max_fps=RING_FPS)
         src = {"id": None, "name": f"Video: {self.job['filename']}", "kind": "upload"}
+        # 3.1.0: bulut panelida video kadri ustiga chizilgan zonalar (bo'lsa — kamera zonalari o'rniga)
+        fixed = None
+        if self.job.get("cloud_meta"):
+            try:
+                fixed = zones_mod.from_list(json.loads(self.job["cloud_meta"]).get("zones"))
+            except (TypeError, ValueError, AttributeError):
+                fixed = None
         # Fon vazifasi: jonli kameralar bo'lsa, model navbatida ular birinchi (video tahlili sekinroq bo'ladi)
-        proc = Processor(src["name"], source_id=self.job.get("zone_source_id"), background=True)
+        proc = Processor(src["name"], source_id=None if fixed else self.job.get("zone_source_id"), background=True,
+                         fixed_zones=fixed)
+        from . import video_metrics
+
+        areas = video_metrics.AreaVisits()
+        qstats = video_metrics.QueueStats(total / fps if total else 0.0)
         pending: list[PendingClip] = []
         idx = 0
         self._last_progress = -1.0
@@ -684,7 +698,17 @@ class FileJob(threading.Thread):
                     continue
                 if ai_due:
                     last_ai_t = t
-                    _, ann, alerts, status = proc.step(frame, t)
+                    res_, ann, alerts, status = proc.step(frame, t)
+                    if proc.zones:
+                        try:
+                            areas.update(res_.persons, t, res_.width, res_.height, proc.zones, status)
+                            qm_ = getattr(proc.counter, "queue", None)
+                            if qm_ is not None:
+                                qstats.update(qm_, t)
+                        except Exception:  # noqa: BLE001 — o'lchov xatosi tahlilni to'xtatmasin
+                            log.exception("Zona o'lchovida xato (video %s)", self.job["filename"])
+                    else:
+                        areas.persons_max = max(areas.persons_max, len(res_.persons))
                     ring.set_annotations(ann)
                     ring.push(frame, t, time.time())
                     if t - last_prev_t >= 0.4:
@@ -720,6 +744,12 @@ class FileJob(threading.Thread):
         status = "xato" if err else ("toxtatildi" if self.stop_evt.is_set() else "tayyor")
         if status == "toxtatildi" and self.job.get("cloud_test_id") and getattr(self.manager, "shutting_down", False):
             status = "ishlanmoqda"     # 3.0.0: dastur to'xtayapti — bulut sinovi keyingi ishga tushishda qaytadan (recover)
+        if status == "tayyor":
+            try:                       # 3.1.0: navbat, sanash, zonalar bo'yicha qisqa natija (bulut paneliga ham)
+                m = video_metrics.compact(video_metrics.summarize(proc, areas, idx / fps, proc.zones, qstats))
+                db.execute("UPDATE jobs SET metrics=? WHERE id=?", (json.dumps(m, ensure_ascii=False), jid))
+            except Exception:  # noqa: BLE001
+                log.exception("Video o'lchovlarini yig'ishda xato")
         db.execute("UPDATE jobs SET status=?, progress=?, events_count=?, finished_at=?, duration=?, "
                    "frames=?, error=? WHERE id=?",
                    (status, 100.0 if status == "tayyor" else round(self.progress * 100, 1), self.events,

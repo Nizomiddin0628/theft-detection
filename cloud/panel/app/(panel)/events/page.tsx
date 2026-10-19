@@ -5,7 +5,7 @@ import { Suspense, useState } from "react";
 
 import EventView from "@/components/EventView";
 import { api, clipUrl, KIND_UZ, STATUS_UZ, type Branch, type EventRow, type Status } from "@/lib/api";
-import { scoreTone, when } from "@/lib/format";
+import { scoreTone, som, when } from "@/lib/format";
 import { useLive } from "@/lib/live";
 import { useData, useInterval } from "@/lib/useData";
 
@@ -33,9 +33,9 @@ function since(days: string): number | null {
   return Date.now() / 1000 - Number(days) * 86400;
 }
 
-function EventList() {
+function EventList({ initial }: { initial: Status | "" }) {
   const router = useRouter();
-  const [status, setStatus] = useState<Status | "">("yangi");
+  const [status, setStatus] = useState<Status | "">(initial);
   const [branch, setBranch] = useState("");
   const [period, setPeriod] = useState("7");
   const branches = useData(() => api<{ branches: Branch[] }>("/branches").then((r) => r.branches));
@@ -148,6 +148,7 @@ function EventList() {
                     <td className={`num score ${scoreTone(e.score)}`}>{Math.round(e.score)}</td>
                     <td>
                       <span className={`pill ${e.status}`}>{STATUS_UZ[e.status] ?? e.status}</span>
+                      {e.status === "tasdiqlangan" && e.loss_sum ? <div className="small">💰 {som(e.loss_sum)}</div> : null}
                       {e.reviewed_by ? <div className="small muted">{e.reviewed_by}</div> : null}
                     </td>
                   </tr>
@@ -165,7 +166,8 @@ function EventsPage() {
   const params = useSearchParams();
   const uid = params.get("uid");
   if (uid) return <EventView uid={uid} queue={params.get("queue") === "1"} />;
-  return <EventList />;
+  const st = params.get("status");
+  return <EventList initial={st === "tasdiqlangan" || st === "rad_etilgan" || st === "" ? st : "yangi"} />;
 }
 
 export default function Page() {

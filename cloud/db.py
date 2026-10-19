@@ -115,6 +115,8 @@ events = Table(
     Column("thumb_file", String(200)),
     Column("data", JSON),                                 # to'liq hodisa (edge yuborgan ko'rinishda)
     Column("received_at", Float),                         # bulutga birinchi kelgan vaqt (bulut soati)
+    Column("clip_clean", String(200)),                    # 3.1.0: chizmalarsiz klip (Telegram'ga shu ketadi)
+    Column("loss_sum", BigInteger),                       # 3.1.0: tasdiqlangan o'g'irlikning taxminiy zarari (so'm, qo'lda)
     Index("ix_events_branch_time", "branch_id", "created_at"),
 )
 metrics_minute = Table(
@@ -345,6 +347,9 @@ video_tests = Table(                                       # 3.0.0: bulut paneli
     Column("done_at", Float),
     Column("file_deleted", Boolean, nullable=False, default=False),
     Column("token", String(40)),                          # tasodifiy: edge hisobotini aynan shu sinovga bog'laydi
+    Column("zones", JSON),                                # 3.1.0: video kadri ustiga chizilgan zonalar
+    Column("metrics", JSON),                              # 3.1.0: navbat, sanash, zonalar bo'yicha natija (edge hisobi)
+    Column("notified", Boolean),                          # 3.1.0: yakuniy natija Telegram'ga yuborildi
     Index("ix_video_tests_company", "company_id", "created_at"),
     sqlite_autoincrement=True,                            # o'chirilgan sinov raqami qayta berilmasin (edge eslab qoladi)
 )
@@ -353,7 +358,8 @@ video_tests = Table(                                       # 3.0.0: bulut paneli
 EXTRA_COLUMNS = {
     "branches": {"offline_since": "FLOAT", "occupancy": "JSON", "queues": "JSON", "flow_plans": "JSON",
                  "readiness": "JSON"},
-    "events": {"received_at": "FLOAT"},
+    "events": {"received_at": "FLOAT", "clip_clean": "VARCHAR(200)", "loss_sum": "BIGINT"},
+    "video_tests": {"zones": "JSON", "metrics": "JSON", "notified": "BOOLEAN"},
 }
 
 _engine = None

@@ -19,12 +19,16 @@ CLOUD_LEADS_CHAT, CLOUD_LEADS_EMAIL), `python -m cloud.server --leads`. Demo: `p
 2.9.0: sayt uch tilda — /sayt/ (o'zbekcha), /sayt/ru/, /sayt/en/ (scripts/build_site.py yasaydi); CLOUD_SITE_PRICE_RU/_EN.
 3.0.0: Video sinovi — panelda video yuklanadi, tahlilni filialning do'kon kompyuteri qiladi (cloud/video_tests.py);
 sayt va panelda yorug'/tungi mavzu almashtirgich.
+3.1.0: Video sinovida video kadri ustiga zonalar (navbat, sanash chizig'i, bo'limlar) va natija o'lchovlari; sinov
+signallari va yakuniy natija yuklagan xodimga Telegram'da; chizmalarsiz (toza) klip — Telegram'ga shu ketadi; o'g'irlik
+tasdiqlanganda taxminiy zarar (so'm, qo'lda) — "oldini olingan zarar" (`/api/v1/losses`).
 """
 from __future__ import annotations
 
 import argparse
 import asyncio
 import base64
+import calendar
 import hashlib
 import hmac
 import json
@@ -53,7 +57,7 @@ from .db import CLIPS_DIR, DATA_DIR
 from .live import hub
 
 log = logging.getLogger("hushyor.cloud")
-VERSION = "3.0.0"
+VERSION = "3.1.0"
 
 API_VERSION = 1
 ROOT = Path(__file__).resolve().parent
@@ -303,6 +307,17 @@ def _num(v) -> float:
         return 0.0
 
 
+def _loss_of(it: dict) -> int | None:
+    """3.1.0: edge hodisasidagi zarar summasi (so'm) — faqat do'kondagi o'g'irlik signali (video tahlili emas)."""
+    if it.get("job_id") is not None or str(it.get("kind") or "") in notify.SAFETY_KINDS:
+        return None
+    try:
+        v = service.parse_sum(it.get("loss_sum"))
+    except ValueError:
+        return None
+    return v
+
+
 def _items(body) -> list[dict]:
     if not isinstance(body, dict):
         raise HTTPException(400, "JSON obyekt kutilgan")
@@ -368,12 +383,20 @@ def _hello(b: dict, body: dict, ip: str) -> dict:
     fp = _hello_flow_plans(body.get("flow_plans"))
     rd = _hello_readiness(body.get("readiness"))
     vt = body.get("video_tests")
+    vt_stored: list[int] = []
     if vt is not None:
+        finished: list[int] = []
         try:
             with cdb.engine().begin() as c:              # alohida tranzaksiya — xato bo'lsa heartbeat buzilmasin
-                video_tests.apply_edge_report(c, b, vt)  # 3.0.0: Video sinovi holati
+                video_tests.apply_edge_report(c, b, vt, finished, vt_stored)  # 3.0.0: Video sinovi holati
         except Exception:  # noqa: BLE001
             log.exception("Video sinovi holatini yozib bo'lmadi")
+            finished, vt_stored = [], []
+        for tid in finished:                             # 3.1.0: yakuniy natija — yuklagan xodimga (Telegram va h.k.)
+            try:
+                notify.on_video_test_done(tid)
+            except Exception:  # noqa: BLE001
+                log.exception("Video sinovi natijasi bildirishnomasida xato")
     with cdb.engine().begin() as c:
         vals = {"last_seen": now, "last_ip": ip[:64],
                 "version": str(body.get("version") or "")[:40], "cameras": cams,
@@ -399,7 +422,9 @@ def _hello(b: dict, body: dict, ip: str) -> dict:
     return {"ok": True, "server_time": now, "device": {"id": b["device_id"], "branch_id": b["id"], "name": b["name"]},
             "commands": [{"id": x["id"], "type": x["type"], **(cdb.json_load(x["payload"]) or {})} for x in cmds],
             # 2.0.0: edge shu ro'yxatga qarab yangi turdagi yozuvlarni navbatga qo'yadi (eski bulut — yo'q, to'smaydi)
-            "features": list(FEATURES)}
+            "features": list(FEATURES),
+            # 3.1.0: o'lchovlari bulutda saqlangan Video sinovlari — edge ularni endi qayta yubormaydi
+            **({"video_tests_stored": vt_stored} if vt_stored else {})}
 
 
 FEATURES = ("queues", "flow", "video_tests")
@@ -518,14 +543,22 @@ def _edge_events(b: dict, items: list[dict]) -> dict:
                     "kind": str(it.get("kind") or "")[:40], "score": _num(it.get("score")),
                     "status": str(it.get("status") or "")[:40], "source_name": str(it.get("source_name") or "")[:200],
                     "data": it, "received_at": now}
-            prev = c.execute(cdb.events.select().with_only_columns(cdb.events.c.status, cdb.events.c.updated_at)
+            # 3.1.0: do'konda (panel yoki Telegram) kiritilgan zarar summasi; video tahliliga yozilmaydi. Maydon umuman
+            # yo'q bo'lsa (3.0.0 edge) — bulutdagi summaga tegilmaydi (eski edge uni o'chirib yubormasin)
+            has_loss = "loss_sum" in it
+            if has_loss:
+                vals["loss_sum"] = _loss_of(it)
+            prev = c.execute(cdb.events.select().with_only_columns(cdb.events.c.status, cdb.events.c.updated_at,
+                                                                   cdb.events.c.loss_sum)
                              .where(cdb.events.c.uid == uid)).first()
             # Eskiroq yangilanish ustiga yozilmaydi (updated_at monoton); received_at — faqat birinchi kelganda
-            cdb.upsert(cdb.events, vals, ["uid"], ["updated_at", "kind", "score", "status", "source_name", "data"],
-                       where=cdb.events.c.updated_at <= upd, conn=c)
+            cdb.upsert(cdb.events, vals, ["uid"], ["updated_at", "kind", "score", "status", "source_name", "data"]
+                       + (["loss_sum"] if has_loss else []), where=cdb.events.c.updated_at <= upd, conn=c)
             if prev is None:
                 new_uids.append((uid, it))
-            elif (prev.updated_at or 0) <= upd and (prev.status or "") != vals["status"]:
+            elif (prev.updated_at or 0) <= upd and ((prev.status or "") != vals["status"]
+                                                    or (has_loss and (prev.loss_sum or None) != vals["loss_sum"])):
+                # holat yoki (3.1.0) zarar summasi o'zgardi — bulut botidagi xabarlar yangilanadi
                 changed.append((uid, vals["status"], it.get("reviewed_by")))
             _seen(c, dev, "event", key)
             accepted.append(key)
@@ -554,27 +587,20 @@ def _edge_events(b: dict, items: list[dict]) -> dict:
 
 @app.post(f"/api/v{API_VERSION}/edge/events/{{uid}}/clip")
 async def edge_clip(request: Request, uid: str, meta: str = Form("{}"), clip: UploadFile = File(...),
-                    thumb: UploadFile | None = File(None)):
+                    thumb: UploadFile | None = File(None), clean: UploadFile | None = File(None)):
     b = await _branch(request)
     dev = b["device_id"]
     if not UID_RE.fullmatch(uid) or not uid.startswith(dev + ":"):
         raise HTTPException(400, "uid noto'g'ri")
     thumb_data = await thumb.read(5 * 1024 * 1024 + 1) if thumb is not None else None
     # Fayl nusxalash (60 MB gacha) va baza — threadpool'da: event loop bloklanmaydi
-    return await run_in_threadpool(_store_clip, b, uid, clip.file, thumb_data)
+    return await run_in_threadpool(_store_clip, b, uid, clip.file, thumb_data,
+                                   clean.file if clean is not None else None)
 
 
-def _store_clip(b: dict, uid: str, src, thumb_data: bytes | None) -> dict:
-    dev = b["device_id"]
-    ev = cdb.row("SELECT clip_file FROM events WHERE uid=:u", {"u": uid})
-    if ev is None:
-        raise HTTPException(409, "hodisa hali yo'q — avval hodisa yozuvini yuboring")
-    if ev["clip_file"]:
-        return {"ok": True, "duplicate": True}
-    ddir = CLIPS_DIR / dev
-    ddir.mkdir(parents=True, exist_ok=True)
-    safe = uid.replace(":", "_")
-    tmp = ddir / f"{safe}.{threading.get_ident()}.part"     # bir vaqtda ikki yuklash bir-birining faylini buzmasin
+def _copy_clip(src, dest: Path) -> int:
+    """Klipni vaqtinchalik faylga (bir vaqtda ikki yuklash bir-birini buzmasin), keyin yakuniy nomiga."""
+    tmp = dest.with_name(f"{dest.stem}.{threading.get_ident()}.part")
     total = 0
     try:
         with open(tmp, "wb") as f:
@@ -588,10 +614,42 @@ def _store_clip(b: dict, uid: str, src, thumb_data: bytes | None) -> dict:
                 f.write(chunk)
         if total == 0:
             raise HTTPException(400, "bo'sh fayl")
-        final = ddir / f"{safe}.mp4"
-        tmp.replace(final)
+        tmp.replace(dest)
     finally:
         tmp.unlink(missing_ok=True)
+    return total
+
+
+def _store_clean(dev: str, safe: str, src) -> str | None:
+    """3.1.0: chizmalarsiz klip (ixtiyoriy) — saqlanmasa ham asosiy klip qabul qilinadi."""
+    try:
+        head = src.read(12)
+        src.seek(0)
+        if len(head) < 12 or head[4:8] != b"ftyp":
+            return None
+        _copy_clip(src, CLIPS_DIR / dev / f"{safe}_clean.mp4")
+        return f"{dev}/{safe}_clean.mp4"
+    except (HTTPException, OSError, ValueError):
+        log.warning("Toza klip saqlanmadi: %s", safe)
+        return None
+
+
+def _store_clip(b: dict, uid: str, src, thumb_data: bytes | None, clean_src=None) -> dict:
+    dev = b["device_id"]
+    ev = cdb.row("SELECT clip_file, clip_clean FROM events WHERE uid=:u", {"u": uid})
+    if ev is None:
+        raise HTTPException(409, "hodisa hali yo'q — avval hodisa yozuvini yuboring")
+    ddir = CLIPS_DIR / dev
+    ddir.mkdir(parents=True, exist_ok=True)
+    safe = uid.replace(":", "_")
+    if ev["clip_file"]:
+        if clean_src is not None and not ev.get("clip_clean"):
+            cc = _store_clean(dev, safe, clean_src)
+            if cc:
+                cdb.execute("UPDATE events SET clip_clean=:c WHERE uid=:u", {"c": cc, "u": uid})
+        return {"ok": True, "duplicate": True}
+    total = _copy_clip(src, ddir / f"{safe}.mp4")
+    clean_name = _store_clean(dev, safe, clean_src) if clean_src is not None else None
     thumb_name = None
     # Faqat haqiqiy JPEG (FF D8 FF) — rasm o'rnida boshqa narsa saqlanmasin
     if thumb_data and len(thumb_data) <= 5 * 1024 * 1024 and thumb_data[:3] == b"\xff\xd8\xff":
@@ -599,7 +657,8 @@ def _store_clip(b: dict, uid: str, src, thumb_data: bytes | None) -> dict:
         thumb_name = f"{dev}/{safe}.jpg"
     with cdb.engine().begin() as c:
         c.execute(cdb.events.update().where(cdb.events.c.uid == uid).values(clip_file=f"{dev}/{safe}.mp4",
-                                                                              thumb_file=thumb_name))
+                                                                              thumb_file=thumb_name,
+                                                                              clip_clean=clean_name))
         _seen(c, dev, "clip", uid)
     try:
         notify.on_clip(uid)
@@ -1524,7 +1583,8 @@ def list_events(request: Request, branch_id: int | None = None, status: str | No
         params["until"] = until
     params["lim"] = limit
     rows_ = cdb.rows("SELECT e.uid, e.branch_id, b.name AS branch_name, e.device_id, e.local_id, e.created_at, e.updated_at, "
-                     "e.received_at, e.kind, e.score, e.status, e.source_name, e.clip_file, e.thumb_file, e.data "
+                     "e.received_at, e.kind, e.score, e.status, e.source_name, e.clip_file, e.thumb_file, e.clip_clean, "
+                     "e.loss_sum, e.data "
                      f"FROM events e JOIN branches b ON b.id=e.branch_id WHERE {' AND '.join('e.' + w for w in where)} "
                      "ORDER BY e.created_at DESC LIMIT :lim", params)
     for r in rows_:
@@ -1562,12 +1622,60 @@ async def review_event(request: Request, uid: str):
             raise HTTPException(400, "holat: yangi, tasdiqlangan yoki rad_etilgan")
         note = body.get("note")
         note = str(note)[:2000] if note is not None else None
+        amount = None
+        if body.get("loss_sum") not in (None, ""):
+            try:
+                amount = service.parse_sum(body.get("loss_sum"))
+            except ValueError as e:
+                raise HTTPException(400, f"summa: {e}")
         try:
             res = service.review(u, uid, status, note, via="Bulut", ip=_ip(request))
+            if amount is not None and status == "tasdiqlangan":
+                res = {**res, **service.set_loss(u, uid, amount, via="Bulut", ip=_ip(request))}
         except service.NotFound:
             raise HTTPException(404, "hodisa topilmadi")
+        except service.NotAllowed as e:
+            raise HTTPException(409, str(e))
         return {"ok": True, "event": res}
     return await run_in_threadpool(_do)
+
+
+@app.post(f"/api/v{API_VERSION}/events/{{uid}}/loss")
+async def event_loss(request: Request, uid: str):
+    """3.1.0: tasdiqlangan o'g'irlik signaliga taxminiy zarar (so'm). Bo'sh yoki 0 — summa olib tashlanadi. Edge'ga
+    `loss` buyrug'i ketadi (do'kondagi Telegram xabari ham yangilanadi)."""
+    body = await _json(request)
+
+    def _do() -> dict:
+        u = _user(request)
+        if not isinstance(body, dict):
+            raise HTTPException(400, "JSON obyekt kutilgan")
+        try:
+            amount = service.parse_sum(body.get("loss_sum"))
+        except ValueError as e:
+            raise HTTPException(400, f"summa: {e}")
+        try:
+            res = service.set_loss(u, uid, amount, via="Bulut", ip=_ip(request))
+        except service.NotFound:
+            raise HTTPException(404, "hodisa topilmadi")
+        except service.NotAllowed as e:
+            raise HTTPException(409, str(e))
+        return {"ok": True, "event": res}
+    return await run_in_threadpool(_do)
+
+
+@app.get(f"/api/v{API_VERSION}/losses")
+def losses_summary(request: Request):
+    """3.1.0: "oldini olingan zarar" — tasdiqlangan o'g'irliklarga qo'lda kiritilgan summalar (bugun, shu oy, jami),
+    filiallar bo'yicha shu oy va summasi yozilmagan tasdiqlar soni (oxirgi 30 kun)."""
+    u = _user(request)
+    ids = _scope(u)
+    off = notify.cfg.tz_offset * 3600
+    now = time.time()
+    day0 = (now + off) // 86400 * 86400 - off
+    lt = time.gmtime(now + off)
+    month0 = calendar.timegm((lt.tm_year, lt.tm_mon, 1, 0, 0, 0)) - off
+    return {"ok": True, **service.loss_summary(ids, day0, month0)}
 
 
 @app.get(f"/api/v{API_VERSION}/branches/{{branch_id}}/metrics")
@@ -1684,7 +1792,8 @@ def video_test_get(request: Request, tid: int):
 
 
 @app.post(f"/api/v{API_VERSION}/video-tests")
-async def video_test_upload(request: Request, branch_id: str = "", name: str = "", zone_source_id: str = ""):
+async def video_test_upload(request: Request, branch_id: str = "", name: str = "", zone_source_id: str = "",
+                            zones: str = ""):
     """Tana — videoning o'zi (application/octet-stream, Content-Length bilan; multipart emas — diskka bir marta yoziladi).
     Parametrlar matn sifatida olinadi va kirish tekshirilgandan KEYIN tahlil qilinadi (sessiyasiz — 401, 422 emas)."""
     u = await run_in_threadpool(_user, request)
@@ -1701,6 +1810,13 @@ async def video_test_upload(request: Request, branch_id: str = "", name: str = "
     if not video_tests.edge_ok(br):
         raise HTTPException(409, "Bu filialning do'kon kompyuteri eski versiyada — video sinovi uchun uni 3.0.0 ga "
                                  "yangilang (yoki hali bulutga ulanmagan)")
+    try:
+        zl = video_tests.parse_zones(zones)          # 3.1.0: video kadri ustiga chizilgan zonalar
+    except ValueError as e:
+        raise HTTPException(400, f"Zonalar: {e}")
+    if zl and video_tests.version_tuple(br.get("version")) < (3, 1, 0):
+        raise HTTPException(409, "Video ustiga chizilgan zonalar uchun do'kon kompyuterini 3.1.0 ga yangilang "
+                                 "(yoki zonasiz / kamera zonalari bilan yuklang)")
     fname = video_tests.clean_name(name)
     if Path(fname).suffix.lower() not in video_tests.EXTS:
         raise HTTPException(400, "Video fayl kerak: " + ", ".join(e[1:] for e in video_tests.EXTS))
@@ -1720,12 +1836,13 @@ async def video_test_upload(request: Request, branch_id: str = "", name: str = "
     if problem:
         raise HTTPException(problem[0], problem[1])
     try:
-        return await _vt_stream(request, u, br, fname, size, zid, zname)
+        return await _vt_stream(request, u, br, fname, size, zid, zname, zl)
     finally:
         await run_in_threadpool(video_tests.release, u["company_id"], size)
 
 
-async def _vt_stream(request: Request, u: dict, br: dict, fname: str, size: int, zid, zname) -> dict:
+async def _vt_stream(request: Request, u: dict, br: dict, fname: str, size: int, zid, zname,
+                     zl: list | None = None) -> dict:
     w = await run_in_threadpool(video_tests.Writer, video_tests.max_bytes())
     buf = bytearray()
     try:
@@ -1754,7 +1871,7 @@ async def _vt_stream(request: Request, u: dict, br: dict, fname: str, size: int,
         await run_in_threadpool(w.abort)
         raise
     try:
-        t = await run_in_threadpool(video_tests.create, u, br, fname, size, sha, zid, zname, w.place)
+        t = await run_in_threadpool(video_tests.create, u, br, fname, size, sha, zid, zname, w.place, zl)
     except BaseException:
         await run_in_threadpool(w.abort)
         raise

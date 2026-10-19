@@ -339,9 +339,10 @@ def _suite(base: str) -> None:
     ok("Do'kon (edge) uchun review buyrug'i yaratildi", cmd and cloud.cdb.json_load(cmd["payload"])["status"] == "tasdiqlangan"
        and "Telegram: Qorovul" in cloud.cdb.json_load(cmd["payload"])["by"])
     got = wait(lambda: len([c for c in tg_calls("editMessageText") if "TASDIQLANDI" in c["data"].get("text", "")]) >= 2)
-    ok("Ikkala chatdagi xabar tahrirlandi (TASDIQLANDI, tugmalar olindi)", bool(got) and all(
-        c["data"]["reply_markup"] == {"inline_keyboard": []} for c in tg_calls("editMessageText")
-        if "TASDIQLANDI" in c["data"].get("text", "")))
+    # 3.1.0: ✅/❌ tugmalari olinadi; tasdiqlangan o'g'irlikda faqat "💰 Zarar summasi" tugmasi qoladi
+    ok("Ikkala chatdagi xabar tahrirlandi (TASDIQLANDI, ✅/❌ olindi, 💰 qoldi)", bool(got) and all(
+        [[b_["callback_data"][:2] for b_ in row] for row in c["data"]["reply_markup"]["inline_keyboard"]] == [["m:"]]
+        for c in tg_calls("editMessageText") if "TASDIQLANDI" in c["data"].get("text", "")))
 
     # --- panel orqali tekshirish ham Telegram'ni tahrirlaydi; edge'dan kelgan o'zgarish ham
     r = httpx.post(f"{base}/api/v1/events/devA:2/review", json={"status": "rad_etilgan"}, headers=manager)

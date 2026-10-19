@@ -349,13 +349,42 @@ Bulut panelida yuklangan video filialning edge kompyuterida tahlil qilinadi (bul
   "duration": null, "error": ""}]`. Edge holatlari: yuklanmoqda | navbatda | ishlanmoqda | tayyor | xato | toxtatildi
   (bulutda — "bekor"). Tugagan holat bulutda qaytib "faol"ga o'tmaydi.
 * **Natija** — odatdagi `/edge/events` va `/edge/events/{uid}/clip` (hodisada `job_id`); bulut sinov hodisalarini
-  `branch_id` + `data.job_id` bo'yicha topadi. Video tahlili hodisalari uchun bildirishnoma yuborilmaydi.
+  `branch_id` + `data.job_id` bo'yicha topadi. Video tahlili hodisalari uchun bildirishnoma yuborilmaydi
+  (3.1.0 dan: bulut sinovi signallari va yakuniy natija — sinovni yuklagan xodimga, pastda).
 * Edge tahlil paytida qayta ishga tushsa — sinov yangi vazifa (yangi `job_id`) bilan qaytadan tahlil qilinadi.
 
 Panel API: `GET /api/v1/video-tests` (sinovlar, filiallar: onlayn/versiya/kameralar, cheklovlar),
 `POST /api/v1/video-tests?branch_id=&name=[&zone_source_id=]` (tana — videoning o'zi, `Content-Length` bilan;
 owner/manager), `GET /api/v1/video-tests/{id}` (sinov + hodisalari), `POST /api/v1/video-tests/{id}/cancel`,
 `DELETE /api/v1/video-tests/{id}` (faqat tugagan).
+
+## 3.1.0 — toza klip, zarar summasi, Video sinovida zonalar va o'lchovlar
+
+* **Toza klip:** `POST /api/v1/edge/events/{uid}/clip` — ixtiyoriy `clean` fayl maydoni (chizmalarsiz mp4, `ftyp`
+  imzosi). Bulut uni `events.clip_clean` ga saqlaydi (`<dev>/<uid>_clean.mp4`); bulut boti Telegram'ga shuni
+  yuboradi. Klip allaqachon bor bo'lsa ham (takror yuklash) toza nusxa yo'q bo'lsa — saqlanadi. Eski bulut maydonni
+  e'tiborsiz qoldiradi.
+* **Zarar summasi:** edge hodisasida `loss_sum` (butun so'm yoki null), `loss_by`, `loss_at` — bulut `events.loss_sum`
+  ga yozadi (faqat `job_id` yo'q va xavfsizlik turi bo'lmagan hodisalarda). Summa o'zgarsa (holat o'zgarmasa ham)
+  bulut botidagi xabarlar yangilanadi. Bulutda kiritilganda edge'ga buyruq:
+  `{"type": "loss", "local_id": 12, "uid": "<dev>:12", "loss_sum": 150000, "by": "Bulut: Ali", "t": <bulut vaqti>}` —
+  edge lokal summa undan yangiroq bo'lsa (loss_at) qo'llamaydi; eski edge buyruqni tushunmaydi va ack qiladi.
+  Panel API: `POST /api/v1/events/{uid}/loss` `{"loss_sum": "150 ming"}` (bo'sh — olib tashlash; 409 — tasdiqlanmagan,
+  xavfsizlik yoki video sinovi hodisasi), `POST /api/v1/events/{uid}/review` ga ixtiyoriy `loss_sum`,
+  `GET /api/v1/losses` → `{"today": {sum, n}, "month": ..., "total": ..., "missing": N, "branches": [...]}`;
+  `/api/v1/compare` da `theft.loss`, `theft.loss_n`, `total.loss`. Hodisalar ro'yxatida `loss_sum`, `clip_clean`.
+* **Video sinovi signallari:** edge hodisasida `cloud_test_id` (job — bulut sinovi bo'lsa). Bulut bunday hodisani
+  faqat sinovni yuklagan xodimga yuboradi (sozlamadan qat'i nazar); sinov tugaganda (tayyor/xato) — bir marta
+  `vtest` xabari (signallar, o'lchovlar qisqacha).
+* **Zonalar:** `POST /api/v1/video-tests?...&zones=<JSON>` — `[{"kind": "navbat"|"kassir"|"chiziq"|"polka"|"kassa"|
+  "eshik"|"xodim"|"etiborsiz", "name": "1-kassa", "pts": [[x, y], ...]}]`, nuqtalar 0..1, ≤ 12 zona, ko'pburchak 3–16
+  nuqta, chiziq — 2 nuqta (a→b ning o'ng tomoni — ichkari), JSON ≤ 4000 belgi. Berilsa `zone_source_id` e'tiborsiz.
+  Edge 3.1.0 dan eski bo'lsa — 409. Buyruqda: `"zones": [...]`.
+* **O'lchovlar:** hello'dagi `video_tests[]` elementida (holat `tayyor`, tugaganiga 6 soatdan oshmagan) `metrics`:
+  `{"duration", "zones", "persons_max", "queue": [{"name", "max_len", "avg_len", "busy_pct", "served", "avg_wait",
+  "max_wait", "series": [[t, uzunlik], ...]}], "lines": [{"name", "in", "out", "staff"}], "areas": [{"name", "kind",
+  "visitors", "avg_dwell", "reaches"}]}` (≤ 20 KB). Bulut "tayyor" bilan birga yoki keyinroq (yakuniy sinovga) yozadi;
+  panel API'da `test.zones`, `test.metrics`.
 
 ## Edge tomonidagi kafolatlar (qabul mezoni: internet 1 soat uzilsa ma'lumot yo'qolmaydi)
 

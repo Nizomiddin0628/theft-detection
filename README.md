@@ -8,6 +8,37 @@ klipini avtomatik kesib, **Telegram botga** sabablari bilan yuboradi. Qo'riqchi 
 
 ---
 
+## 3.1.0 — Video sinovida zonalar va o'lchovlar, sinov natijasi Telegram'da, toza klip, oldini olingan zarar
+
+* **Signal aniqlansa — Telegram'ga xabar (asosiy qoida):** bulut panelidagi Video sinovi signallari endi Telegram'ga
+  boradi — sinovni yuklagan xodimga bulut botida («🧪 Video sinovi: fayl — videoning N-soniyasi», ✅/❌ tugmalari,
+  toza klip) va do'kon botiga («🧪 Video sinovi (bulut paneli): fayl»). Sinov tugaganda yuklaganga **yakuniy natija**:
+  signallar soni va turlari, navbat, kirganlar, bo'limlar (bir marta). Do'kon panelida ovozli signal yo'q (jonli emas).
+* **Toza klip:** har hodisaga klip ikki nusxada — belgili (skelet, ramka, sabablar, vaqt chizig'i) va chizmalarsiz.
+  Telegram'ga (do'kon boti ham, bulut boti ham) **toza** rasm va video ketadi; panellarda «Belgili / Toza» almashtirgich
+  (do'kon paneli — hodisa sahifasi, bulut paneli — hodisa ko'rinishi). Toza nusxa bulutga klip bilan birga yuklanadi
+  (eski bulut uni e'tiborsiz qoldiradi), muddati o'tganda birga o'chiriladi; toza nusxa yo'q eski hodisalarda — oddiy klip.
+* **Oldini olingan zarar (so'm, qo'lda):** o'g'irlik signali tasdiqlanganda taxminiy zarar yoziladi — Telegram'da ✅
+  bosilgach bot so'raydi («150000», «150 ming», «1,5 mln»; /otkaz — summasiz; keyin «💰 Summani o'zgartirish»),
+  do'kon panelida (hodisa sahifasi, tasdiqlash bilan birga yoki keyin), bulut panelida (hodisa ko'rinishi; navbat bilan
+  tekshirishda tasdiqlangan o'g'irlikda to'xtaydi — summa yoki «O'tkazib yuborish»). Summa do'kon ↔ bulut ikki
+  tomonga yetadi (yangirog'i qoladi), Telegram xabarlarida «💰 Taxminiy zarar» ko'rinadi. Hisobga faqat **tasdiqlangan**
+  o'g'irliklar kiradi (xavfsizlik signallari va video sinovlari — yo'q): do'kon boshqaruv panelida «Oldini olingan
+  zarar» (bugun, shu oy, jami, summasi yozilmaganlar), kunlik/haftalik hisobot (Telegram va PDF), CSV eksport; bulut
+  bosh sahifasida (`/api/v1/losses`), Taqqoslashda (jami va filiallar), haftalik xulosada.
+* **Video sinovida zonalar:** «Zonalar» → «✏️ Video ustida chizaman» — tanlangan videoning kadri (brauzerda,
+  yuklashdan oldin) chiqadi, ustiga zonalar chiziladi: kassa navbati, kassir joyi, sanash chizig'i (strelka — ichkari),
+  polka/bo'lim, kassa, kirish/chiqish, xodimlar joyi, e'tiborsiz (12 tagacha, ko'pburchak 3–16 nuqta). Tahlil shu
+  zonalar bilan (kamera zonalari o'rniga). Natijada **o'lchovlar**: har kassa navbati — eng uzun navbat, o'rtacha
+  uzunlik, navbat bo'lgan vaqt ulushi, o'tgan xaridorlar, o'rtacha va eng uzoq kutish, grafik; sanash chizig'i — kirdi /
+  chiqdi / xodim; zonalar — to'xtaganlar (≥ 2 s), o'rtacha turish, polkaga qo'l uzatishlar. Kamera zonalari bilan
+  yuborilgan sinovda ham shu o'lchovlar chiqadi. Do'kon kompyuteri 3.1.0 bo'lishi kerak (eskisida chizilgan zonalar
+  bilan yuklab bo'lmaydi — tushuntiriladi). Brauzer kadrni o'qiy olmaydigan formatda (masalan, AVI) — zonasiz yoki
+  kamera zonalari bilan.
+* Sinov: `python -m tests.test_310` (toza klip, summa — do'kon boti, bulut boti, ikkala panel, sinxronlash; Video
+  sinovi — zonalar, Telegram, o'lchovlar; haqiqiy videolarda: navbat_guruh — eng uzun navbat 3, navbat_namuna — 6 kishi,
+  sanash_namuna — 7 kirdi; brauzerda zona chizish).
+
 ## 3.0.0 — Video sinovi (bulut panelidan), yorug'/tungi mavzu, Caddy'li server
 
 * **Video sinovi** (bulut paneli → «Video sinovi»): video internetdagi panelga yuklanadi, tanlangan filialning do'kon
@@ -15,7 +46,8 @@ klipini avtomatik kesib, **Telegram botga** sabablari bilan yuboradi. Qo'riqchi 
   navbatiga qo'yadi va natijani qaytaradi: holat va foiz panelda jonli, topilgan signallar rasm va klip bilan — shu
   yerda va Hodisalar'da. Zonalar: istalgan kameraning zonalarini qo'llash mumkin. Bekor qilish (edge olguncha ham,
   tahlil paytida ham). Edge videoni tekshirib olgach u bulutdan o'chiriladi; 2 kunda olinmagani — "xato". Video
-  sinovi uchun na bulut, na do'kon Telegram'iga xabar ketmaydi, do'kon panelida ovozli signal ham yo'q (jonli emas).
+  sinovi uchun na bulut, na do'kon Telegram'iga xabar ketmaydi (3.1.0 da o'zgardi — ketadi), do'kon panelida ovozli
+  signal ham yo'q (jonli emas).
   Edge bulutdagi yangi buyruqni ~15 soniyada sezadi (`/edge/poll`). Dastur tahlil paytida qayta ishga tushsa — sinov
   qaytadan tahlil qilinadi (2 martadan ko'p bo'lsa — "xato": video kompyuterni yiqitayotgan bo'lishi mumkin).
   Cheklovlar: `CLOUD_VIDEO_MAX_MB` (300), `CLOUD_VIDEO_QUOTA_MB` (2000), `CLOUD_VIDEO_MIN_FREE_MB` (1024 — server

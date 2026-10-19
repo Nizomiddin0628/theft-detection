@@ -86,12 +86,17 @@ def _decode(f: BufFrame) -> np.ndarray:
 
 
 def iter_rendered(frames: list[BufFrame], highlight: int | None, banner: str,
-                  live: bool, susp: tuple[float, float] | None = None, with_index: bool = False):
-    """Kadrlarni birma-bir chizib beradi (hammasini xotiraga yig'maydi — 20 s klip ~370 MB bo'lardi)."""
+                  live: bool, susp: tuple[float, float] | None = None, with_index: bool = False,
+                  clean: bool = False):
+    """Kadrlarni birma-bir chizib beradi (hammasini xotiraga yig'maydi — 20 s klip ~370 MB bo'lardi).
+    3.1.0: clean=True — hech narsa chizilmaydi (skelet, ramka, yozuvlar yo'q): Telegram uchun toza klip."""
     t0, t1 = frames[0].t, frames[-1].t
     for i, f in enumerate(frames):
         img = _decode(f)
         if img is None:
+            continue
+        if clean:
+            yield (i, img) if with_index else img
             continue
         tt = annotate.wall_clock(f.wall) if live else f"video {f.t:6.1f} s"
         if f.ann:
@@ -180,12 +185,16 @@ def write_mp4(images, path: Path, fps: float) -> bool:
 
 
 def make_snapshot(frame: np.ndarray, ann: tuple | None, highlight: int | None, banner: str,
-                  time_text: str | None, path: Path) -> bool:
-    """Signal lahzasidagi kadrdan darhol rasm (Telegram'ga birinchi xabar uchun, ~10 ms)."""
+                  time_text: str | None, path: Path, clean_path: Path | None = None) -> bool:
+    """Signal lahzasidagi kadrdan darhol rasm (Telegram'ga birinchi xabar uchun, ~10 ms).
+    3.1.0: clean_path — o'sha kadr chizmalarsiz (Telegram'ga toza rasm ketadi)."""
     h, w = frame.shape[:2]
     scale = min(1.0, MAX_CLIP_WIDTH / w)
     img = cv2.resize(frame, (int(w * scale), int(h * scale)), interpolation=cv2.INTER_AREA) if scale < 1 \
         else frame.copy()
+    if clean_path is not None:
+        clean_path.parent.mkdir(parents=True, exist_ok=True)
+        cv2.imwrite(str(clean_path), img, [cv2.IMWRITE_JPEG_QUALITY, 85])
     persons, objects, status = ann if ann else ([], [], {})
     annotate.draw(img, persons, objects, status, highlight=highlight, scale=scale, banner=banner,
                   time_text=time_text)
@@ -195,13 +204,16 @@ def make_snapshot(frame: np.ndarray, ann: tuple | None, highlight: int | None, b
 
 def make_clip(frames: list[BufFrame], event_t: float, highlight: int, banner: str, live: bool,
               out_dir: Path, stem: str, person_box: list | None,
-              susp: tuple[float, float] | None = None) -> dict:
+              susp: tuple[float, float] | None = None, clean: bool = True, on_clean=None) -> dict:
     """Klip, eskiz (thumbnail) va odam qirqimini yaratadi. Fayl nomlarini qaytaradi.
 
     susp: (shubha boshlanishi, signal vaqti) — klipda vaqt chizig'i va "SHUBHALI LAHZA" belgisi.
+    3.1.0: clean=True — xuddi shu klip chizmalarsiz ham (`<stem>_clean.mp4`, `<stem>_clean.jpg`): Telegram'ga toza
+    video ketadi, panelda "Toza / Belgili" almashtiriladi. Toza nusxa BIRINCHI yoziladi va on_clean(natija) chaqiriladi —
+    Telegram belgili nusxa tayyor bo'lishini kutmaydi.
     """
     out_dir.mkdir(parents=True, exist_ok=True)
-    res = {"clip": None, "thumb": None, "crop": None, "clip_start": None}
+    res = {"clip": None, "thumb": None, "crop": None, "clip_start": None, "clip_clean": None, "thumb_clean": None}
     if not frames:
         return res
     res["clip_start"] = frames[0].t
@@ -213,8 +225,9 @@ def make_clip(frames: list[BufFrame], event_t: float, highlight: int, banner: st
     fps = float(CLIP_FPS) if len(frames) > 1 else 10.0
     n_out = max(1, int(round(dur * fps)) + 1) if len(frames) > 1 else 1
 
-    def stream():
-        it = iter_rendered(frames, highlight, banner, live, susp, with_index=True)
+    def stream(plain: bool = False):
+        key = "clean" if plain else "thumb"
+        it = iter_rendered(frames, highlight, banner, live, susp, with_index=True, clean=plain)
         cur = next(it, None)
         if cur is None:
             return
@@ -225,33 +238,62 @@ def make_clip(frames: list[BufFrame], event_t: float, highlight: int, banner: st
             while nxt is not None and frames[nxt[0]].t <= tk + 1e-6:
                 cur, nxt = nxt, next(it, None)
             i, img = cur
-            if i >= idx and "thumb_i" not in kept:   # hodisa lahzasi (yoki undan keyingi birinchi) kadr
-                kept["thumb"], kept["thumb_i"] = img.copy(), i
-            elif "thumb" not in kept:
-                kept["thumb"] = img
+            if i >= idx and f"{key}_i" not in kept:   # hodisa lahzasi (yoki undan keyingi birinchi) kadr
+                kept[key], kept[f"{key}_i"] = img.copy(), i
+            elif key not in kept:
+                kept[key] = img
             yield img
 
+    if clean:
+        clean_path = out_dir / f"{stem}_clean.mp4"
+        try:
+            if write_mp4(lambda: stream(True), clean_path, fps):
+                res["clip_clean"] = clean_path.name
+        except Exception as e:  # noqa: BLE001 — toza nusxa chiqmasa ham asosiy klip yoziladi
+            log.warning("Toza klip yozilmadi (%s): %s", stem, e)
+            clean_path.unlink(missing_ok=True)
+        if "clean" in kept:
+            tc = out_dir / f"{stem}_clean.jpg"
+            if cv2.imwrite(str(tc), kept["clean"], [cv2.IMWRITE_JPEG_QUALITY, 88]):
+                res["thumb_clean"] = tc.name
+        if on_clean is not None and res["clip_clean"]:
+            try:
+                on_clean(dict(res))
+            except Exception:  # noqa: BLE001 — xabar xatosi klip yozishni to'xtatmasin
+                log.exception("Toza klip tayyorligi haqida xabarda xato (%s)", stem)
     clip_path = out_dir / f"{stem}.mp4"
-    if write_mp4(stream, clip_path, fps):
-        res["clip"] = clip_path.name
+    try:
+        if write_mp4(stream, clip_path, fps):
+            res["clip"] = clip_path.name
+    except Exception as e:  # noqa: BLE001
+        clip_path.unlink(missing_ok=True)
+        if not res["clip_clean"]:
+            raise                      # toza nusxa ham yo'q — xato avvalgidek chaqiruvchiga (klip yaratilmadi)
+        # Belgili nusxa (chizish) xatosi toza nusxani yo'qotmasin — chaqiruvchi toza nusxani asosiy klip qiladi
+        log.warning("Belgili klip yozilmadi (%s): %s — toza nusxa qoladi", stem, e)
+        if "thumb_i" not in kept:
+            kept.pop("thumb", None)    # chizish hodisa lahzasigacha yetmagan — signal lahzasidagi rasm o'zgarmaydi
     if "thumb" not in kept:
         return res
-    thumb_path = out_dir / f"{stem}.jpg"
-    cv2.imwrite(str(thumb_path), kept["thumb"], [cv2.IMWRITE_JPEG_QUALITY, 88])
-    res["thumb"] = thumb_path.name
-    idx = min(idx, len(frames) - 1)
-    if person_box is not None:
-        raw = _decode(frames[idx])
-        if raw is not None:
-            s = frames[idx].scale
-            b = np.asarray(person_box, dtype=np.float32) * s
-            bw, bh = b[2] - b[0], b[3] - b[1]
-            x1 = int(max(0, b[0] - bw * 0.15))
-            y1 = int(max(0, b[1] - bh * 0.10))
-            x2 = int(min(raw.shape[1], b[2] + bw * 0.15))
-            y2 = int(min(raw.shape[0], b[3] + bh * 0.10))
-            if x2 - x1 > 10 and y2 - y1 > 10:
-                crop_path = out_dir / f"{stem}_crop.jpg"
-                cv2.imwrite(str(crop_path), raw[y1:y2, x1:x2], [cv2.IMWRITE_JPEG_QUALITY, 90])
-                res["crop"] = crop_path.name
+    try:                               # rasm/qirqim xatosi tayyor klip(lar)ni yo'qotmasin
+        thumb_path = out_dir / f"{stem}.jpg"
+        if cv2.imwrite(str(thumb_path), kept["thumb"], [cv2.IMWRITE_JPEG_QUALITY, 88]):
+            res["thumb"] = thumb_path.name
+        idx = min(idx, len(frames) - 1)
+        if person_box is not None:
+            raw = _decode(frames[idx])
+            if raw is not None:
+                s = frames[idx].scale
+                b = np.asarray(person_box, dtype=np.float32) * s
+                bw, bh = b[2] - b[0], b[3] - b[1]
+                x1 = int(max(0, b[0] - bw * 0.15))
+                y1 = int(max(0, b[1] - bh * 0.10))
+                x2 = int(min(raw.shape[1], b[2] + bw * 0.15))
+                y2 = int(min(raw.shape[0], b[3] + bh * 0.10))
+                if x2 - x1 > 10 and y2 - y1 > 10:
+                    crop_path = out_dir / f"{stem}_crop.jpg"
+                    if cv2.imwrite(str(crop_path), raw[y1:y2, x1:x2], [cv2.IMWRITE_JPEG_QUALITY, 90]):
+                        res["crop"] = crop_path.name
+    except Exception:  # noqa: BLE001
+        log.exception("Klip rasmi yoki odam qirqimi yozilmadi (%s)", stem)
     return res

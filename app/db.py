@@ -493,6 +493,11 @@ EXTRA_COLUMNS = {
         "thr": "REAL",          # 2.3.0: signal paytidagi haqiqiy chegara (zona/polka bilan) — solishtiruv uchun
         "ml_w": "REAL",         # 2.3.0: signal paytidagi ML og'irligi (NULL — ML o'chiq edi)
         "score_raw": "REAL",    # 2.3.0: 100 ga kesilmagan ball
+        "clip_clean": "TEXT",   # 3.1.0: chizmalarsiz klip (Telegram'ga shu ketadi; panelda "Toza / Belgili")
+        "thumb_clean": "TEXT",  # 3.1.0: chizmalarsiz rasm (Telegram'dagi birinchi xabar)
+        "loss_sum": "INTEGER",  # 3.1.0: o'g'irlik tasdiqlanganda qo'lda kiritilgan taxminiy zarar (so'm)
+        "loss_by": "TEXT",      # 3.1.0: summani kim kiritdi ("Telegram: Ali", "Web: admin", "Bulut: ...")
+        "loss_at": "REAL",
     },
     "subscribers": {
         "kb_cleared": "INTEGER DEFAULT 0",   # eski botdan qolgan pastki tugmalar tozalanganmi
@@ -503,6 +508,7 @@ EXTRA_COLUMNS = {
         "zone_source_id": "INTEGER",          # yuklangan videoga qaysi kameraning zonalari qo'llanadi
         "cloud_test_id": "INTEGER",           # 3.0.0: bulut panelidan yuborilgan video sinovi (app/cloud_tests.py)
         "cloud_meta": "TEXT",                 # 3.0.0: {size, sha256, tries} — yuklab olishni tekshirish
+        "metrics": "TEXT",                    # 3.1.0: video bo'yicha navbat, sanash, bo'limlar (JSON)
     },
     "eval_runs": {
         "speed": "REAL",                      # tahlil vaqti / video vaqti (model og'irligi)

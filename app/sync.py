@@ -31,6 +31,8 @@ log = get_logger("sync")
 API_VERSION = 1
 BATCH = 50                       # bitta so'rovda eng ko'p hodisa / ko'rsatkich
 CLIP_LIMIT = 60 * 1024 * 1024    # klip fayli chegarasi (serverniki bilan bir xil)
+CLEAN_EXTRA = 5 * 1024 * 1024    # 3.1.0: klip + toza nusxa + rasm shundan oshsa (bulut tanani CLIP_LIMIT + 6 MB gacha oladi)
+                                 # toza nusxa yuborilmaydi
 BACKOFF_MIN, BACKOFF_MAX = 5.0, 300.0
 HELLO_SEC = 60.0                 # heartbeat oralig'i
 HELLO_ACTIVE_SEC = 15.0          # 3.0.0: bulut video sinovi ishlayotganda (panelda foiz yangilanib tursin)
@@ -44,7 +46,8 @@ TERMINAL_CODES = (400, 413, 415, 422)   # server ma'lumotni qabul qilmaydi — q
 
 # Hodisaning qaysi ustunlari o'zgarsa bulutga qayta yuboriladi
 SYNC_FIELDS = {"status", "reviewed_by", "reviewed_at", "note", "claimed_by", "claimed_at", "clip_path", "thumb_path",
-               "crop_path", "clip_start", "clip_error", "telegram_sent"}
+               "crop_path", "clip_start", "clip_error", "telegram_sent",
+               "loss_sum", "loss_by", "loss_at", "clip_clean"}           # 3.1.0: zarar summasi, toza klip
 
 
 def configured() -> bool:
@@ -89,6 +92,12 @@ def event_payload(ev: dict) -> dict:
     out["device_id"] = device_id()
     out["updated_at"] = time.time()
     out["has_clip"] = bool(ev.get("clip_path"))
+    if ev.get("job_id") is not None:
+        # 3.1.0: bulut video sinovi hodisasi — bulut uni sinovni yuklagan foydalanuvchiga Telegram'da yuboradi
+        try:
+            out["cloud_test_id"] = db.scalar("SELECT cloud_test_id FROM jobs WHERE id=?", (int(ev["job_id"]),))
+        except Exception:  # noqa: BLE001
+            out["cloud_test_id"] = None
     return out
 
 
@@ -102,7 +111,8 @@ def enqueue_clip(event_id: int) -> None:
     ev = db.get_event(event_id)
     if ev and ev.get("clip_path"):
         enqueue("clip", f"clip:{event_id}", {"uid": event_uid(event_id), "local_id": event_id,
-                                             "clip": ev["clip_path"], "thumb": ev.get("thumb_path")})
+                                             "clip": ev["clip_path"], "thumb": ev.get("thumb_path"),
+                                             "clean": ev.get("clip_clean")})
 
 
 def enqueue_health(source: dict, state: str, reason: str, since: float | None = None) -> None:
@@ -182,7 +192,8 @@ def backfill(days: int = BACKFILL_DAYS) -> int:
         enqueue("event", f"ev:{ev['id']}", event_payload(ev))
         if ev.get("clip_path") and (CLIPS_DIR / ev["clip_path"]).exists():
             enqueue("clip", f"clip:{ev['id']}", {"uid": event_uid(ev["id"]), "local_id": ev["id"],
-                                                 "clip": ev["clip_path"], "thumb": ev.get("thumb_path")})
+                                                 "clip": ev["clip_path"], "thumb": ev.get("thumb_path"),
+                                                 "clean": ev.get("clip_clean")})
     return len(evs)
 
 
@@ -317,6 +328,7 @@ class SyncWorker(threading.Thread):
             payload["readiness"] = pilot.summary()
         except Exception:  # noqa: BLE001
             log.exception("Tayyorlik holatini olib bo'lmadi")
+        vt: list = []
         try:
             from . import cloud_tests           # 3.0.0: bulut panelidan yuborilgan video sinovlari holati
 
@@ -342,6 +354,22 @@ class SyncWorker(threading.Thread):
             if feats != (db.get_setting("cloud_features", "") or ""):
                 db.set_settings({"cloud_features": feats})
                 log.info("Bulut imkoniyatlari: %s", feats or "—")
+            offered = [x["id"] for x in vt if isinstance(x, dict) and "metrics" in x]
+            if offered:
+                try:
+                    from . import cloud_tests
+
+                    cloud_tests.metrics_offered(offered)
+                except Exception:  # noqa: BLE001
+                    log.exception("Video sinovi o'lchovlari holatini yozib bo'lmadi")
+            stored = body.get("video_tests_stored")
+            if isinstance(stored, list) and stored:
+                try:
+                    from . import cloud_tests       # 3.1.0: o'lchovlar bulutda saqlandi — endi qayta yuborilmaydi
+
+                    cloud_tests.metrics_delivered(stored)
+                except Exception:  # noqa: BLE001
+                    log.exception("Video sinovi o'lchovlarini belgilab bo'lmadi")
             cmds = body.get("commands")
             if isinstance(cmds, list) and cmds:
                 self._apply_commands([c for c in cmds if isinstance(c, dict)])
@@ -369,6 +397,8 @@ class SyncWorker(threading.Thread):
                         cloud_tests.accept(c, self)
                     else:
                         cloud_tests.cancel(c, self.manager)
+                elif c.get("type") == "loss" and c.get("local_id"):
+                    self._apply_loss(c)                    # 3.1.0: bulutda zarar summasi kiritildi
                 elif c.get("type") == "review" and c.get("local_id"):
                     ev = db.get_event(int(c["local_id"]))
                     status = str(c.get("status") or "")
@@ -406,6 +436,36 @@ class SyncWorker(threading.Thread):
                 log.warning("Buyruqlar ack qilinmadi (%s) — bulut 2 daqiqadan keyin qayta yuboradi", code)
 
     # ------------------------------------------------------------------ navbat
+    def _apply_loss(self, c: dict) -> None:
+        """3.1.0: bulut panelida yoki bulut botida kiritilgan zarar summasi. Lokal (keyinroq) kiritilgan summa ustidan
+        yozilmaydi; takror kelsa — o'zgarish yo'q."""
+        from . import losses
+
+        ev = db.get_event(int(c["local_id"]))
+        if not ev:
+            log.warning("Bulut buyrug'i (summa): hodisa #%s lokal bazada yo'q", c.get("local_id"))
+            return
+        try:
+            amount = losses.parse_sum(c.get("loss_sum"))
+        except ValueError:
+            log.warning("Bulut buyrug'i (summa) noto'g'ri: %s", str(c.get("loss_sum"))[:40])
+            return
+        t_cloud_local = float(c.get("t") or 0) - float(self.server_time_skew or 0)
+        if float(ev.get("loss_at") or 0) > t_cloud_local:
+            log.info("Bulut summasi eskirgan: hodisa #%d da yangiroq lokal summa bor", ev["id"])
+            return
+        if (ev.get("loss_sum") or None) == amount:
+            return
+        losses.set_loss(ev["id"], amount, str(c.get("by") or "Bulut")[:100])
+        log.info("Bulutdan zarar summasi: hodisa #%d → %s", ev["id"], amount)
+        if self.manager is not None:
+            try:
+                if self.manager.notifier is not None:
+                    self.manager.notifier.refresh_event(ev["id"])
+                self.manager.emit("update", ev["id"])
+            except Exception:  # noqa: BLE001
+                log.exception("Bulut summasidan keyin yangilashda xato")
+
     def _take(self) -> list[dict]:
         """Navbatdan keyingi partiya: id tartibida, bir xil turdagi ketma-ket qatorlar (klip — bittadan).
 
@@ -524,6 +584,23 @@ class SyncWorker(threading.Thread):
             return True
         return self._handle_error(code, ids)
 
+    def _post_clip(self, item: dict, p, thumb, clean) -> tuple[int, dict]:
+        with open(p, "rb") as fv:
+            files = {"clip": (p.name, fv, "video/mp4")}
+            extra = []
+            try:
+                if thumb is not None:
+                    extra.append(open(thumb, "rb"))
+                    files["thumb"] = (thumb.name, extra[-1], "image/jpeg")
+                if clean is not None:
+                    extra.append(open(clean, "rb"))
+                    files["clean"] = (clean.name, extra[-1], "video/mp4")
+                return self._post(f"/api/v{API_VERSION}/edge/events/{item['uid']}/clip",
+                                  {"device_id": device_id(), "local_id": item.get("local_id")}, files=files, timeout=180)
+            finally:
+                for f in extra:
+                    f.close()
+
     def _send_clip(self, row: dict, item: dict) -> bool:
         p = CLIPS_DIR / str(item.get("clip") or "")
         if not item.get("clip") or not p.is_file():
@@ -533,19 +610,19 @@ class SyncWorker(threading.Thread):
             self._fail([row["id"]], f"klip juda katta ({p.stat().st_size // (1 << 20)} MB)", terminal=True)
             return True
         thumb = CLIPS_DIR / item["thumb"] if item.get("thumb") else None
-        with open(p, "rb") as fv:
-            files = {"clip": (p.name, fv, "video/mp4")}
-            ft = None
-            try:
-                if thumb is not None and thumb.is_file():
-                    ft = open(thumb, "rb")
-                    files["thumb"] = (thumb.name, ft, "image/jpeg")
-                code, body = self._post(f"/api/v{API_VERSION}/edge/events/{item['uid']}/clip",
-                                        {"device_id": device_id(), "local_id": item.get("local_id")}, files=files,
-                                        timeout=180)
-            finally:
-                if ft is not None:
-                    ft.close()
+        thumb = thumb if thumb is not None and thumb.is_file() else None
+        # 3.1.0: chizmalarsiz nusxa ham (bulut Telegram'ga shuni yuboradi; eski bulut bu maydonni e'tiborsiz qoldiradi).
+        # Bulut so'rov tanasini CLIP_LIMIT + 6 MB gacha qabul qiladi (eski bulut ham) — sig'masa, toza nusxasiz yuboriladi:
+        # dalil (asosiy klip) toza nusxa uchun hech qachon yo'qolmasin
+        clean = (CLIPS_DIR / item["clean"] if item.get("clean") and not item.get("no_clean")
+                 and item.get("clean") != item.get("clip") else None)
+        if clean is not None and (not clean.is_file() or p.stat().st_size + clean.stat().st_size
+                                  + (thumb.stat().st_size if thumb else 0) > CLIP_LIMIT + CLEAN_EXTRA):
+            clean = None
+        code, body = self._post_clip(item, p, thumb, clean)
+        if code == 413 and clean is not None:
+            log.warning("Bulut klipni toza nusxa bilan qabul qilmadi (413) — toza nusxasiz qayta yuborilmoqda")
+            code, body = self._post_clip(item, p, thumb, None)
         if code == 200 and body.get("ok"):
             self._done([row["id"]])
             self.sent["clip"] += 1

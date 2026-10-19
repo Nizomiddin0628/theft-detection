@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 
 import { api, clipUrl, isSafety, KIND_UZ, STATUS_UZ, type EventFull, type EventRow, type Status } from "@/lib/api";
-import { scoreTone, when } from "@/lib/format";
+import { scoreTone, som, when } from "@/lib/format";
 import { useLive } from "@/lib/live";
 import { useData } from "@/lib/useData";
 import { IconCamera, IconCheck, IconUndo, IconX } from "./Icons";
@@ -18,6 +18,11 @@ export default function EventView({ uid, queue }: { uid: string; queue: boolean 
   const { toast } = useSession();
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [mode, setMode] = useState<"mark" | "clean">("mark");      // 3.1.0: klip — belgili yoki toza
+  const [loss, setLoss] = useState("");                             // 3.1.0: zarar summasi (so'm)
+  const [lossBusy, setLossBusy] = useState(false);
+  const [lossErr, setLossErr] = useState<string | null>(null);
+  const [askLoss, setAskLoss] = useState(false);                    // hozirgina tasdiqlandi — summa maydoni fokusda
   const ev = useData(() => api<{ event: Ev }>(`/events/${encodeURIComponent(uid)}`).then((r) => r.event), [uid]);
 
   useLive((m) => {
@@ -44,6 +49,40 @@ export default function EventView({ uid, queue }: { uid: string; queue: boolean 
 
   // Navbatda keyingi hodisaga o'tganda eski hodisa ma'lumoti ekranda qolsa ham, tugmalar unga ishlamaydi
   const current = ev.data && ev.data.uid === uid ? ev.data : null;
+  const curLoss = current?.loss_sum ?? null;
+  useEffect(() => {
+    setLoss(curLoss ? String(curLoss) : "");
+    setLossErr(null);
+  }, [uid, curLoss]);
+  useEffect(() => {
+    setMode("mark");
+    setAskLoss(false);
+  }, [uid]);
+
+  const saveLoss = useCallback(async () => {
+    if (lossBusy || !current) return;
+    if (queue && !loss.trim() && !current.loss_sum) {
+      await next();                       // navbatda: bo'sh maydonda Enter — summasiz keyingisiga
+      return;
+    }
+    setLossBusy(true);
+    setLossErr(null);
+    try {
+      const r = await api<{ event: { loss_sum: number | null; loss_by: string | null } }>(
+        `/events/${encodeURIComponent(uid)}/loss`,
+        { method: "POST", json: { loss_sum: loss.trim() } },
+      );
+      ev.setData((d) =>
+        d ? { ...d, loss_sum: r.event.loss_sum, data: { ...(d.data ?? {}), loss_by: r.event.loss_by } } : d,
+      );
+      toast({ tone: "ok", title: r.event.loss_sum ? `Summa saqlandi: ${som(r.event.loss_sum)}` : "Summa olib tashlandi" });
+      if (queue) await next();
+    } catch (e) {
+      setLossErr((e as Error).message);
+    } finally {
+      setLossBusy(false);
+    }
+  }, [current, ev, loss, lossBusy, next, queue, toast, uid]);
 
   const decide = useCallback(
     async (status: Status) => {
@@ -62,7 +101,11 @@ export default function EventView({ uid, queue }: { uid: string; queue: boolean 
           tone: status === "tasdiqlangan" ? "ok" : "info",
           title: status === "tasdiqlangan" ? "Tasdiqlandi" : status === "rad_etilgan" ? "Xato signal deb belgilandi" : "Qaror bekor qilindi",
         });
-        if (queue && status !== "yangi") await next();
+        // 3.1.0: tasdiqlangan o'g'irlikda navbat to'xtaydi — zarar summasini yozish uchun ("O'tkazib yuborish" bilan davom)
+        const cd = (current.data ?? {}) as Record<string, unknown>;
+        const wantLoss = status === "tasdiqlangan" && !isSafety(current.kind) && (cd.job_id === undefined || cd.job_id === null);
+        setAskLoss(wantLoss);
+        if (queue && status !== "yangi" && !wantLoss) await next();
       } catch (e) {
         setErr((e as Error).message);
       } finally {
@@ -114,9 +157,11 @@ export default function EventView({ uid, queue }: { uid: string; queue: boolean 
 
   const d = (e.data ?? {}) as Record<string, unknown>;
   const reasons = Array.isArray(d.reasons) ? (d.reasons as unknown[]).map(String) : [];
-  const clip = clipUrl(e.clip_file);
+  const clean = clipUrl(e.clip_clean);
+  const clip = mode === "clean" && clean ? clean : clipUrl(e.clip_file);
   const thumb = clipUrl(e.thumb_file);
   const tone = scoreTone(e.score);
+  const lossOk = !isSafety(e.kind) && (d.job_id === undefined || d.job_id === null);
 
   return (
     <>
@@ -139,6 +184,22 @@ export default function EventView({ uid, queue }: { uid: string; queue: boolean 
         </div>
       </div>
       <div className="ev">
+        <div>
+        {clean ? (
+          <div className="ev-toolbar">
+            <div className="seg" role="group" aria-label="Klip ko'rinishi">
+              <button type="button" aria-pressed={mode === "mark"} onClick={() => setMode("mark")} data-testid="clip-mark">
+                Belgili
+              </button>
+              <button type="button" aria-pressed={mode === "clean"} onClick={() => setMode("clean")} data-testid="clip-clean">
+                Toza
+              </button>
+            </div>
+            <span className="muted small">
+              {mode === "clean" ? "Chizmalarsiz — Telegram'ga shu ketadi" : "Skelet, ramka va sabablar chizilgan"}
+            </span>
+          </div>
+        ) : null}
         <div className="ev-screen">
           {clip ? (
             <video key={clip} src={clip} poster={thumb ?? undefined} controls autoPlay muted playsInline preload="auto" data-testid="clip" />
@@ -152,6 +213,7 @@ export default function EventView({ uid, queue }: { uid: string; queue: boolean 
               <p className="small">Do&apos;kon kompyuteri yuborishi bilan shu yerda o&apos;zi paydo bo&apos;ladi.</p>
             </div>
           )}
+        </div>
         </div>
         <aside className="ev-side">
           <div className="panel">
@@ -202,6 +264,51 @@ export default function EventView({ uid, queue }: { uid: string; queue: boolean 
                     </div>
                   ) : null}
                 </div>
+                {e.status === "tasdiqlangan" && lossOk ? (
+                  <form
+                    className="loss-box"
+                    aria-label="Taxminiy zarar"
+                    onSubmit={(x) => {
+                      x.preventDefault();
+                      void saveLoss();
+                    }}
+                  >
+                    <label className="field" htmlFor="loss">
+                      <span>Taxminiy zarar (so&apos;m)</span>
+                    </label>
+                    {curLoss ? (
+                      <span className="loss-sum" data-testid="loss-sum">
+                        {som(curLoss)}
+                        {typeof d.loss_by === "string" && d.loss_by ? <span className="note-ok"> · {d.loss_by}</span> : null}
+                      </span>
+                    ) : null}
+                    <div className="loss-row">
+                      <input
+                        id="loss"
+                        className="input"
+                        // navbatda — darhol yozish uchun fokus; bitta hodisa sahifasida fokus olinmaydi (T dan keyin
+                        // U — "qaror bekor" yorlig'i ishlayversin)
+                        autoFocus={askLoss && queue}
+                        inputMode="numeric"
+                        placeholder="masalan 150000"
+                        value={loss}
+                        onChange={(x) => setLoss(x.target.value)}
+                        onKeyDown={(x) => {
+                          if (x.key === "Escape") (x.target as HTMLInputElement).blur(); // klaviatura yorliqlariga qaytish
+                        }}
+                        data-testid="loss-input"
+                      />
+                      <button className="btn" type="submit" disabled={lossBusy} data-testid="loss-save">
+                        Saqlash
+                      </button>
+                    </div>
+                    {lossErr ? <p className="error">{lossErr}</p> : null}
+                    <p className="note-ok">
+                      Hisobotlarda «oldini olingan zarar» bo&apos;lib chiqadi.
+                      {queue ? " Enter — saqlash va keyingisi (bo'sh — summasiz)." : ""}
+                    </p>
+                  </form>
+                ) : null}
                 <button className="btn" onClick={() => void decide("yangi")} disabled={busy}>
                   <IconUndo /> Qarorni bekor qilish <kbd>U</kbd>
                 </button>

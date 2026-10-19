@@ -32,6 +32,8 @@ const H = (() => {
     return data;
   }
   const post = (url, json = {}) => api(url, { method: "POST", json });
+  // 3.1.0: 150000 → "150 000 so'm"
+  const sum = (n) => String(Math.round(Number(n) || 0)).replace(/\B(?=(\d{3})+(?!\d))/g, " ") + " so'm";
 
   // 2.2.0: xavfsizlik signali — "shubhali harakat" va ball emas
   const evHead = (ev) => ev.safety ? `🆘 <b>${esc(ev.kind_label)}</b> — darhol tekshiring`
@@ -47,7 +49,7 @@ const H = (() => {
     const btns = ev.status === "yangi"
       ? `<button class="btn sm ok" onclick="H.review(${ev.id},'tasdiqlangan',this)">✓ Tasdiqlash</button>
          <button class="btn sm" onclick="H.review(${ev.id},'rad_etilgan',this)">✕ Xato</button>`
-      : `${statusBadge(ev.status)}<span class="muted small" style="margin-left:auto">${esc(ev.reviewed_by || "")}</span>`;
+      : `${statusBadge(ev.status)}${ev.status === "tasdiqlangan" && ev.loss_sum ? `<span class="small" title="Taxminiy zarar">💰 ${sum(ev.loss_sum)}</span>` : ""}<span class="muted small" style="margin-left:auto">${esc(ev.reviewed_by || "")}</span>`;
     return `<div class="card ev" id="ev-${ev.id}">
       <a class="img" href="/events/${ev.id}">${img}<span class="score ${levelCls(ev.level)}">${ev.safety ? "🆘" : Math.round(ev.score)}</span>
         <span class="play"><svg width="44" height="44" viewBox="0 0 24 24" fill="#fff"><path d="M8 5v14l11-7z"/></svg></span></a>
@@ -192,5 +194,5 @@ const H = (() => {
   const fmtDur = (sec) => { sec = Math.round(sec || 0); const h = Math.floor(sec / 3600), m = Math.floor(sec % 3600 / 60), s = sec % 60; return h ? `${h} soat ${m} daq` : (m ? `${m} daq ${s} s` : `${s} s`); };
   const pct = (v) => (v === null || v === undefined) ? "—" : Math.round(v * 100) + "%";
 
-  return { esc, toast, api, post, evCard, review, bars, hbars, levelCls, statusBadge, fmtDur, pct, poll, beep, toggleSound };
+  return { esc, toast, api, post, sum, evCard, review, bars, hbars, levelCls, statusBadge, fmtDur, pct, poll, beep, toggleSound };
 })();

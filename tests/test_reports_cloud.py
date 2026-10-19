@@ -166,7 +166,8 @@ def run(label: str) -> None:
     ok("Navbat: o'rtacha kutish, xizmat", ch["queue"]["served"] == 40 and ch["queue"]["avg_wait"] == 150.0
        and yu["queue"]["avg_wait"] == 60.0 and se["queue"] is None, str(ch["queue"]))
     ok("Signallar: ✅/❌/javobsiz, xato ulushi (video tahlili va boshqa hafta kirmaydi)",
-       ch["theft"] == {"total": 12, "confirmed": 2, "rejected": 4, "unreviewed": 6, "false_share": 0.667}
+       ch["theft"] == {"total": 12, "confirmed": 2, "rejected": 4, "unreviewed": 6, "false_share": 0.667,
+                       "loss": 0, "loss_n": 0}                                   # 3.1.0: oldini olingan zarar
        and yu["theft"]["total"] == 2, str(ch["theft"]))
     ok("Xavfsizlik signallari alohida", ch["safety"] == {"total": 1, "unreviewed": 1} and yu["safety"]["total"] == 0)
     ok("Ishlagan vaqt (tizim qatorlari; yangi ulangan — birinchi ko'rsatkichdan)", ch["uptime"] == 0.5 and yu["uptime"] == 1.0
@@ -174,7 +175,7 @@ def run(label: str) -> None:
        str((ch["uptime"], yu["uptime"], se["uptime"])))
     t = j["total"]
     ok("Jami: tashrif, kutish (xizmat bo'yicha o'rtacha), signallar", t == {"visits": 450, "prev_visits": 500, "change_pct": -10.0,
-       "served": 80, "avg_wait": 105.0, "theft": 14, "safety": 1, "unreviewed": 6}, str(t))
+       "served": 80, "avg_wait": 105.0, "theft": 14, "safety": 1, "unreviewed": 6, "loss": 0, "loss_n": 0}, str(t))
     keys = [x["key"] for x in j["recs"]]
     ok("Tavsiyalar: kutish, xato, javobsiz, xavfsizlik, ishlagan vaqt (Chilonzor; tashrif kamayishi — o'chiq vaqt sababli emas)",
        set(keys) == {f"{k}:{b1}" for k in ("wait", "false", "unrev", "safety", "uptime")}, str(keys))

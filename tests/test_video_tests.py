@@ -227,7 +227,8 @@ def suite(label: str) -> None:
     evs = det.get("events") or []
     ok(f"{label}: natija — 2 hodisa (klip va rasm bilan), video vaqti", len(evs) == 2 and evs[0].get("thumb_file")
        and evs[0].get("video_time") == 3.0, str(evs)[:200])
-    ok(f"{label}: video tahlili uchun bildirishnoma yo'q (jonli emas)",
+    # 3.1.0: sinov signallari faqat yuklagan xodimga — bu yerda uning Telegram/email manzili yo'q (tests/test_310.py)
+    ok(f"{label}: yuklagan xodimning manzili yo'q — boshqalarga (qo'riqchiga) sinov xabari ketmaydi",
        (cdb.scalar("SELECT COUNT(*) FROM notify_outbox") or 0) == 0)
     ok(f"{label}: boshqa kompaniya sinovni ko'ra/bekor/o'chira olmaydi (404), uning filialiga yuklay olmaydi (403)",
        other.get(f"/api/v1/video-tests/{t1['id']}").status_code == 404
@@ -378,7 +379,8 @@ def suite(label: str) -> None:
 
 
 def notify_suite() -> None:
-    """3.0.0: bulut sinovi hodisalari uchun do'kon Telegram'i va ovozli signali yo'q (_is_cloud_job)."""
+    """3.0.0: bulut sinovi vazifasini ajratish (_is_cloud_job) — do'kon panelida ovozli signal yo'q.
+    3.1.0: Telegram'ga esa boradi ("🧪 Video sinovi" belgisi bilan; tests/test_310.py)."""
     from app.ai import manager as mg
 
     print("\n--- Do'kon bildirishnomalari ---")
@@ -386,7 +388,7 @@ def notify_suite() -> None:
                     ("b.mp4", "/x/b.mp4", "tayyor", time.time(), 424242))
     jl = db.execute("INSERT INTO jobs(filename, path, status, created_at) VALUES(?,?,?,?)",
                     ("l.mp4", "/x/l.mp4", "tayyor", time.time()))
-    ok("bulut sinovi vazifasi — Telegram/ovoz yo'q; oddiy yuklangan video va jonli kamera — bor",
+    ok("bulut sinovi vazifasi ajratiladi (panelda ovozsiz); oddiy yuklangan video va jonli kamera — oddiy",
        mg._is_cloud_job(jc) and not mg._is_cloud_job(jl) and not mg._is_cloud_job(None))
     db.execute("DELETE FROM jobs WHERE id IN (?, ?)", (jc, jl))
 

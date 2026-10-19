@@ -382,6 +382,9 @@ def _owner(browser, s: dict) -> None:
     page.wait_for_selector("[data-testid=confirm]", timeout=8000)
     first = page.url.split("uid=")[1].split("&")[0].replace("%3A", ":")
     page.keyboard.press("t")
+    # 3.1.0: tasdiqlangan o'g'irlikda navbat to'xtaydi — zarar summasi maydoni fokusda; bo'sh Enter — keyingisi
+    page.wait_for_selector("[data-testid=loss-input]:focus", timeout=8000)
+    page.keyboard.press("Enter")
     page.wait_for_url(lambda u: "uid=" in u and first.replace(":", "%3A") not in u, timeout=8000)
     page.wait_for_selector("[data-testid=confirm]", timeout=8000)
     second = page.url.split("uid=")[1].split("&")[0].replace("%3A", ":")

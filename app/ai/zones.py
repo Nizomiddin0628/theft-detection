@@ -169,6 +169,37 @@ def load(source_id: int | None) -> ZoneSet:
     return res
 
 
+# 3.1.0: bulut panelidagi Video sinovida video kadri ustiga chizilgan zonalar (kamera zonalari o'rniga). Bazaga
+# yozilmaydi — faqat shu video tahlili uchun. Bulut ham tekshiradi; bu yerda — qayta (buyruq tashqaridan keladi)
+ADHOC_KINDS = ("navbat", "kassir", "chiziq", "polka", "kassa", "eshik", "xodim", "etiborsiz")
+ADHOC_MAX = 20
+
+
+def from_list(items) -> ZoneSet | None:
+    """[{"kind", "name", "pts": [[x, y], ...]}] → ZoneSet (raqamlar 1..N). Yaroqsizlari tashlanadi; birorta ham
+    yaroqli zona bo'lmasa — None (kamera zonalari yoki zonasiz tahlil)."""
+    if not isinstance(items, list):
+        return None
+    zs = []
+    for it in items[:ADHOC_MAX]:
+        if not isinstance(it, dict):
+            continue
+        kind = str(it.get("kind") or "")
+        if kind not in ADHOC_KINDS:
+            continue
+        pts = parse_points(it.get("pts"), kind)
+        if pts is None or (kind not in LINE_KINDS and len(pts) > 40):
+            continue
+        name = " ".join(str(it.get("name") or "").split())[:40] or ZONE_KINDS[kind]["label"]
+        zs.append(Zone(len(zs) + 1, name, kind, pts))
+    return ZoneSet(zs) if zs else None
+
+
+def to_list(zs: ZoneSet | None) -> list[dict]:
+    return [{"kind": z.kind, "name": z.name, "pts": [[round(float(x), 4), round(float(y), 4)] for x, y in z.pts]}
+            for z in (zs.zones if zs else [])]
+
+
 def invalidate(source_id: int | None = None) -> None:
     with _lock:
         if source_id is None:

@@ -297,6 +297,10 @@ def event_public(ev: dict) -> dict:
     ev["clip_url"] = f"/media/clips/{ev['clip_path']}" if ev.get("clip_path") else None
     ev["thumb_url"] = f"/media/clips/{ev['thumb_path']}" if ev.get("thumb_path") else None
     ev["crop_url"] = f"/media/clips/{ev['crop_path']}" if ev.get("crop_path") else None
+    # 3.1.0: chizmalarsiz nusxa (Telegram'ga shu ketadi; panelda "Toza / Belgili")
+    ev["clip_clean_url"] = f"/media/clips/{ev['clip_clean']}" if ev.get("clip_clean") else None
+    ev["thumb_clean_url"] = f"/media/clips/{ev['thumb_clean']}" if ev.get("thumb_clean") else None
+    ev["loss_allowed"] = not ev["safety"] and ev.get("job_id") is None     # 3.1.0: zarar summasi (so'm) yoziladimi
     ev["time_str"] = time.strftime("%d.%m.%Y %H:%M:%S", time.localtime(ev["created_at"]))
     ev["reviewed_str"] = (time.strftime("%d.%m.%Y %H:%M", time.localtime(ev["reviewed_at"]))
                           if ev.get("reviewed_at") else None)
@@ -670,7 +674,24 @@ def api_summary():
         "jobs_running": cnt("SELECT COUNT(*) FROM jobs WHERE status IN ('navbatda','ishlanmoqda')"),
         "visits": _visits_brief(d0),
         "queues": _queues_brief(d0),
+        "losses": _losses_brief(d0),
     }
+
+
+def _losses_brief(d0: float) -> dict | None:
+    """3.1.0: tasdiqlangan o'g'irliklar bo'yicha qo'lda kiritilgan zarar (bugun, shu oy, jami). Hali birorta
+    o'g'irlik tasdiqlanmagan bo'lsa — kartalar ko'rsatilmaydi."""
+    from . import losses
+
+    lt = time.localtime(d0)
+    m0 = time.mktime((lt.tm_year, lt.tm_mon, 1, 0, 0, 0, 0, 0, -1))
+    tot = losses.totals()
+    if not tot["confirmed"]:
+        return None
+    month = losses.totals(m0)
+    last30 = losses.totals(time.time() - 30 * 86400)          # summasi yozilmaganlar — oxirgi 30 kun (bulutdagi kabi)
+    return {"today": losses.totals(d0)["sum"], "month": month["sum"], "total": tot["sum"],
+            "missing": last30["confirmed"] - last30["with_sum"], "month_n": month["with_sum"]}
 
 
 def _queues_brief(d0: float) -> dict | None:
@@ -1324,11 +1345,46 @@ async def api_review(request: Request, event_id: int):
         raise HTTPException(400, "Noto'g'ri holat")
     note = d.get("note")
     note = str(note)[:2000] if note is not None else None     # JSON'da son/obyekt kelsa ham 500 bo'lmasin
+    amount = None
+    if d.get("loss_sum") not in (None, ""):
+        from . import losses
+
+        try:
+            amount = losses.parse_sum(d.get("loss_sum"))
+        except ValueError as e:
+            raise HTTPException(400, f"Summa: {e}")
     ev = db.review_event(event_id, status, f"Web: {request.session.get('user')}", note)
     if not ev:
         raise HTTPException(404)
     if status == "yangi":
         db.update_event(event_id, reviewed_by=None, reviewed_at=None)
+    if amount is not None and status == "tasdiqlangan":
+        from . import losses
+
+        losses.set_loss(event_id, amount, f"Web: {request.session.get('user')}")
+    get_bot().refresh_event(event_id)
+    get_manager().emit("update", event_id)
+    return {"ok": True, "event": event_public(db.get_event(event_id))}
+
+
+@app.post("/api/events/{event_id}/loss")
+async def api_loss(request: Request, event_id: int):
+    """3.1.0: tasdiqlangan o'g'irlik signaliga taxminiy zarar (so'm). Bo'sh yoki 0 — summa olib tashlanadi."""
+    from . import losses
+
+    d = await body_data(request)
+    ev = db.get_event(event_id)
+    if not ev:
+        raise HTTPException(404, "Hodisa topilmadi")
+    if not losses.allowed(ev) or ev.get("job_id") is not None:
+        raise HTTPException(400, "Summa faqat do'kondagi o'g'irlik signaliga yoziladi")
+    if ev.get("status") != "tasdiqlangan":
+        raise HTTPException(409, "Avval signalni tasdiqlang")
+    try:
+        amount = losses.parse_sum(d.get("loss_sum"))
+    except ValueError as e:
+        raise HTTPException(400, f"Summa: {e}")
+    losses.set_loss(event_id, amount, f"Web: {request.session.get('user')}")
     get_bot().refresh_event(event_id)
     get_manager().emit("update", event_id)
     return {"ok": True, "event": event_public(db.get_event(event_id))}
@@ -1390,7 +1446,7 @@ def api_export():
     buf = io.StringIO()
     wr = csv.writer(buf)
     wr.writerow(["ID", "Vaqt", "Shubhali lahza", "Klipdagi o'rni (s)", "Kamera", "Turi", "Ball", "Daraja", "Holat",
-                 "Kim tekshirdi", "Izoh", "Sabablar", "Klip"])
+                 "Kim tekshirdi", "Izoh", "Sabablar", "Klip", "Taxminiy zarar (so'm)"])
     for e in db.rows("SELECT * FROM events ORDER BY id DESC"):
         e = db.decode_event(e)
         si = susp_info(e)
@@ -1399,7 +1455,7 @@ def api_export():
             si["susp_label"] or "", si["susp_offset"] if si["susp_offset"] is not None else "", e["source_name"],
             KIND_UZ.get(e["kind"], e["kind"]), round(e["score"] or 0), e["level"], e["status"],
             e.get("reviewed_by") or "", e.get("note") or "", " | ".join(e["reasons"] or []),
-            e.get("clip_path") or "")])
+            e.get("clip_path") or "", e.get("loss_sum") or "")])
     data = "﻿" + buf.getvalue()
     return Response(data.encode("utf-8"), media_type="text/csv",
                     headers={"Content-Disposition": f"attachment; filename=hodisalar_{time.strftime('%Y%m%d')}.csv"})

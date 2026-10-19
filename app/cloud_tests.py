@@ -36,6 +36,8 @@ RETRY_DELAYS = (10.0, 60.0, 300.0)    # yuklab olish xatosidan keyin kutish (key
 MAX_RESTARTS = 2                      # tahlil shuncha marta dastur qayta ishga tushishi bilan chala qolsa — "xato"
 REPORT_DAYS = 3                       # bulutga shuncha kunlik sinovlar holati yuboriladi (takroriy, idempotent)
 ACTIVE = ("yuklanmoqda", "navbatda", "ishlanmoqda")
+METRICS_MAX = 16_000                  # 3.1.0: o'lchovlar JSON chegarasi (bayt; FileJob kattasini qisqartiradi)
+METRICS_RESEND_SEC = 6 * 3600         # bulut "saqlandi" demasa (eski bulut) — birinchi yetkazilgandan shuncha keyin to'xtaydi
 VIDEO_EXT = {".mp4", ".avi", ".mov", ".mkv", ".webm", ".m4v", ".mpg", ".mpeg", ".wmv", ".flv", ".3gp", ".ts"}
 
 _q: "queue.Queue[int]" = queue.Queue()
@@ -114,11 +116,22 @@ def accept(cmd: dict, worker) -> bool:
             zsid = z
     except (TypeError, ValueError):
         pass
+    meta = {"size": size, "sha256": sha, "tries": 0, "token": token}
+    if cmd.get("zones"):
+        # 3.1.0: panelda video kadri ustiga chizilgan zonalar — shu tahlil uchun kamera zonalari o'rniga
+        try:
+            from .ai import zones as zones_mod
+
+            zs = zones_mod.from_list(cmd.get("zones"))
+            if zs:
+                meta["zones"] = zones_mod.to_list(zs)
+                zsid = None
+        except Exception:  # noqa: BLE001 — zonasiz ham tahlil qilinadi
+            log.exception("Video sinovi zonalarini o'qib bo'lmadi")
     dest = UPLOADS_DIR / f"{time.strftime('%Y%m%d_%H%M%S')}_bulut{tid}{ext}"
     jid = db.execute("INSERT INTO jobs(filename, path, status, progress, created_at, zone_source_id, cloud_test_id, "
                      "cloud_meta) VALUES(?,?,?,?,?,?,?,?)",
-                     (name, str(dest), "yuklanmoqda", 0, time.time(), zsid, tid,
-                      json.dumps({"size": size, "sha256": sha, "tries": 0, "token": token})))
+                     (name, str(dest), "yuklanmoqda", 0, time.time(), zsid, tid, json.dumps(meta)))
     log.info("Bulutdan video sinovi #%d qabul qilindi: %s (%.1f MB) — yuklab olinmoqda", tid, name, size / 1e6)
     _start(worker)
     _q.put(jid)
@@ -150,12 +163,59 @@ def report() -> list[dict]:
     """hello uchun: oxirgi kunlardagi bulut sinovlari holati (bulut uni idempotent yangilaydi)."""
     since = time.time() - REPORT_DAYS * 86400
     out = []
-    for r in db.rows("SELECT id, cloud_test_id, status, progress, events_count, duration, frames, error, cloud_meta "
-                     "FROM jobs WHERE cloud_test_id IS NOT NULL AND created_at >= ? ORDER BY id DESC LIMIT 30", (since,)):
-        out.append({"id": int(r["cloud_test_id"]), "token": _meta(r).get("token", ""), "job_id": int(r["id"]),
-                    "status": r["status"], "progress": float(r["progress"] or 0), "events": int(r["events_count"] or 0),
-                    "duration": r["duration"], "frames": r["frames"], "error": str(r["error"] or "")[:300]})
+    for r in db.rows("SELECT id, cloud_test_id, status, progress, events_count, duration, frames, error, cloud_meta, "
+                     "metrics, finished_at FROM jobs WHERE cloud_test_id IS NOT NULL AND created_at >= ? ORDER BY id DESC "
+                     "LIMIT 30", (since,)):
+        item = {"id": int(r["cloud_test_id"]), "token": _meta(r).get("token", ""), "job_id": int(r["id"]),
+                "status": r["status"], "progress": float(r["progress"] or 0), "events": int(r["events_count"] or 0),
+                "duration": r["duration"], "frames": r["frames"], "error": str(r["error"] or "")[:300]}
+        offered = _meta(r).get("metrics_offered_at")
+        if (r["status"] == "tayyor" and r.get("metrics") and not _meta(r).get("metrics_sent")
+                and len(r["metrics"]) <= METRICS_MAX
+                and not (isinstance(offered, (int, float)) and time.time() - offered > METRICS_RESEND_SEC)):
+            # 3.1.0: navbat, sanash, zonalar (kichik JSON) — bulut "saqlandi" deguncha (hello javobidagi
+            # video_tests_stored); keyin har hello'da takrorlanmaydi
+            try:
+                m = json.loads(r["metrics"])
+                if isinstance(m, dict):
+                    item["metrics"] = m
+            except ValueError:
+                pass
+        out.append(item)
     return out
+
+
+def metrics_offered(test_ids) -> None:
+    """3.1.0: o'lchovlar hello bilan bulutga yetdi (HTTP 200) — birinchi marta qachon (bulut "saqlandi" demasa,
+    METRICS_RESEND_SEC dan keyin qayta yuborilmaydi; aloqa yo'q paytlar hisobga kirmaydi)."""
+    now = time.time()
+    for tid in list(test_ids)[:50]:
+        try:
+            tid = int(tid)
+        except (TypeError, ValueError):
+            continue
+        for r in db.rows("SELECT id, cloud_meta FROM jobs WHERE cloud_test_id=? AND status='tayyor'", (tid,)):
+            meta = _meta(r)
+            if not isinstance(meta.get("metrics_offered_at"), (int, float)):
+                meta["metrics_offered_at"] = now
+                _set(r["id"], cloud_meta=json.dumps(meta))
+
+
+def metrics_delivered(test_ids) -> int:
+    """3.1.0: bulut o'lchovlarni saqladi (hello javobi) — endi hisobotda yuborilmaydi."""
+    n = 0
+    for tid in test_ids[:50]:
+        try:
+            tid = int(tid)
+        except (TypeError, ValueError):
+            continue
+        for r in db.rows("SELECT id, cloud_meta FROM jobs WHERE cloud_test_id=? AND status='tayyor'", (tid,)):
+            meta = _meta(r)
+            if not meta.get("metrics_sent"):
+                meta["metrics_sent"] = True
+                _set(r["id"], cloud_meta=json.dumps(meta))
+                n += 1
+    return n
 
 
 def recover() -> int:
@@ -173,6 +233,8 @@ def recover() -> int:
                        "og'irlik qilayotgan bo'lishi mumkin")
             continue
         meta["restarts"] = restarts
+        # 3.1.0: oldingi urinish(lar) — Telegram cheklovi (CLOUD_TEST_TG_MAX) sinov bo'yicha sanalsin
+        meta["prev_jobs"] = [*[int(x) for x in (meta.get("prev_jobs") or []) if str(x).isdigit()], int(r["id"])][-5:]
         with db.tx() as c:
             c.execute("UPDATE jobs SET status='toxtatildi', cloud_test_id=NULL, error=?, finished_at=? WHERE id=?",
                       ("dastur qayta ishga tushdi — sinov qaytadan tahlil qilinadi", now, r["id"]))

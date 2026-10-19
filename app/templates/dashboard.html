@@ -16,6 +16,13 @@
   <div class="card kpi ok"><div class="label">{{ icon('shield', 14) }} Signal aniqligi</div><div class="value" id="k-prec">—</div><div class="sub" id="k-prec-sub">tasdiq / (tasdiq + xato)</div></div>
 </div>
 
+<div id="loss-row" class="grid g4 hidden" style="margin-top:16px">
+  <div class="card kpi ok"><div class="label">💰 Oldini olingan zarar</div><div class="value" id="l-month">—</div><div class="sub" id="l-month-sub">shu oy, tasdiqlangan o'g'irliklar</div></div>
+  <div class="card kpi"><div class="label">Bugun</div><div class="value" id="l-today">—</div><div class="sub">so'm</div></div>
+  <div class="card kpi"><div class="label">Jami</div><div class="value" id="l-total">—</div><div class="sub">so'm</div></div>
+  <div class="card kpi" id="l-miss-card"><div class="label">Summasi yozilmagan</div><div class="value" id="l-miss">—</div><div class="sub">tasdiqlangan o'g'irliklar · <a href="/events?status=tasdiqlangan">yozish {{ icon('chev-r', 12) }}</a></div></div>
+</div>
+
 <div id="visits-row" class="grid g4 hidden" style="margin-top:16px">
   <div class="card kpi ok"><div class="label">{{ icon('users', 14) }} Hozir ichkarida</div><div class="value" id="v-inside">—</div><div class="sub"><a href="/visits">Tashriflar {{ icon('chev-r', 12) }}</a></div></div>
   <div class="card kpi"><div class="label">Bugun kirdi</div><div class="value" id="v-in">—</div><div class="sub">xaridorlar</div></div>
@@ -71,6 +78,17 @@ document.addEventListener("summary", (e) => {
   document.getElementById("k-prec-sub").textContent = s.reviewed ? `${s.reviewed} ta javob asosida` : "hali javob yo'q";
   const tgw = document.getElementById("tg-warn");
   if (tgw) tgw.classList.toggle("hidden", !!s.subs);
+  const L = s.losses;              // 3.1.0: qo'lda kiritilgan zarar summalari
+  document.getElementById("loss-row").classList.toggle("hidden", !L);
+  if (L) {
+    const short = (n) => H.sum(n).replace(" so'm", "");
+    document.getElementById("l-month").textContent = H.sum(L.month);
+    document.getElementById("l-month-sub").textContent = `shu oy · ${L.month_n} ta tasdiqlangan holat`;
+    document.getElementById("l-today").textContent = short(L.today);
+    document.getElementById("l-total").textContent = short(L.total);
+    document.getElementById("l-miss").textContent = L.missing;
+    document.getElementById("l-miss-card").className = "card kpi" + (L.missing ? " alert" : "");
+  }
   const v = s.visits;
   document.getElementById("visits-row").classList.toggle("hidden", !v);
   if (v) {

@@ -1,6 +1,7 @@
 "use client";
 // 3.0.0 Video sinovi: video shu yerda yuklanadi, uni tanlangan filialning do'kon kompyuteri (AI o'sha yerda) tahlil
-// qiladi; natija (signallar, rasm, klip) shu sahifada va Hodisalar'da. Video tahlili uchun xabar yuborilmaydi.
+// qiladi; natija (signallar, rasm, klip) shu sahifada va Hodisalar'da. 3.1.0: video kadri ustiga zonalar chiziladi
+// (navbat, sanash, bo'limlar) va natijada o'lchovlar chiqadi; signallar va yakuniy natija yuklaganga Telegram'da.
 import Link from "next/link";
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 
@@ -10,6 +11,7 @@ import {
   isSafety,
   KIND_UZ,
   STATUS_UZ,
+  type DrawnZone,
   type VideoTest,
   type VideoTestEvent,
   type VideoTestsResp,
@@ -17,6 +19,8 @@ import {
 import { ago, when } from "@/lib/format";
 import { useData, useInterval } from "@/lib/useData";
 
+import Metrics from "./Metrics";
+import ZoneEditor from "./ZoneEditor";
 import "./videos.css";
 
 const mb = (n: number) =>
@@ -32,11 +36,13 @@ function uploadVideo(
   file: File,
   branchId: number,
   zoneId: number | null,
+  zones: DrawnZone[],
   onProgress: (f: number) => void,
 ): { done: Promise<VideoTest>; abort: () => void } {
   const xhr = new XMLHttpRequest();
   const q = new URLSearchParams({ branch_id: String(branchId), name: file.name });
-  if (zoneId) q.set("zone_source_id", String(zoneId));
+  if (zones.length) q.set("zones", JSON.stringify(zones));
+  else if (zoneId) q.set("zone_source_id", String(zoneId));
   const done = new Promise<VideoTest>((resolve, reject) => {
     xhr.open("POST", `/api/v1/video-tests?${q.toString()}`);
     xhr.setRequestHeader("Content-Type", "application/octet-stream");
@@ -69,6 +75,7 @@ function Upload({ data, onDone }: { data: VideoTestsResp; onDone: () => void }) 
   const [branch, setBranch] = useState<string>("");
   const [zone, setZone] = useState<string>("");
   const [file, setFile] = useState<File | null>(null);
+  const [drawn, setDrawn] = useState<DrawnZone[]>([]);         // 3.1.0: video ustiga chizilgan zonalar
   const [prog, setProg] = useState<number | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [ok, setOk] = useState<string | null>(null);
@@ -84,13 +91,18 @@ function Upload({ data, onDone }: { data: VideoTestsResp; onDone: () => void }) 
   const sel = usable.find((b) => String(b.id) === branch) ?? null;
   const maxBytes = data.limits.max_mb * 1024 * 1024;
   const tooBig = !!file && file.size > maxBytes;
+  const draw = zone === "draw";
+  const old31 = !!sel && !atLeast(sel.version, [3, 1, 0]);
+  // zonalar URL parametrida ketadi — juda uzun bo'lsa (nginx so'rov qatori), yuklashdan oldin aytiladi
+  const zonesJson = draw && drawn.length ? JSON.stringify(drawn) : "";
+  const zonesTooLong = zonesJson.length > 3000 || encodeURIComponent(zonesJson).length > 6500;
 
   const start = async () => {
     if (!file || !sel) return;
     setErr(null);
     setOk(null);
     setProg(0);
-    const up = uploadVideo(file, sel.id, zone ? Number(zone) : null, setProg);
+    const up = uploadVideo(file, sel.id, zone && !draw ? Number(zone) : null, draw ? drawn : [], setProg);
     abortRef.current = up.abort;
     try {
       const t = await up.done;
@@ -100,6 +112,7 @@ function Upload({ data, onDone }: { data: VideoTestsResp; onDone: () => void }) 
           : `«${t.filename}» yuklandi. Do'kon kompyuteri hozir aloqada emas — yoqilganda tahlil boshlanadi.`,
       );
       setFile(null);
+      setDrawn([]);
       if (inputRef.current) inputRef.current.value = "";
       onDone();
     } catch (e) {
@@ -154,8 +167,11 @@ function Upload({ data, onDone }: { data: VideoTestsResp; onDone: () => void }) 
           <span>
             Zonalar <span className="hint">(polka, kassa — qaysi kameraniki qo&apos;llansin)</span>
           </span>
-          <select className="select" name="zone" value={zone} onChange={(e) => setZone(e.target.value)} disabled={prog !== null}>
+          <select className="select" name="zone" value={zone} onChange={(e) => setZone(e.target.value)} disabled={prog !== null} data-testid="vt-zone-select">
             <option value="">Zonalarsiz (butun kadr)</option>
+            <option value="draw" disabled={old31}>
+              ✏️ Video ustida chizaman (navbat, sanash, bo&apos;limlar){old31 ? " — kompyuterni 3.1.0 ga yangilang" : ""}
+            </option>
             {(sel?.cameras ?? []).map((c) => (
               <option key={c.id} value={c.id}>
                 «{c.name}» kamerasining zonalari
@@ -182,6 +198,7 @@ function Upload({ data, onDone }: { data: VideoTestsResp; onDone: () => void }) 
           />
         </label>
       </div>
+      {draw ? <ZoneEditor file={file} zones={drawn} onChange={setDrawn} disabled={prog !== null} /> : null}
       {sel && !sel.ok ? (
         <p className="error">
           Bu filialning do&apos;kon kompyuteri {sel.version ? `${sel.version} versiyada` : "hali bulutga ulanmagan"} — video
@@ -195,6 +212,9 @@ function Upload({ data, onDone }: { data: VideoTestsResp; onDone: () => void }) 
         </p>
       ) : null}
       {tooBig ? <p className="error">Video juda katta: {mb(file!.size)} (ko&apos;pi bilan {data.limits.max_mb} MB).</p> : null}
+      {zonesTooLong ? (
+        <p className="error">Zonalar juda ko&apos;p yoki nuqtalari ko&apos;p — bir nechtasini o&apos;chiring yoki kamroq nuqta bilan chizing.</p>
+      ) : null}
       {prog !== null ? (
         <div className="vt-progress" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(prog * 100)} aria-label="Yuklanmoqda">
           <div className="vt-bar">
@@ -209,7 +229,7 @@ function Upload({ data, onDone }: { data: VideoTestsResp; onDone: () => void }) 
         </div>
       ) : (
         <div className="vt-actions">
-          <button className="btn primary" type="submit" disabled={!file || !sel || !sel.ok || tooBig} data-testid="vt-submit">
+          <button className="btn primary" type="submit" disabled={!file || !sel || !sel.ok || tooBig || zonesTooLong} data-testid="vt-submit">
             Yuklash va tahlil qilish
           </button>
           {file && !tooBig ? <span className="muted small">{file.name} · {mb(file.size)}</span> : null}
@@ -229,6 +249,15 @@ function Upload({ data, onDone }: { data: VideoTestsResp; onDone: () => void }) 
   );
 }
 
+function atLeast(v: string | null | undefined, min: number[]): boolean {
+  const n = String(v || "").match(/\d+/g)?.map(Number) ?? [];
+  for (let i = 0; i < min.length; i++) {
+    const x = n[i] ?? 0;
+    if (x !== min[i]) return x > min[i];
+  }
+  return true;
+}
+
 function Results({ id }: { id: number }) {
   const r = useData(() => api<{ test: VideoTest; events: VideoTestEvent[] }>(`/video-tests/${id}`), [id]);
   const t = r.data?.test;
@@ -242,6 +271,7 @@ function Results({ id }: { id: number }) {
   if (r.loading && !r.data) return <p className="muted small">Yuklanmoqda…</p>;
   if (r.error) return <p className="error">{r.error}</p>;
   const missing = t ? Math.max(0, t.events - evs.length) : 0;
+  const metrics = t && t.status === "tayyor" ? <Metrics m={t.metrics} zones={t.zones?.length ?? 0} /> : null;
   if (!evs.length) {
     let msg = "Bu videoda shubhali harakat topilmadi.";
     if (t?.status === "xato") msg = `Tahlil qilinmadi: ${t.error || "xato"}`;
@@ -249,12 +279,17 @@ function Results({ id }: { id: number }) {
     else if (t?.active) msg = "Tahlil davom etmoqda — signallar shu yerda paydo bo'ladi.";
     else if (missing) msg = `${missing} ta signal topildi — do'kon kompyuteridan yetib kelmoqda…`;
     return (
-      <p className={t?.status === "xato" ? "error" : "muted small"} data-testid="vt-no-events">
-        {msg}
-      </p>
+      <>
+        {metrics}
+        <p className={t?.status === "xato" ? "error" : "muted small"} data-testid="vt-no-events">
+          {msg}
+        </p>
+      </>
     );
   }
   return (
+    <>
+    {metrics}
     <div className="vt-events" data-testid="vt-events">
       {missing ? <p className="muted small vt-more">Yana {missing} ta signal yetib kelmoqda…</p> : null}
       {evs.map((e) => {
@@ -275,6 +310,7 @@ function Results({ id }: { id: number }) {
         );
       })}
     </div>
+    </>
   );
 }
 
@@ -309,8 +345,9 @@ export default function VideosPage() {
           <p className="muted">
             Do&apos;kon kamerasidan olingan (yoki istalgan) videoni yuklang — uni tanlangan filialning do&apos;kon kompyuteri
             tahlil qiladi: AI o&apos;sha yerda ishlaydi, bulut faqat videoni yetkazadi. Topilgan signallar rasm va klip bilan shu
-            yerda va <Link href="/events/">Hodisalar</Link>da chiqadi; video tahlili uchun Telegram xabari yuborilmaydi.
-            Tahlildan keyin video bulutdan o&apos;chiriladi.
+            yerda, <Link href="/events/">Hodisalar</Link>da va Telegram&apos;ingizda («🧪 Video sinovi» belgisi bilan) chiqadi.
+            Kassa navbati, kirganlar soni va bo&apos;limlarni o&apos;lchash uchun «Video ustida chizaman»ni tanlab, zonalarni
+            chizing. Tahlildan keyin video bulutdan o&apos;chiriladi.
           </p>
         </div>
       </div>
@@ -351,6 +388,7 @@ export default function VideosPage() {
                         {mb(t.size)}
                         {t.duration ? ` · ${Math.round(t.duration)} s` : ""}
                         {t.zone_source_name ? ` · «${t.zone_source_name}» zonalari` : ""}
+                        {t.zones?.length ? ` · ${t.zones.length} ta zona chizilgan` : ""}
                       </div>
                     </td>
                     <td>{t.branch_name}</td>
