@@ -28,6 +28,13 @@ os.environ.setdefault("OPENCV_FFMPEG_CAPTURE_OPTIONS", "rtsp_transport;tcp")
 
 PREVIEW_WIDTH = 960
 RING_FPS = 12            # klip uchun saqlanadigan kadr tezligi (qo'riqchi ko'rishi uchun yetarli)
+NO_FRAME_SEC = 10        # 3.2.0: jonli kameradan shuncha vaqt yaroqli kadr chiqmasa — qaytadan ulanish
+
+
+def _mask(uri: str) -> str:
+    from .manager import mask_uri
+
+    return mask_uri(uri)
 
 
 def clip_window() -> tuple[float, float]:
@@ -37,7 +44,9 @@ def clip_window() -> tuple[float, float]:
 
 def ring_seconds() -> float:
     pre, post = clip_window()
-    return pre + post + 3
+    # 3.2.0: klip shubha boshlanishidan `pre` soniya oldin boshlanadi (o'g'irlikda ~5 s, xavfsizlikda ~8 s oldin) —
+    # bufer shuni ham sig'dirsin (avval boshi kesilib qolardi)
+    return pre + post + 10
 
 
 def susp_label(ts: float, live: bool) -> str:
@@ -470,8 +479,10 @@ class SourceWorker(threading.Thread):
             cap = open_capture(kind, uri)
             if not cap.isOpened():
                 self.state = "xato"
+                # 3.2.0: manzil login/parolsiz (xato matni panelga, Telegram'ga, bulutga va diagnostika paketiga boradi)
                 self.error = ("Kamerani ochib bo'lmadi. Boshqa dastur ishlatmayotganini va ruxsat "
-                              "berilganini tekshiring." if kind == "webcam" else f"Manbani ochib bo'lmadi: {uri}")
+                              "berilganini tekshiring." if kind == "webcam" else
+                              f"Manbani ochib bo'lmadi: {_mask(uri)}")
                 log.error("%s: %s", self.src["name"], self.error)
                 if self.stop_evt.wait(3.0):
                     break
@@ -482,32 +493,41 @@ class SourceWorker(threading.Thread):
             if vid_fps <= 1 or vid_fps > 120:
                 vid_fps = 25.0
             pace = kind == "file"
-            n, t_fps = 0, time.time()
-            t_play0 = time.time()
+            # 3.2.0: tezlik va oraliqlar monotonic soat bilan (kompyuter soati orqaga surilsa kamera qotib qolmasin);
+            # kadr vaqti (hodisa, klip) — odatdagi devor soati
+            n, t_fps = 0, time.monotonic()
+            t_play0 = time.monotonic()
             frame_i = 0
-            last_ret = 0.0
+            last_ret = -1e9
+            last_good = time.monotonic()
             while not self.stop_evt.is_set():
                 # grab() kadrni faqat o'qiydi; rangli rasmga aylantirish (retrieve) faqat AI yoki klip
                 # buferiga kerak bo'lganda — 25–30 kadr/s kameradan odatda 4–12 tasi
                 if not cap.grab():
                     break
-                now = time.time()
+                mono = time.monotonic()
                 if pace:
                     frame_i += 1
                     target = t_play0 + frame_i / vid_fps
-                    if target > now:
-                        time.sleep(target - now)
-                        now = time.time()
+                    if target > mono:
+                        time.sleep(target - mono)
+                        mono = time.monotonic()
                 n += 1
-                if now - t_fps >= 1.0:
-                    self.fps_cam = n / (now - t_fps)
-                    n, t_fps = 0, now
-                if now - last_ret < 0.9 / max(self.want_fps, 1.0):
+                if mono - t_fps >= 1.0:
+                    self.fps_cam = n / (mono - t_fps)
+                    n, t_fps = 0, mono
+                if kind != "file" and mono - last_good > NO_FRAME_SEC:
+                    # 3.2.0: grab() "bor" deydi-yu, kadr chiqmayapti (Windows'da webcam uzilsa/uyqudan keyin DirectShow
+                    # shunday qiladi, IP kamera dekoderi ham osilishi mumkin) — qaytadan ulanamiz
+                    log.warning("%s: %d s dan beri kadr yo'q — qayta ulanmoqda", self.src["name"], NO_FRAME_SEC)
+                    break
+                if mono - last_ret < 0.9 / max(self.want_fps, 1.0):
                     continue
                 ok, frame = cap.retrieve()
                 if not ok or frame is None:
                     continue
-                last_ret = now
+                last_ret = last_good = mono
+                now = time.time()
                 with self.frame_lock:
                     self.latest_frame = frame
                     self.latest_t = now
@@ -531,68 +551,100 @@ class SourceWorker(threading.Thread):
                 self.stop_evt.wait(2.0)
 
     def run(self):
+        try:
+            self._run()
+        finally:
+            # 3.2.0: AI oqimi qanday tugasa ham (xato bilan ham) o'quvchi oqim to'xtaydi — kamera band qolmaydi
+            self.stop_evt.set()
+
+    def _run(self):
         self.reader.start()
         last_t = 0.0
-        t_fps, n = time.time(), 0
+        t_fps, n = time.monotonic(), 0
+        last_idle_flush = 0.0
         while not self.stop_evt.is_set():
-            ai_fps = max(1.0, db.fnum("ai_fps", 8))
-            calm_fps = db.fnum("calm_fps", 4)
-            with self.frame_lock:
-                frame, ft = self.latest_frame, self.latest_t
-            if frame is None or ft == last_t:
-                time.sleep(0.01)
-                if not self.reader.is_alive() and self.state in ("tugadi",):
-                    break
-                continue
-            last_t = ft
-            t0 = time.time()
             try:
-                _, ann, alerts, status = self.proc.step(frame, ft)
-            except Exception as e:
+                with self.frame_lock:
+                    frame, ft = self.latest_frame, self.latest_t
+                if frame is None or ft == last_t:
+                    time.sleep(0.01)
+                    if not self.reader.is_alive() and self.state in ("tugadi",):
+                        break
+                    mono = time.monotonic()
+                    if self.pending and mono - last_idle_flush >= 1.0:
+                        # 3.2.0: kadr kelmay qoldi (kamera uzildi/yopildi) — signal klipi bufer to'lib qolguncha
+                        # kutib turmaydi: vaqti kelgan klip bor kadrlar bilan yoziladi
+                        last_idle_flush = mono
+                        self._flush_pending(time.time())
+                    continue
+                if last_t and ft < last_t - 2.0:
+                    # 3.2.0: kompyuter soati orqaga surildi — kuzatuv holati (izlar, kutish, sovish) eski vaqt bilan
+                    # chalkashmasin: tahlil va bufer yangidan boshlanadi
+                    log.warning("%s: kompyuter soati %.0f s orqaga surildi — tahlil holati yangilandi",
+                                self.src["name"], last_t - ft)
+                    self._flush_pending(1e18, force=True)
+                    self.proc = Processor(self.src["name"], source_id=self.src.get("id"))
+                    self.ring = RingBuffer(seconds=ring_seconds(), max_fps=RING_FPS)
+                last_t = ft
+                self._step(frame, ft)
+            except Exception as e:  # noqa: BLE001 — bitta kadrdagi kutilmagan xato kamerani butunlay to'xtatmasin
                 self.state = "xato"
                 self.error = f"AI xatosi: {e}"
-                log.exception("AI xatosi (%s)", self.src["name"])
-                time.sleep(1)
+                log.exception("Kamera oqimida xato (%s)", self.src["name"])
+                self.stop_evt.wait(1.0)
                 continue
-            if self.state == "xato" and self.error.startswith("AI xatosi"):
-                # Bitta kadrdagi xato o'tib ketdi — kamera ishlayapti (aks holda "ishlamayapti" xabari ketib,
-                # "tiklandi" hech qachon kelmas edi)
-                self.state, self.error = "ishlayapti", ""
-                log.info("%s: AI yana ishlayapti", self.src["name"])
-            self.ring.set_annotations(ann)
-            self.ring.seconds = ring_seconds()
-            self.track_status = status
-            self.persons = len(ann[0])
-            self.max_risk = max([v["risk"] for v in status.values()], default=0.0)
-            # Oldindan ko'rish rasmi faqat kimdir jonli oqimni ko'rayotganda har kadrda tayyorlanadi,
-            # aks holda 2 soniyada bir marta (boshqaruv paneli rasmi uchun)
-            now = time.time()
-            if now - self.last_view < 3.0 or now - self.last_preview_t >= 2.0:
-                self.latest_jpeg = preview_jpeg(frame, ann, annotate.wall_clock(ft), zones=self.proc.zones)
-                self.last_preview_t = now
-            if self.loop_no == 0:
-                for a in alerts:
-                    self._on_alert(a, ft, frame, ann)
-            while self.injected:
-                a = self.injected.popleft()
-                if self.loop_no == 0:
-                    a["t"] = ft
-                    self._on_alert(a, ft, frame, ann)
-            self._flush_pending(ft)
             n += self.proc.ran          # "AI kadr/s" — faqat model ishlagan qadamlar (bo'sh kamerada ~0.3)
-            now = time.time()
-            if now - t_fps >= 1.0:
-                self.fps_ai = n / (now - t_fps)
-                n, t_fps = 0, now
-            # Keyingi qadam vaqti kamera rejimiga bog'liq: faol — ai_fps, tinch — calm_fps, bo'sh — 4/s
-            interval = self.proc.interval(ai_fps, calm_fps)
-            self.want_fps = max(self.proc.ring_fps(), 1.0 / interval)
-            wait = interval - (time.time() - t0)
-            if wait > 0:
-                self.stop_evt.wait(wait)
+            mono = time.monotonic()
+            if mono - t_fps >= 1.0:
+                self.fps_ai = n / (mono - t_fps)
+                n, t_fps = 0, mono
         self._flush_pending(1e18, force=True)
         if self.state not in ("xato", "tugadi"):
             self.state = "to'xtatildi"
+
+    def _step(self, frame, ft: float) -> None:
+        ai_fps = max(1.0, db.fnum("ai_fps", 8))
+        calm_fps = db.fnum("calm_fps", 4)
+        t0 = time.monotonic()
+        try:
+            _, ann, alerts, status = self.proc.step(frame, ft)
+        except Exception as e:
+            self.state = "xato"
+            self.error = f"AI xatosi: {e}"
+            log.exception("AI xatosi (%s)", self.src["name"])
+            self.stop_evt.wait(1)
+            return
+        if self.state == "xato" and self.error.startswith("AI xatosi"):
+            # Bitta kadrdagi xato o'tib ketdi — kamera ishlayapti (aks holda "ishlamayapti" xabari ketib,
+            # "tiklandi" hech qachon kelmas edi)
+            self.state, self.error = "ishlayapti", ""
+            log.info("%s: AI yana ishlayapti", self.src["name"])
+        self.ring.set_annotations(ann)
+        self.ring.seconds = ring_seconds()
+        self.track_status = status
+        self.persons = len(ann[0])
+        self.max_risk = max([v["risk"] for v in status.values()], default=0.0)
+        # Oldindan ko'rish rasmi faqat kimdir jonli oqimni ko'rayotganda har kadrda tayyorlanadi,
+        # aks holda 2 soniyada bir marta (boshqaruv paneli rasmi uchun)
+        now = time.time()
+        if abs(now - self.last_view) < 3.0 or abs(now - self.last_preview_t) >= 2.0:
+            self.latest_jpeg = preview_jpeg(frame, ann, annotate.wall_clock(ft), zones=self.proc.zones)
+            self.last_preview_t = now
+        if self.loop_no == 0:
+            for a in alerts:
+                self._on_alert(a, ft, frame, ann)
+        while self.injected:
+            a = self.injected.popleft()
+            if self.loop_no == 0:
+                a["t"] = ft
+                self._on_alert(a, ft, frame, ann)
+        self._flush_pending(ft)
+        # Keyingi qadam vaqti kamera rejimiga bog'liq: faol — ai_fps, tinch — calm_fps, bo'sh — 4/s
+        interval = self.proc.interval(ai_fps, calm_fps)
+        self.want_fps = max(self.proc.ring_fps(), 1.0 / interval)
+        wait = interval - (time.monotonic() - t0)
+        if wait > 0:
+            self.stop_evt.wait(wait)
 
     def _on_alert(self, alert: dict, t: float, frame: np.ndarray | None = None, ann: tuple | None = None):
         self.alerts += 1
@@ -607,7 +659,11 @@ class SourceWorker(threading.Thread):
         for p in done:
             self.pending.remove(p)
             frames = self.ring.slice(p.t_start, p.t_end)
-            threading.Thread(target=self.manager.finish_clip, args=(p, frames), daemon=True).start()
+            spawn = getattr(self.manager, "spawn_clip", None)
+            if spawn is not None:
+                spawn(p, frames)
+            else:
+                threading.Thread(target=self.manager.finish_clip, args=(p, frames), daemon=True).start()
 
     def info(self) -> dict:
         return {
@@ -659,7 +715,7 @@ class FileJob(threading.Thread):
         ai_fps = max(1.0, db.fnum("ai_fps", 8))
         calm_fps = db.fnum("calm_fps", 4)
         pre, post = clip_window()
-        ring = RingBuffer(seconds=pre + post + 3, max_fps=RING_FPS)
+        ring = RingBuffer(seconds=pre + post + 10, max_fps=RING_FPS)
         src = {"id": None, "name": f"Video: {self.job['filename']}", "kind": "upload"}
         # 3.1.0: bulut panelida video kadri ustiga chizilgan zonalar (bo'lsa — kamera zonalari o'rniga)
         fixed = None
@@ -680,10 +736,18 @@ class FileJob(threading.Thread):
         self._last_progress = -1.0
         last_ai_t = last_prev_t = -1e9
         err = None
+        bad = 0
         try:
             while not self.stop_evt.is_set():
                 if not cap.grab():
-                    break
+                    # 3.2.0: buzilgan bo'lak — bir nechta kadrni o'tkazib, davom etishga urinamiz (avval birinchi
+                    # o'qilmagan kadrda to'xtab, "tayyor 100%" deb ko'rsatardi)
+                    bad += 1
+                    if bad > 25 or (total and idx >= total - 1):
+                        break
+                    idx += 1
+                    continue
+                bad = 0
                 t = idx / fps
                 # Jonli kameradagi kabi: AI qadami oralig'i kamera rejimiga bog'liq (bo'sh/tinch/faol)
                 ai_due = t - last_ai_t >= proc.interval(ai_fps, calm_fps) - 0.5 / fps
@@ -742,6 +806,11 @@ class FileJob(threading.Thread):
                 self.manager.finish_clip(p, ring.slice(p.t_start, p.t_end))
             cap.release()
         status = "xato" if err else ("toxtatildi" if self.stop_evt.is_set() else "tayyor")
+        if status == "tayyor" and total > 30 and idx < total * 0.9:
+            # 3.2.0: video oxirigacha o'qilmadi — natija bor, lekin to'liq emasligi ochiq aytiladi
+            err = (f"Video oxirigacha o'qilmadi: {idx * 100 // total}% tahlil qilindi (fayl buzilgan yoki to'liq "
+                   "yuklanmagan bo'lishi mumkin)")
+            log.warning("%s: %s", self.job["filename"], err)
         if status == "toxtatildi" and self.job.get("cloud_test_id") and getattr(self.manager, "shutting_down", False):
             status = "ishlanmoqda"     # 3.0.0: dastur to'xtayapti — bulut sinovi keyingi ishga tushishda qaytadan (recover)
         if status == "tayyor":

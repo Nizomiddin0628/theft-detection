@@ -156,7 +156,7 @@ def queues_csv(days: int = 30):
     days = max(1, min(int(days), 90))
     t0 = _day0() - (days - 1) * 86400
     buf = io.StringIO()
-    w = csv.writer(buf)
+    w = csv.writer(buf, delimiter=";")   # 3.2.0: Excel (uz/ru Windows) ustunlarni to'g'ri ajratsin
     w.writerow(["navbatga kirdi", "navbatdan chiqdi", "kutish (soniya)", "kassa"])
     for r in db.rows("SELECT * FROM queue_waits WHERE t_out>=? ORDER BY t_out", (t0,)):
         name = r["zone_name"] or ""

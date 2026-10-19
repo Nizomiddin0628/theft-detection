@@ -82,13 +82,16 @@ LYING_DOWN_FRAC = 0.6    # oynadagi kuzatuvlarning shuncha ulushi "yotgan" bo'ls
 LYING_MOVE = 0.6         # oynada markaz siljishi (H_ref ulushi) shundan kam — harakatsiz
 FALL_SUPPRESS_LYING = 300.0   # yiqilish signali bo'lgan odam uchun shuncha vaqt "yotibdi" signali berilmaydi
 LYING_REPEAT = 600.0     # o'sha joyda "yotibdi" signali shuncha vaqtda bir marta
-SPOT_COOLDOWN = 60.0     # bir joyda (bir odam) takroriy yiqilish signali
+SPOT_COOLDOWN = 180.0    # bir joyda (bir odam) takroriy yiqilish signali (3.2.0: 60 → 180 s, pozasi bir kadr
+                         # "turgan" bo'lib qolsa ham har daqiqada qayta signal bermasin)
 WALK_CANCEL = 0.8        # kutayotgan yiqilish: oyoq shuncha × ramka o'lchamidan ko'p siljisa — yurib ketyapti, bekor
 SENS = {"normal": {"hip": 0.25, "collapse": False}, "high": {"hip": 0.33, "collapse": True}}
 
 # --- boshqa qoidalar
 NIGHT_MIN_SEC = 2.0      # tungi kirish: odam shuncha soniya ko'rinsin (bitta kadrdagi xato detektsiya emas)
 NIGHT_END_SEC = 120.0    # shuncha vaqt odam ko'rinmasa — tashrif tugadi (keyingi kirish — yangi signal)
+NIGHT_GAP_SEC = 8.0      # 3.2.0: ketma-ket aniqlashlar orasidagi eng katta oraliq — undan ko'p bo'lsa, ko'rinish uzilgan
+STORE_DUP_SEC = {"fall": 45.0, "lying": 120.0, "crowd": 300.0, "fire": 300.0}   # bir hodisani bir necha kamera ko'rsa
 CROWD_DIP_SEC = 10.0     # chegaradan qisqa tushishlar (detektor odamni yo'qotishi) hisobga olinmaydi
 CROWD_REARM_SEC = 120.0
 EXIT_EVERY = 5.0         # chiqish zonasi shuncha soniyada bir tekshiriladi
@@ -516,6 +519,14 @@ def _alert(kind: str, track_id: int, t: float, box, reasons: list[str], susp_sta
             "susp_end": float(t if susp_end is None else susp_end), "pose_seq": []}
 
 
+def _iou(a, b) -> float:
+    ix = max(0.0, min(float(a[2]), float(b[2])) - max(float(a[0]), float(b[0])))
+    iy = max(0.0, min(float(a[3]), float(b[3])) - max(float(a[1]), float(b[1])))
+    inter = ix * iy
+    ua = (float(a[2]) - float(a[0])) * (float(a[3]) - float(a[1])) + (float(b[2]) - float(b[0])) * (float(b[3]) - float(b[1]))
+    return inter / (ua - inter) if ua - inter > 0 else 0.0
+
+
 # Bir nechta kamera bir hodisani ko'rsa (bitta kirgan odam — 4 kamera) — bitta signal
 STORE_NIGHT_SEC = 120.0
 _store_last: dict[str, float] = {}
@@ -848,6 +859,7 @@ class SafetyMonitor:
         self.night_seen: float = -1e9
         self.night_hits = 0
         self.night_alerted = False
+        self.night_boxes: list = []
         self.crowd_over: float | None = None
         self.crowd_below: float | None = None
         self.crowd_alerted = False
@@ -864,6 +876,22 @@ class SafetyMonitor:
         self._err_t = 0.0
         self.cpu = 0.0
         self.n = 0
+        if source_id is not None and not background:
+            # 3.2.0: dastur qayta ishga tushganda sovish vaqtlari bazadagi oxirgi signallardan — darhol takror signal
+            # (va SMS) bo'lmasin
+            try:
+                for r in db.rows("SELECT kind, MAX(created_at) AS t FROM events WHERE source_id=? AND job_id IS NULL "
+                                 "AND kind IN (" + ",".join("?" for _ in SAFETY_KINDS) + ") GROUP BY kind",
+                                 (source_id, *SAFETY_KINDS)):
+                    if r["t"]:
+                        # kelajakdagi vaqt (soat oldinga ketgan edi, keyin to'g'rilandi) — signallarni soatlab
+                        # o'chirib qo'ymasin: hozirgi vaqtdan oshmaydi
+                        tl = min(float(r["t"]), time.time())
+                        self.last[r["kind"]] = tl
+                        with _store_lock:
+                            _store_last[r["kind"]] = min(max(_store_last.get(r["kind"], -1e18), tl), time.time())
+            except Exception:  # noqa: BLE001
+                pass
 
     # ------------------------------------------------------------------
     def update(self, tracked: list, t: float, w: int, h: int, frame: np.ndarray | None, zones=None,
@@ -903,31 +931,54 @@ class SafetyMonitor:
             out += self._exits(frame, t, zones, s)
         if frame is not None and _on(s, "safety_fire"):
             out += self._fire(frame, t, zones, s)
+        if out and not self.background:
+            # 3.2.0: bir hodisani do'kondagi bir nechta kamera ko'rsa — bitta signal (va bitta SMS)
+            out = [a for a in out if a.get("kind") not in STORE_DUP_SEC
+                   or store_once(a["kind"], t, STORE_DUP_SEC[a["kind"]])]
         return out
 
     def _cool(self, kind: str, t: float, s: dict) -> bool:
-        return t - self.last.get(kind, -1e18) >= _num(s, "safety_cooldown_min") * 60
+        # oxirgi signal "kelajakda" (soat orqaga surildi) — sovish tugagan deb olinadi (store_once kabi)
+        return not (0 <= t - self.last.get(kind, -1e18) < _num(s, "safety_cooldown_min") * 60)
 
     # ------------------------------------------------------------------ tungi kirish
+    def _night_reset(self) -> None:
+        self.night_first, self.night_hits, self.night_alerted = None, 0, False
+        self.night_boxes = []
+
     def _night(self, tracked, t, s) -> list[dict]:
+        """3.2.0: signal uchun bitta UZLUKSIZ ko'rinish kerak (aniqlashlar orasi NIGHT_GAP_SEC dan oshmasin). Avval
+        2 daqiqa ichidagi tasodifiy 3 ta bir lahzalik xato aniqlash ham signal (va SMS) berardi. Signaldan keyin
+        "tashrif" davom etsa (masalan, maneken yoki osilgan kiyim har safar odam deb aniqlanadi) — signal paytidagi
+        joylardan boshqa joyda yangi odam paydo bo'lsa, sovish vaqti o'tgach yana signal (avval tun bo'yi jim edi)."""
         sched = night_schedule(s)
         if not tracked:
             if self.night_first is not None and t - self.night_seen > NIGHT_END_SEC:
-                self.night_first, self.night_hits, self.night_alerted = None, 0, False
+                self._night_reset()
             return []
         if not is_night(t, sched):
-            self.night_first, self.night_hits, self.night_alerted = None, 0, False
+            self._night_reset()
             return []
-        if self.night_first is None or t - self.night_seen > NIGHT_END_SEC:
-            self.night_first, self.night_hits, self.night_alerted = t, 0, False
+        boxes = [np.asarray(p.box, dtype=np.float32) for p in tracked]
+        if self.night_first is None or t - self.night_seen > NIGHT_GAP_SEC:
+            if self.night_first is None or t - self.night_seen > NIGHT_END_SEC:
+                self.night_alerted, self.night_boxes = False, []
+            self.night_first, self.night_hits = t, 0
         self.night_seen = t
         self.night_hits += 1
-        if self.night_alerted or self.night_hits < 3 or t - self.night_first < NIGHT_MIN_SEC or not self._cool("night", t, s):
+        if self.night_alerted and self.night_boxes and self._cool("night", t, s) and any(
+                max((_iou(b, nb) for nb in self.night_boxes), default=0.0) < 0.3 for b in boxes):
+            self.night_alerted = False         # signal paytida bo'lmagan joyda yangi odam — qayta signal mumkin
+        if (self.night_alerted or self.night_hits < 3 or t - self.night_first < NIGHT_MIN_SEC
+                or not self._cool("night", t, s)):
             return []
         self.night_alerted = True
+        self.night_boxes = boxes
+        # bu kamera ham "signal berdi" deb hisoblaydi (sovish vaqti): aks holda boshqa kamera xabar qilgan o'sha odam
+        # biroz yurgach bu kamerada qayta qurollanib, do'kon oynasidan keyin ikkinchi signal (va SMS) berardi
+        self.last["night"] = t
         if not store_once("night", t, STORE_NIGHT_SEC):
             return []                          # o'sha kirishni boshqa kamera allaqachon xabar qildi (bitta SMS yetarli)
-        self.last["night"] = t
         big = max(tracked, key=lambda p: float((p.box[2] - p.box[0]) * (p.box[3] - p.box[1])))
         n = len(tracked)
         reasons = [f"Ish vaqtidan tashqarida kamerada {n} ta odam ({time.strftime('%H:%M', time.localtime(t))})",

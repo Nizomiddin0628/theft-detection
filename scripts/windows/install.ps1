@@ -96,6 +96,11 @@ Write-Host "=============================================" -ForegroundColor Cyan
 
 # ------------------------------------------------------------------ 1. Python
 Step 1 "Python"
+# 3.2.0: papka yo'lida lotin bo'lmagan harflar (masalan, kirill harfli foydalanuvchi nomi) - OpenCV ba'zi fayllarni yoza olmaydi
+if ($root -match '[^\x00-\x7F]') {
+    Warn "Papka yo'lida lotin bo'lmagan harflar bor: $root"
+    Warn "Tavsiya: dasturni C:\hushyor-ai kabi oddiy papkaga ko'chirib o'rnating"
+}
 $py = Find-Python
 if (-not $py) {
     Warn "Python 3.10-3.13 topilmadi."

@@ -32,25 +32,27 @@
 {% block scripts %}
 <script>
 const qs = new URLSearchParams(location.search);
-const state = { status: qs.get("status") || "", source: "", days: 0, q: "", job: Number(qs.get("job") || 0), page: 1 };
+const state = { status: qs.get("status") || "", source: "", days: 0, q: "", job: Number(qs.get("job") || 0), before: 0 };
 if (state.job) { const n = document.getElementById("jobnote"); n.classList.remove("hidden"); n.innerHTML = `Faqat video tahlili #${state.job} hodisalari ko'rsatilmoqda. <a href="/events">Hammasini ko'rish</a>`; }
 document.querySelectorAll("#st button").forEach((b) => { b.classList.toggle("on", b.dataset.s === state.status); b.onclick = () => { state.status = b.dataset.s; document.querySelectorAll("#st button").forEach((x) => x.classList.toggle("on", x === b)); reload(); }; });
 document.getElementById("src").onchange = (e) => { state.source = e.target.value; reload(); };
 document.getElementById("days").onchange = (e) => { state.days = Number(e.target.value); reload(); };
 let qt; document.getElementById("q").oninput = (e) => { clearTimeout(qt); qt = setTimeout(() => { state.q = e.target.value; reload(); }, 300); };
-document.getElementById("more").onclick = () => { state.page++; load(true); };
-function reload() { state.page = 1; load(false); }
+let nextBefore = null;
+document.getElementById("more").onclick = () => { if (nextBefore) { state.before = nextBefore; load(true); } };
+function reload() { state.before = 0; load(false); }
 async function load(append) {
-  const p = new URLSearchParams({ status: state.status, source: state.source, days: state.days, q: state.q, job: state.job, page: state.page, per: 24 });
+  const p = new URLSearchParams({ status: state.status, source: state.source, days: state.days, q: state.q, job: state.job, before: state.before, per: 24 });
   const r = await H.api("/api/events?" + p);
   const html = r.items.map(H.evCard).join("");
   const box = document.getElementById("list");
   box.innerHTML = append ? box.innerHTML + html : (html || `<div class="card empty" style="grid-column:1/-1">Hodisa topilmadi</div>`);
   document.getElementById("total").textContent = `Jami: ${r.total}`;
-  document.getElementById("more").classList.toggle("hidden", r.page * r.per >= r.total);
+  nextBefore = r.next_before;
+  document.getElementById("more").classList.toggle("hidden", !nextBefore);
 }
 reload();
 let lastSeen = 0;
-document.addEventListener("summary", (e) => { if (lastSeen && e.detail.last_id > lastSeen && state.page === 1) reload(); lastSeen = e.detail.last_id; });
+document.addEventListener("summary", (e) => { if (lastSeen && e.detail.last_id > lastSeen && !state.before) reload(); lastSeen = e.detail.last_id; });
 </script>
 {% endblock %}

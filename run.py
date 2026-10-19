@@ -89,7 +89,7 @@ def port_busy(host: str, port: int) -> bool:
         s.close()
 
 
-def stop_child(proc, port: int, token: str, wait_s: float = 20.0) -> None:
+def stop_child(proc, port: int, token: str, wait_s: float = 40.0) -> None:
     """Bola jarayonni toza to'xtatish: HTTP buyruq → kameralar, kliplar, bot yopiladi.
     TerminateProcess (Windows'da darhol o'ldirish) — faqat zaxira."""
     if proc.poll() is not None:
@@ -111,6 +111,21 @@ def stop_child(proc, port: int, token: str, wait_s: float = 20.0) -> None:
         proc.wait(10)
 
 
+def _keep_awake() -> None:
+    """3.2.0: Windows'da kompyuter (noutbuk) o'zi uyquga ketmasin — uxlasa kameralar kuzatilmaydi. Ekran o'chishi
+    mumkin. Noutbuk qopqog'i yopilganda nima bo'lishi — Windows quvvat sozlamasida ("Hech narsa qilmaslik")."""
+    if os.name != "nt":
+        return
+    try:
+        import ctypes
+
+        ES_CONTINUOUS, ES_SYSTEM_REQUIRED = 0x80000000, 0x00000001
+        ctypes.windll.kernel32.SetThreadExecutionState(ES_CONTINUOUS | ES_SYSTEM_REQUIRED)
+        _slog("kompyuter uyquga ketmaydi (dastur ishlayotganda)")
+    except Exception as e:  # noqa: BLE001
+        _slog(f"uyqu rejimini to'xtatib bo'lmadi: {e.__class__.__name__}")
+
+
 def supervise(a) -> None:
     """Asosiy dasturni bola jarayon sifatida ishga tushiradi va kuzatadi.
 
@@ -118,8 +133,20 @@ def supervise(a) -> None:
     * /healthz ketma-ket 3 marta javob bermasa (dastur qotib qolgan) — to'xtatib, qayta ishga tushiradi.
     """
     if port_busy(a.host, a.port):
-        _slog(f"{a.port}-port band — Hushyor AI allaqachon ishlayapti (ikkinchi nazoratchi ishga tushmaydi)")
-        return
+        # 3.2.0: oldingi nusxa hozir to'xtayotgan bo'lishi mumkin (o'rnatish qayta yurgizilganda, vazifa qayta
+        # yoqilganda) — 60 s gacha kutamiz. Avval darhol chiqib ketardi va eski nusxa to'xtagach dastur umuman ishlamasdi
+        _slog(f"{a.port}-port band — bo'shashini kutamiz (60 s gacha)")
+        for _ in range(20):
+            time.sleep(3)
+            if not port_busy(a.host, a.port):
+                break
+        else:
+            if _healthy(a.port):
+                _slog(f"{a.port}-port band — Hushyor AI allaqachon ishlayapti (ikkinchi nazoratchi ishga tushmaydi)")
+                return
+            _slog(f"{a.port}-port boshqa dastur tomonidan band — chiqildi (vazifa keyinroq qayta urinadi)")
+            sys.exit(3)
+    _keep_awake()
     cmd = [sys.executable, str(ROOT / "run.py"), "--child", "--no-browser", "--host", a.host, "--port", str(a.port)]
     token = secrets.token_hex(16)
     # Bola jarayon (app/web.py) shu kalitni HUSHYOR_CTL_TOKEN dan o'qiydi; /healthz/shutdown — X-Hushyor-Token bilan

@@ -382,11 +382,12 @@ def _owner(browser, s: dict) -> None:
     page.wait_for_selector("[data-testid=confirm]", timeout=8000)
     first = page.url.split("uid=")[1].split("&")[0].replace("%3A", ":")
     page.keyboard.press("t")
-    # 3.1.0: tasdiqlangan o'g'irlikda navbat to'xtaydi — zarar summasi maydoni fokusda; bo'sh Enter — keyingisi
-    page.wait_for_selector("[data-testid=loss-input]:focus", timeout=8000)
-    page.keyboard.press("Enter")
+    # 3.2.0: bu do'kon kompyuterlari 3.1.0 dan eski (1.7.0/1.6.0) — zarar summasi so'ralmaydi (server baribir rad etardi),
+    # navbat darhol keyingisiga o'tadi
     page.wait_for_url(lambda u: "uid=" in u and first.replace(":", "%3A") not in u, timeout=8000)
     page.wait_for_selector("[data-testid=confirm]", timeout=8000)
+    ok("Eski versiyali do'kon: tasdiqdan keyin summa so'ralmaydi, navbat to'xtamaydi",
+       page.locator("[data-testid=loss-input]").count() == 0)
     second = page.url.split("uid=")[1].split("&")[0].replace("%3A", ":")
     oldest = cloud.cdb.scalar("SELECT uid FROM events WHERE status='yangi' ORDER BY created_at LIMIT 1")
     ok("Navbat: qarordan keyin keyingi eng eski hodisa", ev_status(first) == "tasdiqlangan" and second == oldest

@@ -13,6 +13,31 @@ import { useSession } from "./Shell";
 
 type Ev = EventFull & { branch_name?: string };
 
+// 3.2.0: navbatda "O'tkazib yuborish" bosilgan hodisalar (shu brauzer sessiyasida) — keyingisi ulardan tanlanmaydi.
+// (Avval eng eski ikki hodisa orasida aylanib qolardi.)
+const SKIP_KEY = "hushyor_queue_skipped";
+function skipped(): string[] {
+  try {
+    const v = JSON.parse(sessionStorage.getItem(SKIP_KEY) || "[]");
+    return Array.isArray(v) ? v.filter((x) => typeof x === "string").slice(-500) : [];
+  } catch {
+    return [];
+  }
+}
+function setSkipped(v: string[]) {
+  try {
+    sessionStorage.setItem(SKIP_KEY, JSON.stringify(v.slice(-500)));
+  } catch {
+    /* jim */
+  }
+}
+
+function lossAllowed(e: Ev): boolean {
+  if (e.loss_ok !== undefined) return e.loss_ok;     // server biladi: 3.1.0 dan eski do'kon kompyuterida — yo'q
+  const d = (e.data ?? {}) as Record<string, unknown>;
+  return !isSafety(e.kind) && (d.job_id === undefined || d.job_id === null);
+}
+
 export default function EventView({ uid, queue }: { uid: string; queue: boolean }) {
   const router = useRouter();
   const { toast } = useSession();
@@ -35,17 +60,29 @@ export default function EventView({ uid, queue }: { uid: string; queue: boolean 
     }
   });
 
-  const next = useCallback(async () => {
-    const r = await api<{ events: EventRow[] }>("/events?status=yangi&limit=500");
-    const rest = r.events.filter((e) => e.uid !== uid);
-    if (!rest.length) {
-      toast({ tone: "ok", title: "Hammasi tekshirildi" });
-      router.push("/");
-      return;
-    }
-    const oldest = rest.reduce((a, b) => (b.created_at < a.created_at ? b : a));
-    router.replace(`/events/?uid=${encodeURIComponent(oldest.uid)}&queue=1`);
-  }, [router, toast, uid]);
+  const next = useCallback(
+    async (skip = false) => {
+      const sk = skipped();
+      if (skip && !sk.includes(uid)) sk.push(uid);
+      setSkipped(sk);
+      const r = await api<{ events: EventRow[] }>("/events?status=yangi&limit=500");
+      const rest = r.events.filter((e) => e.uid !== uid && !sk.includes(e.uid));
+      if (!rest.length) {
+        const left = r.events.filter((e) => sk.includes(e.uid)).length;
+        setSkipped([]);
+        toast(
+          left
+            ? { tone: "info", title: `Navbat tugadi: ${left} ta hodisa o'tkazib yuborilgan (tekshirilmagan)` }
+            : { tone: "ok", title: "Hammasi tekshirildi" },
+        );
+        router.push("/");
+        return;
+      }
+      const oldest = rest.reduce((a, b) => (b.created_at < a.created_at ? b : a));
+      router.replace(`/events/?uid=${encodeURIComponent(oldest.uid)}&queue=1`);
+    },
+    [router, toast, uid],
+  );
 
   // Navbatda keyingi hodisaga o'tganda eski hodisa ma'lumoti ekranda qolsa ham, tugmalar unga ishlamaydi
   const current = ev.data && ev.data.uid === uid ? ev.data : null;
@@ -90,9 +127,10 @@ export default function EventView({ uid, queue }: { uid: string; queue: boolean 
       setBusy(true);
       setErr(null);
       try {
+        // 3.2.0: expect — ko'rib turgan holat; orada boshqa xodim qaror qilgan bo'lsa server 409 qaytaradi (ustidan yozilmaydi)
         const r = await api<{ event: { status: Status; reviewed_by: string } }>(`/events/${encodeURIComponent(uid)}/review`, {
           method: "POST",
-          json: { status },
+          json: { status, expect: current.status },
         });
         ev.setData((d) =>
           d ? { ...d, status: r.event.status, data: { ...(d.data ?? {}), reviewed_by: r.event.reviewed_by, reviewed_at: Date.now() / 1000 } } : d,
@@ -102,12 +140,12 @@ export default function EventView({ uid, queue }: { uid: string; queue: boolean 
           title: status === "tasdiqlangan" ? "Tasdiqlandi" : status === "rad_etilgan" ? "Xato signal deb belgilandi" : "Qaror bekor qilindi",
         });
         // 3.1.0: tasdiqlangan o'g'irlikda navbat to'xtaydi — zarar summasini yozish uchun ("O'tkazib yuborish" bilan davom)
-        const cd = (current.data ?? {}) as Record<string, unknown>;
-        const wantLoss = status === "tasdiqlangan" && !isSafety(current.kind) && (cd.job_id === undefined || cd.job_id === null);
+        const wantLoss = status === "tasdiqlangan" && lossAllowed(current);
         setAskLoss(wantLoss);
         if (queue && status !== "yangi" && !wantLoss) await next();
       } catch (e) {
         setErr((e as Error).message);
+        ev.reload();               // (409: boshqa xodim qaror qilgan — joriy holat ko'rsatiladi)
       } finally {
         setBusy(false);
       }
@@ -161,7 +199,7 @@ export default function EventView({ uid, queue }: { uid: string; queue: boolean 
   const clip = mode === "clean" && clean ? clean : clipUrl(e.clip_file);
   const thumb = clipUrl(e.thumb_file);
   const tone = scoreTone(e.score);
-  const lossOk = !isSafety(e.kind) && (d.job_id === undefined || d.job_id === null);
+  const lossOk = lossAllowed(e);
 
   return (
     <>
@@ -174,7 +212,7 @@ export default function EventView({ uid, queue }: { uid: string; queue: boolean 
         </div>
         <div className="ev-nav">
           {queue ? (
-            <button className="btn" onClick={() => void next()} disabled={busy}>
+            <button className="btn" onClick={() => void next(true)} disabled={busy}>
               O&apos;tkazib yuborish
             </button>
           ) : null}

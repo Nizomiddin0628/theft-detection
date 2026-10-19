@@ -94,18 +94,24 @@ fi
 echo "== 1/7 Paketlar"
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
+# 3.2.0: --no-upgrade — bor paketlar (python3, postgresql-common ...) yangilanmaydi: serverdagi boshqa saytlarga tegilmasin
 if [[ "$WEB" == "nginx" ]]; then
-    apt-get install -y -qq python3 python3-venv python3-pip nginx certbot rsync curl >/dev/null
+    apt-get install -y -qq --no-upgrade python3 python3-venv python3-pip nginx certbot rsync curl >/dev/null
 else
-    apt-get install -y -qq python3 python3-venv python3-pip rsync curl >/dev/null
+    apt-get install -y -qq --no-upgrade python3 python3-venv python3-pip rsync curl >/dev/null
 fi
 if [[ "$MODE" == "--postgres" ]]; then
-    apt-get install -y -qq postgresql postgresql-client >/dev/null
+    apt-get install -y -qq --no-upgrade postgresql postgresql-client >/dev/null
 fi
 
 echo "== 2/7 Foydalanuvchi va kod ($APP)"
 id hushyor >/dev/null 2>&1 || useradd --system --home-dir "$APP" --shell /usr/sbin/nologin hushyor
 mkdir -p "$APP"
+# 3.2.0: joriy (ishlab turgan) kod nusxasi — yangi versiya ishga tushmasa, shunga qaytiladi
+PREV="$APP.prev"
+if [[ -f "$APP/cloud/server.py" ]]; then
+    rsync -a --delete --exclude .venv --exclude /cloud/data --exclude /data --exclude .env "$APP"/ "$PREV"/
+fi
 rsync -a --delete \
     --exclude .git --exclude .venv --exclude /data --exclude /cloud/data --exclude .env \
     --exclude 'cloud/panel/node_modules' --exclude 'cloud/panel/.next' --exclude 'models/*.onnx' \
@@ -114,7 +120,9 @@ mkdir -p "$APP/cloud/data"
 "$(command -v python3)" -m compileall -q "$APP/cloud" >/dev/null || true   # xizmat /opt ga yoza olmaydi
 # Kod — root'niki (xizmat o'zgartira olmaydi); cloud/data ga tegilmaydi (qayta ishga tushirishda ishlab turgan
 # xizmat bir lahza ham yozish huquqini yo'qotmasin)
-find "$APP" -path "$APP/cloud/data" -prune -o -exec chown root:root {} +
+# 3.2.0: .env ham chetlab o'tiladi (avval bir lahza root'niki bo'lib, keyingi qadam yiqilsa xizmat .env ni o'qiy olmay,
+# bo'sh SQLite bilan ishga tushardi)
+find "$APP" \( -path "$APP/cloud/data" -o -path "$APP/.env" \) -prune -o -exec chown root:root {} +
 chown hushyor:hushyor "$APP/cloud/data"
 chmod 750 "$APP/cloud/data"
 
@@ -186,7 +194,22 @@ for _ in $(seq 1 30); do
     curl -fsS http://127.0.0.1:9000/healthz >/dev/null 2>&1 && break
     sleep 1
 done
-curl -fsS http://127.0.0.1:9000/healthz >/dev/null || { journalctl -u "$SVC" -n 40 --no-pager; exit 1; }
+if ! curl -fsS http://127.0.0.1:9000/healthz >/dev/null; then
+    journalctl -u "$SVC" -n 40 --no-pager
+    if [[ -f "$PREV/cloud/server.py" ]]; then
+        # 3.2.0: yangi versiya ishga tushmadi — oldingi kod qaytariladi (baza va .env o'zgarmagan)
+        echo "XATO: yangi versiya ishga tushmadi — oldingi versiyaga qaytarilmoqda"
+        rsync -a --delete --exclude .venv --exclude /cloud/data --exclude /data --exclude .env "$PREV"/ "$APP"/
+        find "$APP" \( -path "$APP/cloud/data" -o -path "$APP/.env" \) -prune -o -exec chown root:root {} +
+        systemctl restart "$SVC"
+        for _ in $(seq 1 30); do
+            curl -fsS http://127.0.0.1:9000/healthz >/dev/null 2>&1 && break
+            sleep 1
+        done
+        curl -fsS http://127.0.0.1:9000/healthz >/dev/null && echo "   oldingi versiya qayta ishlayapti"
+    fi
+    exit 1
+fi
 echo "   xizmat ishlayapti: 127.0.0.1:9000"
 
 if [[ "$WEB" == "caddy" ]]; then
@@ -246,10 +269,23 @@ NGINX
         certbot certonly --webroot -w /var/www/html -d "$DOMAIN" -m "$EMAIL" --agree-tos -n \
             --deploy-hook "systemctl reload nginx"
     fi
+    # 3.2.0: qo'lda o'zgartirilgan sayt fayli saqlanadi; yangi sozlama nginx -t dan o'tmasa — eskisi qaytariladi
+    # (aks holda keyingi nginx qayta ishga tushishida serverdagi hamma saytlar to'xtardi)
+    NBK=""
+    if [[ -f "$SITE" ]]; then
+        NBK="$SITE.bak-hushyor-$(date +%Y%m%d-%H%M%S)"
+        cp "$SITE" "$NBK"
+    fi
     sed "s/__DOMAIN__/$DOMAIN/g" "$APP/deploy/nginx/hushyor-cloud.conf" > "$SITE"
     ln -sf "$SITE" /etc/nginx/sites-enabled/hushyor-cloud
-    nginx -t
-    systemctl reload nginx
+    if nginx -t 2>/dev/null; then
+        systemctl reload nginx
+    else
+        if [[ -n "$NBK" ]]; then cp "$NBK" "$SITE"; else rm -f /etc/nginx/sites-enabled/hushyor-cloud; fi
+        nginx -t && systemctl reload nginx
+        echo "XATO: yangi nginx sozlamasi xato — eski holat qaytarildi"
+        exit 1
+    fi
 fi
 
 echo "== 7/7 Tekshiruv"

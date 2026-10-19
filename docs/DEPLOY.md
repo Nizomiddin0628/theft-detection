@@ -150,14 +150,27 @@ Zaxira avtomatik olinadi: `CLOUD_BACKUP_HOURS` da bir marta (sukut 24 soat). Oxi
 
 | Baza | Zaxira fayli | Tiklash |
 |---|---|---|
-| SQLite | `cloud-<vaqt>.db` (SQLite backup API, ishlab turganda ham butun) | Xizmatni to'xtating → faylni `cloud/data/cloud.db` o'rniga ko'chiring → ishga tushiring |
-| PostgreSQL | `cloud-<vaqt>.pgdump` (`pg_dump`, custom format) | `sudo -u postgres pg_restore --clean --no-owner -d hushyor fayl.pgdump` |
+| SQLite | `cloud-<vaqt>.db.gz` (3.2.0 dan siqilgan; SQLite backup API, ishlab turganda ham butun; eskilari `.db`) | Xizmatni to'xtating → `-wal`/`-shm` fayllarni o'chiring → faylni ochib `cloud/data/cloud.db` o'rniga qo'ying → ishga tushiring |
+| PostgreSQL | `cloud-<vaqt>.pgdump` (`pg_dump`, custom format) | Xizmatni to'xtating → `pg_restore` (pastda) → ishga tushiring |
 
 ```bash
+# SQLite
 sudo systemctl stop hushyor-cloud
-sudo -u hushyor cp /opt/hushyor-ai/cloud/data/backups/cloud-20261015-030000.db /opt/hushyor-ai/cloud/data/cloud.db
+cd /opt/hushyor-ai/cloud/data
+sudo rm -f cloud.db-wal cloud.db-shm
+sudo -u hushyor sh -c 'gunzip -c backups/cloud-20261015-030000.db.gz > cloud.db'
+sudo -u hushyor /opt/hushyor-ai/.venv/bin/python -c "import sqlite3; print(sqlite3.connect('cloud.db').execute('PRAGMA integrity_check').fetchone()[0])"
+sudo systemctl start hushyor-cloud
+
+# PostgreSQL (zaxira fayli faqat root/hushyor o'qiy oladi — postgres foydalanuvchisiga quvur orqali beriladi;
+# --role=hushyor: jadvallar egasi hushyor bo'lib qoladi)
+sudo systemctl stop hushyor-cloud
+sudo cat /opt/hushyor-ai/cloud/data/backups/cloud-20261015-030000.pgdump | \
+    sudo -u postgres pg_restore --clean --if-exists --no-owner --role=hushyor -d hushyor
 sudo systemctl start hushyor-cloud
 ```
+
+Zaxira olishdan oldin diskdagi bo'sh joy tekshiriladi (baza hajmining 2 baravari + `CLOUD_MIN_FREE_GB`); yetmasa zaxira olinmaydi va jurnalda xato. Disk to'lsa avval eski zaxiralar (eng yangi 2 tasi qoladi), keyin eng eski tasdiqlanmagan kliplar o'chiriladi. Kamera holati daqiqalari `CLOUD_METRICS_KEEP_DAYS` (sukut 90) kun saqlanadi; sanash, navbat va oqim — 400 kun.
 
 Zaxiraga VAPID kaliti ham qo'shiladi (`vapid-<vaqt>.pem`): brauzer push obunalari shu kalitga bog'liq, tiklashda uni `cloud/data/vapid_private.pem` ga ko'chiring. Kliplar (`cloud/data/clips/`) zaxiraga kirmaydi, chunki hajmi katta. Ularni muddat bo'yicha avtomatik o'chirish sozlamalari:
 

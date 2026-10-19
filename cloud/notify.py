@@ -334,8 +334,10 @@ def enqueue(user_id: int, target: dict, kind: str, ref: str, payload: dict) -> N
 
 def notify_branch(branch_id: int, kind: str, ref: str, payload: dict, pref: str, score: float | None = None,
                   roles: tuple[str, ...] | None = None, channels_only: tuple[str, ...] | None = None) -> int:
-    """Filial bo'yicha qabul qiluvchilarga (sozlamasi ruxsat bersa) har manzilga bitta qator."""
+    """Filial bo'yicha qabul qiluvchilarga (sozlamasi ruxsat bersa) har manzilga bitta qator.
+    3.2.0: bir nechta xodim bitta manzilni (masalan, do'kon guruhini) ulagan bo'lsa — u yerga bitta xabar."""
     n = 0
+    seen: set[tuple[str, str]] = set()
     for u in cdb.branch_recipients(branch_id):
         if roles and u["role"] not in roles:
             continue
@@ -347,6 +349,10 @@ def notify_branch(branch_id: int, kind: str, ref: str, payload: dict, pref: str,
         for t in targets(u["id"]):
             if channels_only and t["channel"] not in channels_only:
                 continue
+            k = (str(t["channel"]), str(t["address"]))
+            if k in seen:
+                continue
+            seen.add(k)
             enqueue(u["id"], t, kind, ref, payload)
             n += 1
     return n
@@ -357,7 +363,8 @@ def _event_payload(ev: dict, branch: dict) -> dict:
     skew = float(branch.get("clock_skew") or 0)
     p = {"uid": ev["uid"], "branch_id": branch["id"], "branch": branch.get("name"), "camera": ev.get("source_name"),
          "kind": ev.get("kind"), "score": float(ev.get("score") or 0), "level": d.get("level"),
-         "reasons": [str(r) for r in (d.get("reasons") or [])][:6], "local_id": ev.get("local_id"),
+         "reasons": [str(r) for r in (d.get("reasons") if isinstance(d.get("reasons"), list) else [])][:6],
+         "local_id": ev.get("local_id"),
          "t_event": float(ev.get("created_at") or 0) + skew, "status": ev.get("status"),
          "loss_sum": ev.get("loss_sum")}
     if d.get("job_id") is not None:
@@ -576,11 +583,16 @@ def check_network(company_id: int, now: float | None = None) -> int:
     p = {"branch_id": None, "branch": f"{len(rows)} ta filial", "rule": "R5", "title": QUEUE_RULES["R5"], "zone": "",
          "text": text, "t_event": now}
     n = 0
+    seen: set[tuple[str, str]] = set()
     for u in cdb.rows("SELECT id, email, name, role, company_id FROM users WHERE company_id=:c AND role='owner' "
                       "AND active=:a ORDER BY id", {"c": company_id, "a": True}):
         if not get_prefs(u).get("queue"):
             continue
         for t in targets(u["id"]):
+            k = (str(t["channel"]), str(t["address"]))
+            if k in seen:
+                continue
+            seen.add(k)
             enqueue(u["id"], t, "queue", key, p)
             n += 1
     return n
@@ -852,8 +864,16 @@ def _tg(method: str, data: dict | None = None, files: dict | None = None, timeou
     if _tg_client is None:
         _tg_client = httpx.Client(timeout=httpx.Timeout(40.0, connect=10.0))
     url = f"{cfg.tg_api}/bot{cfg.tg_token}/{method}"
+    if data and "_migrated" in data:
+        data = {k: v for k, v in data.items() if k != "_migrated"}
+        migrated = True
+    else:
+        migrated = False
     try:
         if files:
+            for f in files.values():          # (qayta yuborishda fayl boshidan)
+                if isinstance(f, tuple) and len(f) > 1 and hasattr(f[1], "seek"):
+                    f[1].seek(0)
             r = _tg_client.post(url, data={k: (v if isinstance(v, str) else json.dumps(v)) for k, v in (data or {}).items()},
                                 files=files, timeout=timeout)
         else:
@@ -864,6 +884,12 @@ def _tg(method: str, data: dict | None = None, files: dict | None = None, timeou
     if res.get("ok"):
         return res
     desc = str(res.get("description", ""))[:200]
+    new_chat = (res.get("parameters") or {}).get("migrate_to_chat_id")
+    if new_chat and data and data.get("chat_id") is not None and not migrated:
+        # 3.2.0: guruh superguruhga aylangan — manzil yangilanadi va xabar shu zahoti yangi raqamga
+        migrate_chat(data["chat_id"], new_chat)
+        return _tg(method, {**data, "chat_id": new_chat if not isinstance(data["chat_id"], str) else str(new_chat),
+                            "_migrated": True}, files, timeout)
     if r.status_code == 429:
         raise Retry(desc, float((res.get("parameters") or {}).get("retry_after", 5)))
     if r.status_code in (400, 401, 403, 404):
@@ -1388,32 +1414,41 @@ class TelegramPoller(threading.Thread):
                 if self.stop_evt.wait(min(backoff, 60)):
                     return
                 backoff *= 1.6
-        offset = int(cdb.kv_get("tg_offset", "0") or 0)
+        try:
+            offset = int(cdb.kv_get("tg_offset", "0") or 0)
+        except (TypeError, ValueError):
+            offset = 0
         while not self.stop_evt.is_set():
             try:
-                res = _tg("getUpdates", {"offset": offset, "timeout": 25, "allowed_updates": ["message", "callback_query"]},
-                          timeout=35)
-                state["tg_error"] = ""
-            except Retry as e:
-                state["tg_error"] = str(e)[:200]
+                offset = self._poll_once(offset)
+            except Exception:  # noqa: BLE001 — 3.2.0: "database is locked" yoki kutilmagan javob oqimni o'ldirmasin
+                log.exception("Bulut boti so'rovlarini olishda xato")
                 self.stop_evt.wait(3)
+
+    def _poll_once(self, offset: int) -> int:
+        try:
+            res = _tg("getUpdates", {"offset": offset, "timeout": 25, "allowed_updates": ["message", "callback_query"]},
+                      timeout=35)
+            state["tg_error"] = ""
+        except (Retry, Permanent) as e:
+            state["tg_error"] = str(e)[:200]
+            if "Conflict" in str(e):
+                state["tg_error"] = "Bu token bilan boshqa dastur ham ishlayapti (Conflict)"
+            self.stop_evt.wait(3 if isinstance(e, Retry) else 10)
+            return offset
+        for upd in (res.get("result") or []) if isinstance(res, dict) else []:
+            if not isinstance(upd, dict) or not isinstance(upd.get("update_id"), int):
                 continue
-            except Permanent as e:
-                state["tg_error"] = str(e)[:200]
-                if "Conflict" in str(e):
-                    state["tg_error"] = "Bu token bilan boshqa dastur ham ishlayapti (Conflict)"
-                self.stop_evt.wait(10)
-                continue
-            for upd in res.get("result", []):
-                offset = max(offset, int(upd["update_id"]) + 1)
-                try:
-                    if "message" in upd:
-                        self.on_message(upd["message"])
-                    elif "callback_query" in upd:
-                        self.on_callback(upd["callback_query"])
-                except Exception:
-                    log.exception("Bulut boti yangilanishida xato")
-            cdb.kv_set("tg_offset", str(offset))
+            offset = max(offset, int(upd["update_id"]) + 1)
+            try:
+                if "message" in upd:
+                    self.on_message(upd["message"])
+                elif "callback_query" in upd:
+                    self.on_callback(upd["callback_query"])
+            except Exception:
+                log.exception("Bulut boti yangilanishida xato")
+        cdb.kv_set("tg_offset", str(offset))
+        return offset
 
     @staticmethod
     def reply(chat_id, text_: str) -> None:
@@ -1429,6 +1464,13 @@ class TelegramPoller(threading.Thread):
 
     def on_message(self, msg: dict) -> None:
         chat_id = msg["chat"]["id"]
+        # 3.2.0: guruh superguruhga aylandi — ulangan manzillar yangi raqamga ko'chiriladi
+        if msg.get("migrate_to_chat_id"):
+            migrate_chat(chat_id, msg["migrate_to_chat_id"])
+            return
+        if msg.get("migrate_from_chat_id"):
+            migrate_chat(msg["migrate_from_chat_id"], chat_id)
+            return
         text_ = (msg.get("text") or "").strip()
         parts = text_.split()
         cmd = parts[0].split("@")[0].lower() if parts else ""
@@ -1477,6 +1519,8 @@ class TelegramPoller(threading.Thread):
         u = users[0]
         if self.loss_take(chat_id, msg, text_, cmd):
             return
+        if (msg.get("chat") or {}).get("type") not in (None, "private") and not text_.startswith("/"):
+            return                                 # 3.2.0: ulangan guruhdagi suhbat va xizmat xabarlariga javob yo'q
         if cmd == "/holat":
             lines = ["🏪 <b>Do'konlar</b>"]
             for b in cdb.rows("SELECT * FROM branches WHERE company_id=:c ORDER BY id", {"c": u["company_id"]}):
@@ -1492,10 +1536,10 @@ class TelegramPoller(threading.Thread):
             for b in cdb.rows("SELECT * FROM branches WHERE company_id=:c ORDER BY id", {"c": u["company_id"]}):
                 if b["id"] not in cdb.branch_ids_for(u):
                     continue
-                tot = cdb.scalar("SELECT COUNT(*) FROM events WHERE branch_id=:b AND received_at >= :t",
+                tot = cdb.scalar("SELECT COUNT(*) FROM events WHERE branch_id=:b AND received_at >= :t AND job_id IS NULL",
                                  {"b": b["id"], "t": day0}) or 0
-                new = cdb.scalar("SELECT COUNT(*) FROM events WHERE branch_id=:b AND received_at >= :t AND status='yangi'",
-                                 {"b": b["id"], "t": day0}) or 0
+                new = cdb.scalar("SELECT COUNT(*) FROM events WHERE branch_id=:b AND received_at >= :t AND status='yangi' "
+                                 "AND job_id IS NULL", {"b": b["id"], "t": day0}) or 0
                 vis = cdb.visits_hourly([b["id"]], day0, off=int(round(cfg.tz_offset * 3600)))
                 ain = sum(v["in"] + v["off_in"] for v in vis)
                 aout = sum(v["out"] + v["off_out"] for v in vis)
@@ -1615,6 +1659,30 @@ _worker: Worker | None = None
 _poller: TelegramPoller | None = None
 _senders: dict[str, Sender] = {}
 _started = [time.time()]
+
+
+def migrate_chat(old, new) -> int:
+    """3.2.0: Telegram guruhi superguruhga aylandi — shu chatga ulangan manzillar va yuborilgan xabarlar yozuvi yangi
+    raqamga. Bir foydalanuvchida ikkalasi ham bo'lsa (UNIQUE) — eskisi o'chiriladi."""
+    old, new = str(old), str(new)
+    if not old or not new or old == new:
+        return 0
+    n = 0
+    with cdb.engine().begin() as c:
+        for t in c.execute(cdb.notify_targets.select().where(cdb.notify_targets.c.channel == "telegram",
+                                                             cdb.notify_targets.c.address == old)).fetchall():
+            t = dict(t._mapping)
+            dup = c.execute(cdb.notify_targets.select().where(cdb.notify_targets.c.user_id == t["user_id"],
+                                                              cdb.notify_targets.c.channel == "telegram",
+                                                              cdb.notify_targets.c.address == new)).first()
+            if dup:
+                c.execute(cdb.notify_targets.delete().where(cdb.notify_targets.c.id == t["id"]))
+            else:
+                c.execute(cdb.notify_targets.update().where(cdb.notify_targets.c.id == t["id"]).values(address=new))
+            n += 1
+    if n:
+        log.warning("Bulut boti: guruh superguruhga aylandi — %d ta manzil yangi raqamga ko'chirildi", n)
+    return n
 
 
 def start() -> None:

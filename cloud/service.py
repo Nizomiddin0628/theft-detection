@@ -20,12 +20,29 @@ def event_for(user: dict, uid: str) -> dict:
     return ev
 
 
-def review(user: dict, uid: str, status: str, note: str | None = None, via: str = "Bulut", ip: str = "") -> dict:
+class Conflict(Exception):
+    """3.2.0: hodisa holati foydalanuvchi ko'rgandan beri o'zgargan (boshqa xodim qaror qilgan)."""
+
+    def __init__(self, current: str, by: str | None):
+        super().__init__(current)
+        self.current, self.by = current, by
+
+
+class _Lost(Exception):
+    pass
+
+
+def review(user: dict, uid: str, status: str, note: str | None = None, via: str = "Bulut", ip: str = "",
+           expect: str | None = None) -> dict:
     """Hodisani tekshirish (✅/❌/qaytarish): bazada yangilanadi, edge'ga `review` buyrug'i, bulut Telegram
-    xabarlari tahrirlanadi, panelga jonli xabar. Qaytaradi: {"uid", "status", "reviewed_by"}."""
+    xabarlari tahrirlanadi, panelga jonli xabar. Qaytaradi: {"uid", "status", "reviewed_by"}.
+    expect (3.2.0): panel ko'rgan holat — boshqacha bo'lsa (boshqa xodim ulgurgan) Conflict, ustidan yozilmaydi."""
     if status not in STATUSES:
         raise ValueError("holat: yangi, tasdiqlangan yoki rad_etilgan")
     ev = event_for(user, uid)
+    if expect is not None and (ev.get("status") or "yangi") != expect:
+        d0 = cdb.json_load(ev.get("data")) or {}
+        raise Conflict(ev.get("status") or "yangi", d0.get("reviewed_by"))
     now = time.time()
     # updated_at edge soati doirasida qoladi: edge soati bulutdan orqada bo'lsa, undan keyin kelgan haqiqiy
     # yangilanishlar (Telegram'da ✅) "eskiroq" deb tashlanmasin
@@ -37,10 +54,22 @@ def review(user: dict, uid: str, status: str, note: str | None = None, via: str 
                  "reviewed_at": now if status != "yangi" else None, "updated_at": upd})
     if note is not None:
         data["note"] = note
-    with cdb.engine().begin() as c:
-        c.execute(cdb.events.update().where(cdb.events.c.uid == uid).values(status=status, updated_at=upd, data=data))
-        c.execute(cdb.commands.insert().values(branch_id=ev["branch_id"], type="review", created_at=now, payload={
-            "local_id": ev["local_id"], "uid": uid, "status": status, "note": note, "by": by, "t": now}))
+    cond = cdb.events.c.uid == uid
+    if expect is not None:
+        # tekshiruv va yozish orasida boshqa xodim ulgurgan bo'lsa ham ustidan yozilmasin (shartli UPDATE)
+        cur = cdb.events.c.status
+        same = ((cur == expect) | cur.is_(None)) if expect == "yangi" else (cur == expect)
+        cond = cond & same
+    try:
+        with cdb.engine().begin() as c:
+            n = c.execute(cdb.events.update().where(cond).values(status=status, updated_at=upd, data=data)).rowcount
+            if expect is not None and not n:
+                raise _Lost()                    # tranzaksiya qaytariladi (buyruq ham yozilmaydi)
+            c.execute(cdb.commands.insert().values(branch_id=ev["branch_id"], type="review", created_at=now, payload={
+                "local_id": ev["local_id"], "uid": uid, "status": status, "note": note, "by": by, "t": now}))
+    except _Lost:
+        ev2 = event_for(user, uid)
+        raise Conflict(ev2.get("status") or "yangi", (cdb.json_load(ev2.get("data")) or {}).get("reviewed_by")) from None
     cdb.audit("review", user, uid, {"status": status, "via": via, "note": bool(note)}, ip=ip or via.lower())
     from . import notify
     from .live import hub
@@ -112,19 +141,29 @@ def loss_allowed(ev: dict) -> bool:
     return d.get("job_id") is None and (ev.get("kind") or "") not in SAFETY_KINDS
 
 
-def set_loss(user: dict, uid: str, amount: int | None, via: str = "Bulut", ip: str = "") -> dict:
-    """Tasdiqlangan o'g'irlik signaliga taxminiy zarar: bazada, edge'ga `loss` buyrug'i, Telegram xabarlari yangilanadi."""
-    ev = event_for(user, uid)
+def loss_blocker(ev: dict, br: dict | None = None, need_confirmed: bool = True) -> str | None:
+    """Summa yozib bo'lmasa — sababi (panelda maydon ko'rsatilmaydi, so'rov 409), bo'lsa None."""
     if not loss_allowed(ev):
-        raise NotAllowed("summa faqat do'kondagi o'g'irlik signaliga yoziladi")
-    if ev.get("status") != "tasdiqlangan":
-        raise NotAllowed("avval signalni tasdiqlang")
-    br = cdb.row("SELECT clock_skew, version FROM branches WHERE id=:b", {"b": ev["branch_id"]}) or {}
+        return "summa faqat do'kondagi o'g'irlik signaliga yoziladi"
+    if need_confirmed and ev.get("status") != "tasdiqlangan":
+        return "avval signalni tasdiqlang"
+    if br is None:
+        br = cdb.row("SELECT clock_skew, version FROM branches WHERE id=:b", {"b": ev["branch_id"]}) or {}
     from .video_tests import version_tuple
 
     if version_tuple(br.get("version")) < (3, 1, 0):
         # eski edge summani bilmaydi: keyingi yangilanishida bulutdagi summa yo'qolib qolardi
-        raise NotAllowed("do'kon kompyuterini 3.1.0 ga yangilang — eski versiya zarar summasini saqlay olmaydi")
+        return "do'kon kompyuterini 3.1.0 ga yangilang — eski versiya zarar summasini saqlay olmaydi"
+    return None
+
+
+def set_loss(user: dict, uid: str, amount: int | None, via: str = "Bulut", ip: str = "") -> dict:
+    """Tasdiqlangan o'g'irlik signaliga taxminiy zarar: bazada, edge'ga `loss` buyrug'i, Telegram xabarlari yangilanadi."""
+    ev = event_for(user, uid)
+    br = cdb.row("SELECT clock_skew, version FROM branches WHERE id=:b", {"b": ev["branch_id"]}) or {}
+    why = loss_blocker(ev, br)
+    if why:
+        raise NotAllowed(why)
     now = time.time()
     upd = max(float(ev.get("updated_at") or 0) + 0.001, now - float(br.get("clock_skew") or 0))
     by = f"{via}: {user.get('name') or user['email']}"[:100]
@@ -163,11 +202,16 @@ def loss_summary(branch_ids: list[int], day0: float, month0: float) -> dict:
         f"SELECT branch_id, COALESCE(SUM(loss_sum), 0) AS s, COUNT(*) AS n {base} AND created_at >= :t0 "
         "GROUP BY branch_id", {**params, "t0": month0})}
     names = {int(r["id"]): r["name"] for r in cdb.rows(f"SELECT id, name FROM branches WHERE id IN ({marks})", params)}
+    from .video_tests import version_tuple
+
+    # 3.2.0: 3.1.0 dan eski do'kon kompyuterlari summani saqlay olmaydi — ular "yozilmagan" deb sanalmaydi
+    able = {int(r["id"]) for r in cdb.rows(f"SELECT id, version FROM branches WHERE id IN ({marks})", params)
+            if version_tuple(r.get("version")) >= (3, 1, 0)}
     missing = 0
-    for r in cdb.rows(f"SELECT kind, data FROM events WHERE branch_id IN ({marks}) AND status='tasdiqlangan' AND "
-                      "(loss_sum IS NULL OR loss_sum = 0) AND created_at >= :t0 LIMIT 5000",
+    for r in cdb.rows(f"SELECT branch_id, kind, data FROM events WHERE branch_id IN ({marks}) AND status='tasdiqlangan' "
+                      "AND (loss_sum IS NULL OR loss_sum = 0) AND created_at >= :t0 LIMIT 5000",
                       {**params, "t0": time.time() - 30 * 86400}):
-        if loss_allowed(r):
+        if int(r["branch_id"]) in able and loss_allowed(r):
             missing += 1
     return {"today": agg(day0), "month": agg(month0), "total": agg(None), "missing": missing,
             "branches": [{"id": b, "name": names.get(b, str(b)), "month_sum": int(per[b]["s"] or 0) if b in per else 0,

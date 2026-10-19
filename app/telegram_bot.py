@@ -15,6 +15,7 @@ import html
 import itertools
 import json
 import queue
+import re
 import threading
 import time
 from collections import defaultdict
@@ -45,12 +46,24 @@ PHOTO_LIMIT = 9_500_000      # rasm 10 MB gacha
 WORKERS = 6                  # navbatdan o'zi oladigan bajaruvchilar (ustuvorlik haqiqatan ishlaydi)
 CLIP_RETRY_SEC = 15.0        # klip tarmoq xatosi bilan yetmasa — shuncha soniyadan keyin qayta
 CLIP_RETRIES = 2
-# 2.3.1: signal xabari (rasm) Telegram ishlamay turgan paytda yetmasa — keyinroq qayta (avval yo'qolib ketardi).
-# Jami ~7,5 daqiqa; hodisa ALERT_MAX_AGE dan eski bo'lsa endi yuborilmaydi (kech xabar chalg'itadi)
-ALERT_RETRY = (10.0, 30.0, 60.0, 120.0, 240.0)
+# 3.2.0: signal xabari yetmagan chatlar bazadagi navbatda (tg_outbox) turadi — internet/Telegram ishlamasa, dastur
+# yoki kompyuter qayta yoqilsa ham yo'qolmaydi. Qayta urinishlar oralig'i (soniya), keyin har 15 daqiqada;
+# ALERT_EXPIRE dan eski bo'lsa — endi yuborilmaydi. ALERT_MAX_AGE dan kech yetgan xabar "⏰ Kechikkan" belgisi bilan
+OB_BACKOFF = (10.0, 30.0, 60.0, 120.0, 300.0, 600.0, 900.0)
+OB_LEASE = 300.0             # yuborilayotgan qator shuncha vaqt boshqa urinishga berilmaydi
+OB_TICK = 10.0
+ALERT_EXPIRE = 24 * 3600.0
 ALERT_MAX_AGE = 900.0
+TEXT_TTL = 6 * 3600.0        # kamera uzildi/tiklandi va shu kabi xabarlar
+QUEUE_TEXT_TTL = 20 * 60.0   # navbat signali — eskirsa ma'nosi yo'q
 LOSS_WAIT_SEC = 600.0         # 3.1.0: ✅ dan keyin zarar summasi shuncha vaqt kutiladi
 TRANSIENT = (0, 429, 500, 502, 503, 504)
+
+
+# 403 lardan faqat qaytmaslari obunachini o'chiradi; "not enough rights" (guruhda huquq olib qo'yilgan) — admin qaytarishi
+# mumkin, obunachi saqlanadi
+_GONE = re.compile(r"blocked|kicked|deactivated|initiate conversation|not a member|chat not found|bot is not a member",
+                   re.I)
 
 
 def _transient(res) -> bool:
@@ -137,7 +150,9 @@ def _small_jpeg(path: Path) -> bytes | None:
     try:
         import cv2
 
-        img = cv2.imread(str(path))
+        from .ai.clipper import imread
+
+        img = imread(path)
         if img is None:
             return None
         h, w = img.shape[:2]
@@ -209,6 +224,9 @@ class TelegramBot:
         self._timers: set = set()
         self._chat_next: dict[int, float] = {}
         self._alert_done: dict[int, threading.Event] = {}
+        # 3.2.0: navbatda (xotirada) kutayotgan yetkazish vazifalari — ijara tugasa ham ikkinchi nusxa qo'yilmaydi
+        self._ob_queued: set[tuple] = set()
+        self._ob_lock = threading.Lock()
         self._kb_done: set[int] = set()   # eski pastki tugmalar (reply keyboard) tozalangan chatlar
         self._menus_ok = True             # menyu tozalash muvaffaqiyatli tugaganmi (aks holda qayta uriniladi)
         self._menus_t = 0.0
@@ -231,7 +249,39 @@ class TelegramBot:
         wait_s = start - time.time()
         if wait_s > 0:
             time.sleep(wait_s)
-        return self._call(method, data, files, timeout, retries)
+        res = self._call(method, data, files, timeout, retries)
+        if res and not res.get("ok"):
+            new = (res.get("parameters") or {}).get("migrate_to_chat_id")
+            if new and data is not None:
+                # 3.2.0: guruh superguruhga aylandi — obunachi yangi raqamga ko'chiriladi va so'rov shu zahoti qaytariladi
+                self._migrate_chat(cid, int(new))
+                data = dict(data)
+                data["chat_id"] = str(new) if isinstance(data.get("chat_id"), str) else int(new)
+                return self._call(method, data, files, timeout, retries)
+            if int(res.get("error_code") or 0) == 403 and _GONE.search(str(res.get("description") or "")):
+                self._deactivate(cid, str(res.get("description") or ""))
+        return res
+
+    def _migrate_chat(self, old: int, new: int) -> None:
+        if not old or not new or int(old) == int(new):
+            return
+        with db.tx() as c:
+            if c.execute("SELECT 1 FROM subscribers WHERE chat_id=?", (new,)).fetchone():
+                c.execute("DELETE FROM subscribers WHERE chat_id=?", (old,))
+            else:
+                c.execute("UPDATE subscribers SET chat_id=? WHERE chat_id=?", (new, old))
+            c.execute("UPDATE OR IGNORE tg_outbox SET chat_id=? WHERE chat_id=?", (new, old))
+            c.execute("DELETE FROM tg_outbox WHERE chat_id=?", (old,))
+        log.warning("Telegram guruhi superguruhga aylandi — obunachi yangi raqamga ko'chirildi (…%s)", str(new)[-3:])
+
+    def _deactivate(self, chat_id: int, why: str) -> None:
+        """403: bot bloklangan / guruhdan chiqarilgan — obunachi o'chiriladi (qayta ulanish — kod bilan)."""
+        with db.tx() as c:
+            n = c.execute("UPDATE subscribers SET active=0 WHERE chat_id=? AND active=1", (chat_id,)).rowcount
+            c.execute("DELETE FROM tg_outbox WHERE chat_id=?", (chat_id,))
+        if n:
+            log.warning("Telegram chat (…%s) xabar qabul qilmayapti (%s) — obunachi o'chirildi", str(chat_id)[-3:],
+                        why[:80])
 
     def _call(self, method: str, data: dict | None, files: dict | None, timeout: float, retries: int) -> dict:
         url = f"{self.api_base}/bot{self.token}/{method}"
@@ -245,10 +295,24 @@ class TelegramBot:
                     r = self.client.post(url, data=data or {}, files=files, timeout=timeout)
                 else:
                     r = self.client.post(url, json=data or {}, timeout=timeout)
-                res = r.json()
-            except (httpx.HTTPError, ValueError) as e:
+                try:
+                    res = r.json()
+                except ValueError:
+                    # 3.2.0: JSON emas (nginx'ning HTML 502 sahifasi, Wi-Fi kirish sahifasi) — vaqtinchalik xato
+                    res = {"ok": False, "error_code": 0 if r.status_code < 500 else r.status_code,
+                           "description": f"Telegram javobi JSON emas (HTTP {r.status_code})"}
+                    if r.status_code < 500 and attempt < retries:
+                        attempt += 1
+                        time.sleep(0.8 * attempt)
+                        continue
+                    return res
+            except httpx.HTTPError as e:
                 self.last_error = f"Tarmoq xatosi: {e.__class__.__name__}"
-                if attempt < retries:
+                # 3.2.0: so'rov yetib, javob kelmagan bo'lishi mumkin (o'qish vaqti tugadi/uzildi) — xabar yuborish
+                # usullari qayta urinilmaydi (har urinish yangi nusxa bo'lardi); navbat (tg_outbox) keyinroq o'zi uradi
+                ambiguous = method.startswith("send") and isinstance(
+                    e, (httpx.ReadTimeout, httpx.ReadError, httpx.RemoteProtocolError))
+                if attempt < retries and not ambiguous:
                     attempt += 1
                     time.sleep(0.8 * attempt)
                     continue
@@ -276,6 +340,12 @@ class TelegramBot:
         self._threads = [threading.Thread(target=self._poll_loop, daemon=True, name="tg-poll")]
         self._threads += [threading.Thread(target=self._worker_loop, daemon=True, name=f"tg-send-{i}")
                           for i in range(WORKERS)]
+        self._threads.append(threading.Thread(target=self._outbox_loop, daemon=True, name="tg-outbox"))
+        try:
+            # 3.2.0: oldingi ishga tushishdan qolgan (yetmagan) xabarlar — tez orada qayta (ijara muddatini kutmasdan)
+            db.execute("UPDATE tg_outbox SET next_try=? WHERE next_try > ?", (time.time() + 5, time.time() + 5))
+        except Exception:  # noqa: BLE001
+            log.exception("Telegram navbatini tiklab bo'lmadi")
         for t in self._threads:
             t.start()
 
@@ -294,7 +364,7 @@ class TelegramBot:
     def _init(self) -> bool:
         try:
             r = self.api("getMe", timeout=15)
-        except httpx.HTTPError:
+        except Exception:  # noqa: BLE001 — tarmoq yoki kutilmagan javob: keyinroq qayta
             self.status = "tarmoq xatosi"
             return False
         if not r.get("ok"):
@@ -305,7 +375,7 @@ class TelegramBot:
         self.status = "ishlayapti"
         try:
             self.api("deleteWebhook", {"drop_pending_updates": False})
-        except httpx.HTTPError:
+        except Exception:  # noqa: BLE001
             pass
         threading.Thread(target=self._safe, args=(self._reset_menus,), daemon=True, name="tg-menu").start()
         log.info("Telegram bot ulandi: @%s", self.me.get("username"))
@@ -374,43 +444,52 @@ class TelegramBot:
             db.execute("UPDATE subscribers SET kb_cleared=1 WHERE chat_id=?", (chat_id,))
 
     def _poll_loop(self) -> None:
-        offset = 0
-        backoff = 2.0
+        self._poll_offset = getattr(self, "_poll_offset", 0)
         while not self.stop_evt.is_set():
-            if self.me is None and not self._init():
-                if self.stop_evt.wait(min(backoff, 60)):
-                    break
-                backoff *= 1.6
-                continue
-            backoff = 2.0
             try:
-                r = self.api("getUpdates", {"offset": offset, "timeout": 25,
-                                            "allowed_updates": ["message", "callback_query"]}, timeout=35, retries=0)
-            except httpx.HTTPError:
+                self._poll_once()
+            except Exception:  # noqa: BLE001 — 3.2.0: bitta kutilmagan javob tugmalar va buyruqlarni o'chirib qo'ymasin
+                log.exception("Telegram so'rovlarini olishda xato")
                 self.status = "tarmoq xatosi"
                 self.stop_evt.wait(3)
+
+    def _poll_once(self) -> None:
+        if self.me is None and not self._init():
+            backoff = getattr(self, "_poll_backoff", 2.0)
+            self.stop_evt.wait(min(backoff, 60))
+            self._poll_backoff = backoff * 1.6
+            return
+        self._poll_backoff = 2.0
+        try:
+            r = self.api("getUpdates", {"offset": self._poll_offset, "timeout": 25,
+                                        "allowed_updates": ["message", "callback_query"]}, timeout=35, retries=0)
+        except httpx.HTTPError:
+            self.status = "tarmoq xatosi"
+            self.stop_evt.wait(3)
+            return
+        if not r.get("ok"):
+            desc = r.get("description", "")
+            if "Conflict" in desc:
+                self.status = "boshqa joyda ishlayapti"
+                self.last_error = "Bu token bilan boshqa dastur ham ishlayapti (Conflict)"
+            self.stop_evt.wait(3)
+            return
+        self.status = "ishlayapti"
+        if not self._menus_ok and time.time() - self._menus_t > 300:
+            self._menus_t = time.time()
+            threading.Thread(target=self._safe, args=(self._reset_menus,), daemon=True, name="tg-menu").start()
+        for upd in r.get("result") or []:
+            if not isinstance(upd, dict) or not isinstance(upd.get("update_id"), int):
                 continue
-            if not r.get("ok"):
-                desc = r.get("description", "")
-                if "Conflict" in desc:
-                    self.status = "boshqa joyda ishlayapti"
-                    self.last_error = "Bu token bilan boshqa dastur ham ishlayapti (Conflict)"
-                self.stop_evt.wait(3)
-                continue
-            self.status = "ishlayapti"
-            if not self._menus_ok and time.time() - self._menus_t > 300:
-                self._menus_t = time.time()
-                threading.Thread(target=self._safe, args=(self._reset_menus,), daemon=True, name="tg-menu").start()
-            for upd in r.get("result", []):
-                offset = max(offset, upd["update_id"] + 1)
-                try:
-                    if "message" in upd:
-                        self._on_message(upd["message"])
-                    elif "callback_query" in upd:
-                        # Tugma bosilishi alohida oqimda: video yuklashlar ham, sekin tarmoq ham uni kutdirmaydi
-                        self.cb_pool.submit(self._safe, self._on_callback, upd["callback_query"])
-                except Exception:
-                    log.exception("Telegram yangilanishini qayta ishlashda xato")
+            self._poll_offset = max(self._poll_offset, upd["update_id"] + 1)
+            try:
+                if "message" in upd:
+                    self._on_message(upd["message"])
+                elif "callback_query" in upd:
+                    # Tugma bosilishi alohida oqimda: video yuklashlar ham, sekin tarmoq ham uni kutdirmaydi
+                    self.cb_pool.submit(self._safe, self._on_callback, upd["callback_query"])
+            except Exception:
+                log.exception("Telegram yangilanishini qayta ishlashda xato")
 
     @staticmethod
     def _safe(fn, *args):
@@ -451,11 +530,26 @@ class TelegramBot:
 
     def _on_message(self, msg: dict) -> None:
         chat_id = msg["chat"]["id"]
+        # 3.2.0: guruh superguruhga aylandi — obunachi yangi raqamga ko'chadi
+        if msg.get("migrate_to_chat_id"):
+            self._migrate_chat(int(chat_id), int(msg["migrate_to_chat_id"]))
+            return
+        if msg.get("migrate_from_chat_id"):
+            self._migrate_chat(int(msg["migrate_from_chat_id"]), int(chat_id))
+            return
         text = (msg.get("text") or "").strip()
         code = db.get_setting("connect_code", "")
         parts = text.split()
         cmd = parts[0].split("@")[0].lower() if parts else ""
         arg = parts[1] if len(parts) > 1 else ""
+        if (msg["chat"].get("type") in ("group", "supergroup") and not text.startswith("/")
+                and not (text.isdigit() and len(text) == 6) and not msg.get("reply_to_message")):
+            # 3.2.0: guruhdagi oddiy suhbat, kirdi-chiqdi va boshqa xizmat xabarlariga bot javob bermaydi (avval har
+            # biriga "Buyruqni tushunmadim" yozardi). Faqat buyruq, ulanish kodi va bot so'roviga javob (reply)
+            if text and self._is_sub(chat_id) and self._pilot_comment_take(chat_id, (msg.get("from") or {}).get("id"),
+                                                                           text):
+                self._reply(chat_id, "📝 Izoh saqlandi — rahmat!")
+            return
 
         guess = arg if cmd in ("/start", "/ulash") and arg else (text if text.isdigit() and len(text) == 6 else "")
         if guess and not self._is_sub(chat_id):
@@ -898,7 +992,147 @@ class TelegramBot:
             for k in [k for k, e in self._alert_done.items() if e.is_set()]:
                 self._alert_done.pop(k, None)
         self._alert_done[event_id] = threading.Event()
+        # 3.2.0: avval bazaga (har chat uchun) — yuborish chala qolsa (internet, Telegram, dastur o'chdi) keyin o'zi
+        # qayta uriladi; ijara (OB_LEASE) davomida birinchi urinish ishlaydi
+        self._ob_add("alert", self._subs(), event_id=event_id, ttl=ALERT_EXPIRE)
         self._enqueue(PRIO_ALERT, "alert", event_id)
+
+    # ------------------------------------------------- 3.2.0: yetkazish navbati (tg_outbox)
+    def _ob_add(self, kind: str, chats, event_id: int | None = None, text: str | None = None,
+                ttl: float = ALERT_EXPIRE, lease: float | None = None) -> list[int] | None:
+        """Navbatga yozadi; qaytaradi — yangi qatorlar id'lari, bazaga yozib bo'lmasa None."""
+        now = time.time()
+        lease = OB_LEASE if lease is None else lease
+        ids: list[int] = []
+        try:
+            with db.tx() as c:
+                for ch in chats:
+                    cur = c.execute("INSERT OR IGNORE INTO tg_outbox(kind, event_id, chat_id, text, attempts, next_try, "
+                                    "created_at, expires_at) VALUES(?,?,?,?,0,?,?,?)",
+                                    (kind, event_id, int(ch), text, now + lease, now, now + ttl))
+                    if cur.rowcount:
+                        ids.append(int(cur.lastrowid))
+        except Exception:  # noqa: BLE001 — navbatga yozib bo'lmasa ham birinchi urinish baribir ketadi
+            log.exception("Telegram navbatiga yozib bo'lmadi")
+            return None
+        return ids
+
+    def _ob_mark(self, key: tuple) -> bool:
+        """Vazifa navbatga qo'yiladigan bo'lsa True (shu kalit bilan hali kutayotgani yo'q)."""
+        with self._ob_lock:
+            if key in self._ob_queued:
+                return False
+            self._ob_queued.add(key)
+            return True
+
+    def _ob_unmark(self, key: tuple) -> None:
+        with self._ob_lock:
+            self._ob_queued.discard(key)
+
+    @staticmethod
+    def _backoff(attempts: int) -> float:
+        return OB_BACKOFF[min(max(attempts, 1), len(OB_BACKOFF)) - 1]
+
+    def _ob_settle(self, event_id: int, outcome: dict) -> None:
+        """Hodisa xabarini yuborish natijasi: yetdi/qaytmas xato — navbatdan o'chadi, vaqtinchalik xato — keyinroq.
+        outcome: {chat_id: "ok" | "transient" | "permanent"}; natijasi noma'lum chatlar (osilgan so'rov) — tegilmaydi,
+        ijara tugagach qayta uriladi (yetgan bo'lsa only_missing takrorlamaydi)."""
+        try:
+            rows = db.rows("SELECT id, chat_id, attempts FROM tg_outbox WHERE kind='alert' AND event_id=?", (event_id,))
+            have = {int(r["chat_id"]) for r in db.rows("SELECT chat_id FROM tg_messages WHERE event_id=?", (event_id,))}
+            active = set(self._subs())
+            now = time.time()
+            with db.tx() as c:
+                for r in rows:
+                    ch = int(r["chat_id"])
+                    res = outcome.get(ch)
+                    if ch in have or ch not in active or res in ("ok", "permanent"):
+                        c.execute("DELETE FROM tg_outbox WHERE id=?", (r["id"],))
+                    elif res == "transient":
+                        n = int(r["attempts"] or 0) + 1
+                        c.execute("UPDATE tg_outbox SET attempts=?, next_try=?, last_error=? WHERE id=?",
+                                  (n, now + self._backoff(n), (self.last_error or "")[:200], r["id"]))
+            if have:
+                db.update_event(event_id, telegram_sent=1)
+        except Exception:  # noqa: BLE001
+            log.exception("Telegram navbati holatini yozib bo'lmadi (hodisa #%s)", event_id)
+
+    def _outbox_loop(self) -> None:
+        """Yetmagan xabarlarni vaqti kelganda qayta navbatga qo'yadi; so'rovlar oqimini ham kuzatadi."""
+        while not self.stop_evt.wait(OB_TICK):
+            try:
+                self._outbox_tick()
+            except Exception:  # noqa: BLE001
+                log.exception("Telegram yetkazish navbatida xato")
+            try:
+                poll = next((t for t in self._threads if t.name == "tg-poll"), None)
+                if poll is not None and not poll.is_alive() and not self.stop_evt.is_set():
+                    log.warning("Telegram so'rovlar oqimi to'xtab qolgan — qayta ishga tushirildi")
+                    self._threads.remove(poll)
+                    nt = threading.Thread(target=self._poll_loop, daemon=True, name="tg-poll")
+                    self._threads.append(nt)
+                    nt.start()
+            except Exception:  # noqa: BLE001
+                log.exception("Telegram oqimini tekshirishda xato")
+
+    def _outbox_tick(self) -> None:
+        now = time.time()
+        rows = db.rows("SELECT * FROM tg_outbox WHERE next_try <= ? ORDER BY id LIMIT 200", (now,))
+        if not rows:
+            return
+        expired = [r for r in rows if float(r["expires_at"] or 0) < now]
+        if expired:
+            with db.tx() as c:
+                for r in expired:
+                    c.execute("DELETE FROM tg_outbox WHERE id=?", (r["id"],))
+            evs = sorted({r["event_id"] for r in expired if r["kind"] == "alert"})
+            log.error("Telegram xabari muddati o'tdi, yetkazilmadi: %d ta (hodisalar: %s)", len(expired),
+                      ", ".join(f"#{e}" for e in evs[:10]) or "—")
+        live = [r for r in rows if float(r["expires_at"] or 0) >= now]
+        if not live:
+            return
+        with db.tx() as c:
+            for r in live:
+                c.execute("UPDATE tg_outbox SET next_try=? WHERE id=?", (now + OB_LEASE, r["id"]))
+        by_ev: dict[int, list[int]] = defaultdict(list)
+        for r in live:
+            if r["kind"] == "alert" and r["event_id"] is not None:
+                ev_id = int(r["event_id"])
+                first = self._alert_done.get(ev_id)
+                if first is not None and not first.is_set():
+                    # birinchi yuborish hali navbatda yoki ketmoqda (bajaruvchilar band) — parallel ikkinchi nusxa
+                    # yuborilmasin; ijara yangilandi, keyinroq yana qaraladi
+                    continue
+                by_ev[ev_id].append(int(r["chat_id"]))
+            elif r["kind"] == "text" and self._ob_mark(("otext", int(r["id"]))):
+                self._enqueue(PRIO_TEXT, "otext", int(r["id"]))
+        for ev_id, chats in by_ev.items():
+            # yangi signallardan keyin (PRIO_CLIP): eski hodisaning qayta urinishi yangi signalni kechiktirmasin
+            if self._ob_mark(("alert", ev_id)):
+                self._enqueue(PRIO_CLIP, "alert", ev_id, {"retry": True, "chats": chats})
+
+    def _send_otext(self, row_id: int, _b=None, _t_q: float = 0.0) -> None:
+        self._ob_unmark(("otext", row_id))
+        r = db.row("SELECT * FROM tg_outbox WHERE id=?", (row_id,))
+        if not r:
+            return
+        ch = int(r["chat_id"])
+        if not self._is_sub(ch):
+            db.execute("DELETE FROM tg_outbox WHERE id=?", (row_id,))
+            return
+        try:
+            res = self._reply(ch, r["text"] or "")
+        except Exception as e:  # noqa: BLE001
+            res = None
+            self.last_error = f"Tarmoq xatosi: {e.__class__.__name__}"
+        if res and (res.get("ok") or not _transient(res)):
+            db.execute("DELETE FROM tg_outbox WHERE id=?", (row_id,))
+            if res.get("ok"):
+                self.sent += 1
+        else:
+            n = int(r["attempts"] or 0) + 1
+            db.execute("UPDATE tg_outbox SET attempts=?, next_try=?, last_error=? WHERE id=?",
+                       (n, time.time() + self._backoff(n), (self.last_error or "")[:200], row_id))
 
     def notify_clip(self, event_id: int) -> None:
         """Klip tayyor: avval yuborilgan xabarlardagi rasm videoga almashadi."""
@@ -922,17 +1156,27 @@ class TelegramBot:
                                       "callback_data": "qa:off" if on else "qa:on"}]]}
 
     def send_queue_alert(self, text: str) -> int:
-        """2.0.0: navbat qoidasi signali — navbat signallarini o'chirmagan obunachilarga."""
+        """2.0.0: navbat qoidasi signali — navbat signallarini o'chirmagan obunachilarga (3.2.0: yetmasa — qayta,
+        20 daqiqagacha)."""
         subs = (db.rows("SELECT chat_id FROM subscribers WHERE active=1 AND COALESCE(queue_alerts, 1)=1")
                 if self.token else [])
-        for s in subs:
-            self._enqueue(PRIO_ALERT, "text", s["chat_id"], text)
+        self._queue_texts([s["chat_id"] for s in subs], text, QUEUE_TEXT_TTL)
         return len(subs)
 
-    def send_text_all(self, text: str) -> int:
+    def _queue_texts(self, chats: list, text: str, ttl: float) -> None:
+        ids = self._ob_add("text", chats, text=text, ttl=ttl)
+        if ids is None:            # bazaga yozib bo'lmadi — hech bo'lmasa bir marta yuborilsin
+            for ch in chats:
+                self._enqueue(PRIO_ALERT, "text", int(ch), text)
+            return
+        for rid in ids:
+            if self._ob_mark(("otext", rid)):
+                self._enqueue(PRIO_ALERT, "otext", rid)
+
+    def send_text_all(self, text: str, ttl: float = TEXT_TTL) -> int:
+        """Hamma obunachiga matn (kamera uzildi/tiklandi, disk...). 3.2.0: yetmasa — qayta urinadi (ttl gacha)."""
         subs = db.rows("SELECT chat_id FROM subscribers WHERE active=1") if self.token else []
-        for s in subs:
-            self._enqueue(PRIO_ALERT, "text", s["chat_id"], text)
+        self._queue_texts([s["chat_id"] for s in subs], text, ttl)
         return len(subs)
 
     def send_test(self) -> int:
@@ -953,7 +1197,7 @@ class TelegramBot:
             except queue.Empty:
                 continue
             fn = {"alert": self._send_alert, "clip": self._send_clip, "full": self._send_full,
-                  "refresh": self._refresh, "text": self._send_text}.get(kind)
+                  "refresh": self._refresh, "text": self._send_text, "otext": self._send_otext}.get(kind)
             if fn and not self.stop_evt.is_set():
                 self._safe(fn, a, b, t_q)
 
@@ -1002,10 +1246,17 @@ class TelegramBot:
                 if ev and not subs:
                     log.info("Telegram obunachisi yo'q — hodisa #%d yuborilmadi", event_id)
                 return
+            # 3.2.0: boshqa yo'l bilan (qayta yuborish) yetib bo'lgan chatlarga ikkinchi xabar ketmasin
+            have = {int(r["chat_id"]) for r in db.rows("SELECT chat_id FROM tg_messages WHERE event_id=?", (event_id,))}
+            subs = [c for c in subs if int(c) not in have]
+            if not subs:
+                self._ob_settle(event_id, {})
+                return
             cap = self._caption(ev, clip_pending=bool(db.flag("telegram_send_video")))
             markup = json.dumps(self._markup(ev))
             photo = self._photo_bytes(ev)
             t_ev = event_time(ev)
+            outcome: dict[int, str] = {}
 
             def one(chat_id: int):
                 res, kind = None, "photo"
@@ -1021,62 +1272,47 @@ class TelegramBot:
                                                        "reply_markup": json.loads(markup)}, chat_id=chat_id)
                 except Exception as e:
                     self._log(event_id, "alert", chat_id, t_ev, t_q, time.time(), None, str(e))
-                    self._schedule_alert_retry(event_id, 0, [chat_id])
+                    outcome[int(chat_id)] = "transient"
                     return
                 t_sent = time.time()
                 self._log(event_id, "alert", chat_id, t_ev, t_q, t_sent, res)
                 if res and res.get("ok"):
-                    db.execute("INSERT OR REPLACE INTO tg_messages(event_id, chat_id, message_id, kind) "
-                               "VALUES(?,?,?,?)", (event_id, chat_id, res["result"]["message_id"], kind))
+                    self._store_msg(event_id, chat_id, res, kind)
                     self.sent += 1
+                    outcome[int(chat_id)] = "ok"
                 else:
                     log.warning("Hodisa #%d yuborilmadi (%s): %s", event_id, chat_id, self.last_error)
-                    if _transient(res):
-                        # har chat o'z natijasi ma'lum bo'lganda (60 s dan keyin ham) — qayta urinish rejalashtiriladi
-                        self._schedule_alert_retry(event_id, 0, [chat_id])
+                    outcome[int(chat_id)] = "transient" if _transient(res) else "permanent"
 
             # Rasm kichik (~100 KB) — barcha chatlarga parallel yuboriladi
             futs = [self.io_pool.submit(self._safe, one, c) for c in subs]
             # Telegram osilib qolsa bitta chat ~3 daqiqa (3 × 30 s rasm + 3 × 30 s matn) — klip bosqichi shuni kutadi
             wait(futs, timeout=240)
-            db.update_event(event_id, telegram_sent=1)
+            self._ob_settle(event_id, dict(outcome))
+            if any(v == "transient" for v in outcome.values()):
+                log.warning("Hodisa #%d xabari %d ta chatga yetmadi — keyinroq qayta yuboriladi", event_id,
+                            sum(1 for v in outcome.values() if v == "transient"))
         finally:
             done.set()
 
-    def _schedule_alert_retry(self, event_id: int, n: int, chats: list[int]) -> None:
-        if self.stop_evt.is_set():
-            return
-        if n >= len(ALERT_RETRY):
-            log.error("Hodisa #%d xabari %d ta chatga yetmadi (%d urinish) — Telegram uzoq ishlamadi", event_id,
-                      len(chats), n + 1)
-            return
-        log.warning("Hodisa #%d xabari %d ta chatga yetmadi — %.0f s dan keyin qayta (%d/%d)", event_id, len(chats),
-                    ALERT_RETRY[n], n + 1, len(ALERT_RETRY))
-
-        def fire():
-            self._timers.discard(t)
-            if not self.stop_evt.is_set():
-                # yangi signallardan keyin (PRIO_CLIP): eski hodisaning qayta urinishi yangi signalni kechiktirmasin
-                self._enqueue(PRIO_CLIP, "alert", event_id, {"retry": n + 1, "chats": list(chats)})
-        t = threading.Timer(ALERT_RETRY[n], fire)
-        t.daemon = True
-        self._timers.add(t)
-        t.start()
+    def _store_msg(self, event_id: int, chat_id: int, res: dict, kind: str) -> None:
+        """Yuborilgan xabar (keyin tugmalar/klip shu xabarga). Chat superguruhga ko'chgan bo'lsa — yangi raqami."""
+        result = res.get("result") or {}
+        cid = (result.get("chat") or {}).get("id") or chat_id
+        db.execute("INSERT OR REPLACE INTO tg_messages(event_id, chat_id, message_id, kind) VALUES(?,?,?,?)",
+                   (event_id, int(cid), result.get("message_id"), kind))
 
     def _retry_alert(self, event_id: int, opts: dict, t_q: float) -> None:
-        """Yetmagan chatlarga qayta: klip tayyor bo'lsa — video bilan, bo'lmasa rasm (keyin klip o'sha xabarga
-        qo'shiladi). Shu orada boshqa yo'l bilan (klip bosqichi) yetib bo'lgan chatlar o'tkazib yuboriladi."""
+        """Yetmagan chatlarga qayta (tg_outbox): klip tayyor bo'lsa — video bilan, bo'lmasa rasm (keyin klip o'sha
+        xabarga qo'shiladi). Shu orada boshqa yo'l bilan (klip bosqichi) yetib bo'lgan chatlar o'tkazib yuboriladi."""
+        self._ob_unmark(("alert", event_id))
         ev = self._enabled_for(event_id)         # Telegram o'chirilgan / chegara o'zgargan bo'lsa — yubormaymiz
         if not ev:
-            return
-        if time.time() - float(ev.get("created_at") or 0) > ALERT_MAX_AGE:
-            log.error("Hodisa #%d xabari yuborilmadi: %.0f daqiqadan eski", event_id, ALERT_MAX_AGE / 60)
+            db.execute("DELETE FROM tg_outbox WHERE kind='alert' AND event_id=?", (event_id,))
             return
         chats = [int(c) for c in opts.get("chats") or []]
-        # retries=0: tashqi jadval (ALERT_RETRY) o'zi qayta uradi — osilgan Telegram bajaruvchilarni band qilmasin
-        failed = self._send_full(event_id, {"chats": chats, "only_missing": True, "retries": 0}, t_q)
-        if failed:
-            self._schedule_alert_retry(event_id, int(opts["retry"]), failed)
+        # retries=0: navbat (tg_outbox) o'zi qayta uradi — osilgan Telegram bajaruvchilarni band qilmasin
+        self._send_full(event_id, {"chats": chats, "only_missing": True, "retries": 0}, t_q)
 
     def _send_clip(self, event_id: int, opts, t_q: float) -> None:
         """opts: None (birinchi urinish) yoki {"retry": n, "chats": [...]} — tarmoq xatosi bo'lgan chatlarga qayta."""
@@ -1172,13 +1408,24 @@ class TelegramBot:
                 failed.append(chat_id)
                 self._log(event_id, "clip", chat_id, t_ev, t_q, time.time(), None, str(e))
 
-        # Video katta — bir marta yuklanadi, qolgan chatlarga file_id bilan (parallel)
-        edit(msgs[0], upload=True)
-        rest = msgs[1:]
+        # Video katta — bir marta yuklanadi, qolgan chatlarga file_id bilan (parallel). 3.2.0: birinchi yuklash
+        # muvaffaqiyatsiz bo'lsa ham qolgan chatlar parallel to'liq yuklamaydi — navbatma-navbat, birinchi
+        # muvaffaqiyatgacha (tarmoq yo'q bo'lsa 2 urinishdan keyin to'xtab, keyingi qayta urinishga qoldiriladi)
+        rest = list(msgs)
+        while rest and not file_id and not self.stop_evt.is_set():
+            edit(rest.pop(0), upload=True)
+            if not file_id and len(failed) >= 2:
+                failed.extend(int(m["chat_id"]) for m in rest)
+                rest = []
         if rest:
-            futs = [self.io_pool.submit(self._safe, edit, m, not file_id) for m in rest]
+            futs = [self.io_pool.submit(self._safe, edit, m, False) for m in rest]
             wait(futs, timeout=180)
         self._alert_done.pop(event_id, None)
+        # 3.2.0: video yuklanayotganda (2 daqiqagacha) qaror qilingan bo'lsa — xabar eski holatga qaytib qolmasin
+        ev2 = db.get_event(event_id) or {}
+        if tuple(ev2.get(k) for k in ("status", "loss_sum", "reviewed_by")) != tuple(
+                ev.get(k) for k in ("status", "loss_sum", "reviewed_by")):
+            self.refresh_event(event_id)
         if failed and not self.stop_evt.is_set():
             if retry < CLIP_RETRIES:
                 log.warning("Hodisa #%d klipi %d ta chatga yetmadi — %.0f s dan keyin qayta (%d/%d)", event_id,
@@ -1210,14 +1457,22 @@ class TelegramBot:
             subs = [c for c in subs if int(c) not in have]
         failed: list[int] = []
         if not ev or not subs:
+            if ev and opts.get("only_missing"):
+                self._ob_settle(event_id, {})          # yetib bo'lgan / obunasi to'xtagan chatlar navbatdan chiqadi
             return failed
-        cap = self._caption(ev)
+        outcome: dict[int, str] = {}
+        late = ""
+        if opts.get("only_missing") and time.time() - event_time(ev) > ALERT_MAX_AGE:
+            # 3.2.0: aloqa bo'lmagani uchun kech yetayotgan signal — buni ochiq aytamiz
+            late = (f"⏰ <b>Kechikkan xabar</b> — aloqa yo'q edi. Hodisa vaqti: "
+                    f"{time.strftime('%d.%m %H:%M', time.localtime(event_time(ev)))}\n\n")
+        cap = late + self._caption(ev)
         markup = json.dumps(self._markup(ev))
         clip = self._clean(ev, "clip_path", "clip_clean")
         send_video = db.flag("telegram_send_video") and clip and clip.exists() and clip.stat().st_size < VIDEO_LIMIT
         rt = int(opts.get("retries", 2))
         # Klip hali tayyor emas — rasm/matn xabarida "klip tayyorlanmoqda" (keyin video shu xabarga qo'shiladi)
-        cap_wait = (self._caption(ev, clip_pending=True)
+        cap_wait = (late + self._caption(ev, clip_pending=True)
                     if db.flag("telegram_send_video") and not (ev.get("clip_path") or ev.get("clip_clean"))
                     and not ev.get("clip_error") else cap)
         photo = self._photo_bytes(ev)
@@ -1258,15 +1513,19 @@ class TelegramBot:
             except Exception as e:
                 self._log(event_id, "full", chat_id, t_ev, t_q, time.time(), None, str(e))
                 failed.append(chat_id)
+                outcome[int(chat_id)] = "transient"
                 continue
             self._log(event_id, "full", chat_id, t_ev, t_q, time.time(), res)
             if res and res.get("ok"):
-                db.execute("INSERT OR REPLACE INTO tg_messages(event_id, chat_id, message_id, kind) VALUES(?,?,?,?)",
-                           (event_id, chat_id, res["result"]["message_id"], kind))
+                self._store_msg(event_id, chat_id, res, kind)
                 self.sent += 1
+                outcome[int(chat_id)] = "ok"
             elif _transient(res):
                 failed.append(chat_id)
-        db.update_event(event_id, telegram_sent=1)
+                outcome[int(chat_id)] = "transient"
+            else:
+                outcome[int(chat_id)] = "permanent"
+        self._ob_settle(event_id, outcome)
         return failed
 
     def _send_text(self, chat_id: int, text: str, _t_q: float) -> None:
@@ -1295,6 +1554,8 @@ class TelegramBot:
             "enabled": bool(self.token), "status": self.status, "error": self.last_error,
             "username": (self.me or {}).get("username"), "name": (self.me or {}).get("first_name"),
             "last_ok": self.last_ok, "sent": self.sent, "queue": self.q.qsize(),
+            "sending": db.flag("telegram_enabled"),
+            "pending": db.scalar("SELECT COUNT(*) FROM tg_outbox") or 0,
         }
 
 

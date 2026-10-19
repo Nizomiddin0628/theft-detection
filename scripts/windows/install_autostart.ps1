@@ -37,15 +37,23 @@ $settings = New-ScheduledTaskSettingsSet `
     -ExecutionTimeLimit (New-TimeSpan -Seconds 0) `
     -RestartCount 99 `
     -RestartInterval (New-TimeSpan -Minutes 1) `
-    -MultipleInstances IgnoreNew
+    -MultipleInstances IgnoreNew `
+    -Priority 5
 $principal = New-ScheduledTaskPrincipal -UserId $user -LogonType Interactive -RunLevel Limited
 
 Register-ScheduledTask -TaskName $TaskName -Action $action -Trigger $trigger -Settings $settings `
     -Principal $principal -Description "Hushyor AI - do'kon kameralari uchun AI (avtomatik start)" -Force | Out-Null
 
-# Hozir qo'lda ishlayotgan nusxa bo'lsa, ikkita dastur bitta portda ishlay olmaydi
-$running = Get-CimInstance Win32_Process -Filter "Name like 'python%.exe'" |
-    Where-Object { $_.CommandLine -like "*run.py*" -and $_.CommandLine -like "*$root*" }
+# Hozir qo'lda ishlayotgan nusxa bo'lsa, ikkita dastur bitta portda ishlay olmaydi.
+# 3.2.0: to'xtatilgan vazifaning jarayonlari (nazoratchi va --child) chiqib ketishini 30 s gacha kutamiz
+$running = $null
+$deadline = (Get-Date).AddSeconds(30)
+do {
+    $running = Get-CimInstance Win32_Process -Filter "Name like 'python%.exe'" |
+        Where-Object { $_.CommandLine -like "*run.py*" -and $_.CommandLine -like "*$root*" -and $_.CommandLine -notlike "*--child*" }
+    if (-not $running) { break }
+    Start-Sleep -Seconds 2
+} while ((Get-Date) -lt $deadline)
 if ($running) {
     Write-Host "Diqqat: Hushyor AI hozir qo'lda ishlab turibdi. Uni to'xtating (Ctrl+C), keyin" -ForegroundColor Yellow
     Write-Host "         Start-ScheduledTask -TaskName $TaskName  buyrug'i bilan avtomatik nusxani yoqing." -ForegroundColor Yellow

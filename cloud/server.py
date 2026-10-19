@@ -22,6 +22,9 @@ sayt va panelda yorug'/tungi mavzu almashtirgich.
 3.1.0: Video sinovida video kadri ustiga zonalar (navbat, sanash chizig'i, bo'limlar) va natija o'lchovlari; sinov
 signallari va yakuniy natija yuklagan xodimga Telegram'da; chizmalarsiz (toza) klip — Telegram'ga shu ketadi; o'g'irlik
 tasdiqlanganda taxminiy zarar (so'm, qo'lda) — "oldini olingan zarar" (`/api/v1/losses`).
+3.2.0: to'liq ko'rib chiqish tuzatishlari — buzuq edge yozuvlari partiyani yiqitmaydi, video sinovi hodisalari
+hisoblagichlarga kirmaydi (events.job_id), bitta manzilga takror xabar yo'q, superguruhga ko'chish, siqilgan zaxira,
+kamera daqiqalari 90 kun, filial bo'yicha klip chegarasi, panel so'rovlari 256 KB, ikki xodim bir vaqtda qaror qilsa 409.
 """
 from __future__ import annotations
 
@@ -57,16 +60,22 @@ from .db import CLIPS_DIR, DATA_DIR
 from .live import hub
 
 log = logging.getLogger("hushyor.cloud")
-VERSION = "3.1.0"
+VERSION = "3.2.0"
 
 API_VERSION = 1
 ROOT = Path(__file__).resolve().parent
 CLIP_LIMIT = 60 * 1024 * 1024
-JSON_LIMIT = 8 * 1024 * 1024        # bitta JSON so'rov hajmi
+JSON_LIMIT = 8 * 1024 * 1024        # bitta JSON so'rov hajmi (edge partiyalari)
+PANEL_JSON_LIMIT = 256 * 1024       # 3.2.0: panel/sayt so'rovlari kichik — katta tana kirishdan oldin ham o'qilmasin
 ITEM_LIMIT = 200_000                # bitta yozuv (hodisa JSON) hajmi
 MAX_ITEMS = 500
 RECEIVED_KEEP_DAYS = 7
-METRICS_KEEP_DAYS = 400
+METRICS_KEEP_DAYS = 400       # sanash, navbat, oqim (ixcham sonlar) — yillik taqqoslash uchun
+# 3.2.0: kamera holati daqiqalari (JSON — eng katta jadval: 4 kamerali filialga ~3,6 MB/kun) — 90 kun (sozlanadi)
+try:
+    CAMERA_METRICS_KEEP_DAYS = max(14, int(cdb.env("CLOUD_METRICS_KEEP_DAYS") or 90))
+except ValueError:
+    CAMERA_METRICS_KEEP_DAYS = 90
 AUDIT_KEEP_DAYS = 400
 UID_RE = re.compile(r"[A-Za-z0-9_\-]{1,64}:\d{1,12}")
 DEV_RE = re.compile(r"[A-Za-z0-9_\-]{1,64}")
@@ -92,6 +101,8 @@ SITE_CSP = ("default-src 'self'; script-src 'self'; style-src 'self'; img-src 's
 SSE_PER_SESSION = 6                 # bitta brauzer (sessiya): ochiq tablar — eng eskisi yopiladi
 SSE_PER_USER = 24                   # bitta xodimning barcha qurilmalari (umumiy qo'riqchi akkaunti — bir nechta planshet)
 SSE_TOTAL = 1000
+SSE_PER_COMPANY = 200               # 3.2.0: bitta kompaniya serverning umumiy chegarasini band qilib qo'ymasin
+_sse_company: dict[int, int] = {}
 
 
 def _env_file_value(*keys: str) -> str:
@@ -221,8 +232,10 @@ async def _guard(request: Request, call_next):
             limit = CLIP_LIMIT + 6 * 1024 * 1024
         elif path == f"/api/v{API_VERSION}/video-tests":
             limit = video_tests.max_bytes()          # 3.0.0: Video sinovi (handler o'zi ham tekshiradi)
-        else:
+        elif path.startswith(f"/api/v{API_VERSION}/edge/"):
             limit = JSON_LIMIT
+        else:
+            limit = PANEL_JSON_LIMIT
         try:
             if int(request.headers.get("content-length") or 0) > limit:
                 return JSONResponse({"detail": f"so'rov juda katta (> {limit // (1 << 20)} MB)"}, status_code=413)
@@ -318,6 +331,28 @@ def _loss_of(it: dict) -> int | None:
     return v
 
 
+def _sanitize(v, depth: int = 0):
+    """3.2.0: edge yuborgan qiymatlar: cheksiz/NaN va bazaga sig'maydigan katta sonlar — None (bitta buzuq yozuv butun
+    partiyani 500 bilan yiqitmasin; PostgreSQL JSON'da NaN ham xato edi)."""
+    if isinstance(v, bool) or v is None or isinstance(v, str):
+        return v
+    if isinstance(v, int):
+        return v if abs(v) <= 2 ** 53 else None
+    if isinstance(v, float):
+        return v if math.isfinite(v) and abs(v) <= 1e15 else None
+    if depth > 8:
+        return None
+    if isinstance(v, dict):
+        return {str(k): _sanitize(x, depth + 1) for k, x in v.items()}
+    if isinstance(v, list):
+        return [_sanitize(x, depth + 1) for x in v]
+    return None
+
+
+def _as_list(v) -> list:
+    return v if isinstance(v, list) else ([] if v is None else [v])
+
+
 def _items(body) -> list[dict]:
     if not isinstance(body, dict):
         raise HTTPException(400, "JSON obyekt kutilgan")
@@ -326,7 +361,16 @@ def _items(body) -> list[dict]:
         raise HTTPException(400, "items ro'yxati kutilgan")
     if len(items) > MAX_ITEMS:
         raise HTTPException(413, f"bitta so'rovda ko'pi bilan {MAX_ITEMS} ta yozuv")
-    return [i for i in items if isinstance(i, dict)]
+    out = []
+    for i in items:
+        if not isinstance(i, dict):
+            continue
+        i = _sanitize(i)
+        for k in ("reasons", "breakdown"):
+            if k in i and not isinstance(i[k], list):
+                i[k] = [] if i[k] is None else [i[k]]
+        out.append(i)
+    return out
 
 
 def _seen(conn, dev: str, kind: str, key: str) -> None:
@@ -342,7 +386,7 @@ def _prune(conn) -> None:
         return
     _last_prune[0] = now
     conn.execute(cdb.received.delete().where(cdb.received.c.t < now - RECEIVED_KEEP_DAYS * 86400))
-    conn.execute(cdb.metrics_minute.delete().where(cdb.metrics_minute.c.minute < now - METRICS_KEEP_DAYS * 86400))
+    conn.execute(cdb.metrics_minute.delete().where(cdb.metrics_minute.c.minute < now - CAMERA_METRICS_KEEP_DAYS * 86400))
     conn.execute(cdb.visits_minute.delete().where(cdb.visits_minute.c.minute < now - METRICS_KEEP_DAYS * 86400))
     conn.execute(cdb.queue_minute.delete().where(cdb.queue_minute.c.minute < now - METRICS_KEEP_DAYS * 86400))
     conn.execute(cdb.queue_alerts.delete().where(cdb.queue_alerts.c.t < now - METRICS_KEEP_DAYS * 86400))
@@ -361,7 +405,7 @@ async def hello(request: Request):
     body = await _json(request)
     if not isinstance(body, dict):
         raise HTTPException(400, "JSON obyekt kutilgan")
-    return await run_in_threadpool(_hello, b, body, _ip(request))
+    return await run_in_threadpool(_hello, b, _sanitize(body), _ip(request))
 
 
 def _hello(b: dict, body: dict, ip: str) -> dict:
@@ -538,7 +582,9 @@ def _edge_events(b: dict, items: list[dict]) -> dict:
             except (TypeError, ValueError):
                 rejected.append({"key": key, "reason": "updated_at noto'g'ri"})
                 continue
+            jid = it.get("job_id")
             vals = {"uid": uid, "branch_id": b["id"], "device_id": dev, "local_id": int(_num(it.get("local_id"))),
+                    "job_id": int(jid) if isinstance(jid, (int, float)) and not isinstance(jid, bool) else None,
                     "created_at": _num(it.get("created_at")) or upd, "updated_at": upd,
                     "kind": str(it.get("kind") or "")[:40], "score": _num(it.get("score")),
                     "status": str(it.get("status") or "")[:40], "source_name": str(it.get("source_name") or "")[:200],
@@ -552,7 +598,7 @@ def _edge_events(b: dict, items: list[dict]) -> dict:
                                                                    cdb.events.c.loss_sum)
                              .where(cdb.events.c.uid == uid)).first()
             # Eskiroq yangilanish ustiga yozilmaydi (updated_at monoton); received_at — faqat birinchi kelganda
-            cdb.upsert(cdb.events, vals, ["uid"], ["updated_at", "kind", "score", "status", "source_name", "data"]
+            cdb.upsert(cdb.events, vals, ["uid"], ["updated_at", "kind", "score", "status", "source_name", "data", "job_id"]
                        + (["loss_sum"] if has_loss else []), where=cdb.events.c.updated_at <= upd, conn=c)
             if prev is None:
                 new_uids.append((uid, it))
@@ -592,10 +638,33 @@ async def edge_clip(request: Request, uid: str, meta: str = Form("{}"), clip: Up
     dev = b["device_id"]
     if not UID_RE.fullmatch(uid) or not uid.startswith(dev + ":"):
         raise HTTPException(400, "uid noto'g'ri")
+    if not _clip_quota(b["id"], int(request.headers.get("content-length") or 0)):
+        # 3.2.0: bitta filial (yoki uning tokenini o'g'irlagan kishi) serverdagi diskni to'ldirib, boshqalarning
+        # dalillarini o'chirtirib yubora olmasin. Oddiy do'kon kuniga o'nlab klip yuboradi
+        raise HTTPException(429, "filialning kunlik klip chegarasi tugadi — ertaga davom etadi")
     thumb_data = await thumb.read(5 * 1024 * 1024 + 1) if thumb is not None else None
     # Fayl nusxalash (60 MB gacha) va baza — threadpool'da: event loop bloklanmaydi
     return await run_in_threadpool(_store_clip, b, uid, clip.file, thumb_data,
                                    clean.file if clean is not None else None)
+
+
+CLIPS_PER_BRANCH_DAY = 1500
+CLIP_BYTES_PER_BRANCH_DAY = 4 * 1024 ** 3
+_clip_day: dict[int, list] = {}       # filial -> [kun, soni, bayt]
+_clip_day_lock = threading.Lock()
+
+
+def _clip_quota(branch_id: int, size: int) -> bool:
+    day = int(time.time() // 86400)
+    with _clip_day_lock:
+        rec = _clip_day.get(branch_id)
+        if rec is None or rec[0] != day:
+            rec = _clip_day[branch_id] = [day, 0, 0]
+        if rec[1] >= CLIPS_PER_BRANCH_DAY or rec[2] + max(size, 0) > CLIP_BYTES_PER_BRANCH_DAY:
+            return False
+        rec[1] += 1
+        rec[2] += max(size, 0)
+        return True
 
 
 def _copy_clip(src, dest: Path) -> int:
@@ -1046,7 +1115,7 @@ def auth_status(request: Request):
         return out
     comp = cdb.row("SELECT id, name FROM companies WHERE id=:c", {"c": u["company_id"]})
     return {"ok": True, "authenticated": True, "user": _public_user(u), "company": comp,
-            "branch_ids": cdb.branch_ids_for(u), "demo": DEMO}
+            "branch_ids": cdb.branch_ids_for(u), "demo": DEMO, "tz_offset": notify.cfg.tz_offset}
 
 
 @app.get(f"/api/v{API_VERSION}/me")
@@ -1074,8 +1143,8 @@ def list_branches(request: Request):
         b["online"] = bool(b.get("last_seen") and time.time() - b["last_seen"] < 180)
         b["events_24h"] = cdb.scalar("SELECT COUNT(*) FROM events WHERE branch_id=:b AND created_at >= :t",
                                      {"b": b["id"], "t": day0}) or 0
-        b["pending_review"] = cdb.scalar("SELECT COUNT(*) FROM events WHERE branch_id=:b AND status='yangi'",
-                                         {"b": b["id"]}) or 0
+        b["pending_review"] = cdb.scalar("SELECT COUNT(*) FROM events WHERE branch_id=:b AND status='yangi' "
+                                         "AND job_id IS NULL", {"b": b["id"]}) or 0
         out.append(b)
     vis = cdb.visits_hourly([b["id"] for b in out], _local_day0(), off=_tz_sec())
     for b in out:
@@ -1521,7 +1590,7 @@ async def reset_user_password(request: Request, user_id: int):
 
 AUDIT_ACTIONS = ("login_ok", "login_fail", "logout", "logout_all", "password_change", "password_fail", "password_reset",
                  "user_create", "user_update", "user_deactivate", "user_activate", "branch_create", "token_rotate",
-                 "review", "clip_view", "telegram_link")
+                 "review", "clip_view", "telegram_link", "loss", "video_test", "video_test_cancel")
 
 
 @app.get(f"/api/v{API_VERSION}/audit")
@@ -1557,12 +1626,26 @@ def system_status(request: Request):
     _require(u, "owner")
     st = maintenance.status()
     st.pop("backup_dir", None)          # server fayl yo'li panelga chiqmasin
-    return {"ok": True, "version": VERSION, "sse": hub.count(), "channels": notify.channels(), **st}
+    sse = hub.count()
+    if (cdb.scalar("SELECT COUNT(*) FROM companies") or 0) > 1:
+        # 3.2.0: serverda bir nechta kompaniya — kliplar va jonli ulanishlar faqat o'z kompaniyasi bo'yicha
+        devs = cdb.rows("SELECT id, device_id FROM branches WHERE company_id=:c", {"c": u["company_id"]})
+        ids = [int(r["id"]) for r in devs]
+        st["clips"] = int(cdb.scalar("SELECT COUNT(*) FROM events WHERE clip_file IS NOT NULL AND branch_id IN ("
+                                     + ",".join(str(i) for i in ids) + ")") or 0) if ids else 0
+        size = 0
+        for r in devs:
+            d = cdb.CLIPS_DIR / str(r["device_id"] or "")
+            if r["device_id"] and d.is_dir():
+                size += sum(p.stat().st_size for p in d.iterdir() if p.is_file())
+        st["clips_mb"] = round(size / 2 ** 20, 1)
+        sse = _sse_company.get(int(u["company_id"]), 0)
+    return {"ok": True, "version": VERSION, "sse": sse, "channels": notify.channels(), **st}
 
 
 @app.get(f"/api/v{API_VERSION}/events")
 def list_events(request: Request, branch_id: int | None = None, status: str | None = None, since: float | None = None,
-                until: float | None = None, limit: int = 100):
+                until: float | None = None, limit: int = 100, video: int = 0):
     u = _user(request)
     ids = _scope(u, branch_id)
     if not ids:
@@ -1575,6 +1658,9 @@ def list_events(request: Request, branch_id: int | None = None, status: str | No
             raise HTTPException(400, "holat noto'g'ri")
         where.append("status=:s")
         params["s"] = status
+        if status == "yangi" and not video:
+            # 3.2.0: "Tekshirish kerak" va navbat — do'kondagi signallar (Video sinovi natijalari o'z sahifasida)
+            where.append("job_id IS NULL")
     if since is not None:
         where.append("created_at >= :since")
         params["since"] = since
@@ -1590,7 +1676,7 @@ def list_events(request: Request, branch_id: int | None = None, status: str | No
     for r in rows_:
         d = cdb.json_load(r.pop("data", None)) or {}
         r["level"] = d.get("level")
-        r["reasons"] = [str(x) for x in (d.get("reasons") or [])][:3]
+        r["reasons"] = [str(x) for x in _as_list(d.get("reasons"))][:3]
         r["reviewed_by"] = d.get("reviewed_by")
         r["video"] = d.get("job_id") is not None
     return {"ok": True, "events": rows_}
@@ -1603,6 +1689,8 @@ def get_event(request: Request, uid: str):
                  {"u": uid})
     if not ev or ev["branch_id"] not in cdb.branch_ids_for(u):
         raise HTTPException(404, "hodisa topilmadi")
+    # 3.2.0: zarar summasini shu hodisaga yozish mumkinmi (eski versiyali do'kon, video tahlili...) — panel shunga qarab
+    ev["loss_ok"] = service.loss_blocker(ev, need_confirmed=False) is None
     ev["data"] = cdb.json_load(ev.get("data"))
     return {"ok": True, "event": ev}
 
@@ -1611,10 +1699,10 @@ def get_event(request: Request, uid: str):
 async def review_event(request: Request, uid: str):
     """Bulutda tekshirish (✅/❌). Bazada yangilanadi va edge'ga buyruq ketadi — do'kondagi Telegram xabari ham
     yangilanadi (edge keyingi hello'da oladi, bajaradi, ack qiladi)."""
+    u = await run_in_threadpool(_user, request)          # 3.2.0: kirish tekshiruvi tanani o'qishdan oldin
     body = await _json(request)
 
     def _do() -> dict:
-        u = _user(request)
         if not isinstance(body, dict):
             raise HTTPException(400, "JSON obyekt kutilgan")
         status = str(body.get("status") or "")
@@ -1622,6 +1710,8 @@ async def review_event(request: Request, uid: str):
             raise HTTPException(400, "holat: yangi, tasdiqlangan yoki rad_etilgan")
         note = body.get("note")
         note = str(note)[:2000] if note is not None else None
+        expect = body.get("expect")
+        expect = str(expect) if expect in STATUSES else None
         amount = None
         if body.get("loss_sum") not in (None, ""):
             try:
@@ -1629,13 +1719,23 @@ async def review_event(request: Request, uid: str):
             except ValueError as e:
                 raise HTTPException(400, f"summa: {e}")
         try:
-            res = service.review(u, uid, status, note, via="Bulut", ip=_ip(request))
+            if amount is not None and status == "tasdiqlangan":
+                # 3.2.0: summa yozib bo'lmasa — qaror ham qilinmaydi (avval holat o'zgarib, keyin 409 qaytardi)
+                why = service.loss_blocker(service.event_for(u, uid), need_confirmed=False)
+                if why:
+                    raise service.NotAllowed(why)
+            res = service.review(u, uid, status, note, via="Bulut", ip=_ip(request), expect=expect)
             if amount is not None and status == "tasdiqlangan":
                 res = {**res, **service.set_loss(u, uid, amount, via="Bulut", ip=_ip(request))}
         except service.NotFound:
             raise HTTPException(404, "hodisa topilmadi")
         except service.NotAllowed as e:
             raise HTTPException(409, str(e))
+        except service.Conflict as e:
+            who = f" ({e.by})" if e.by else ""
+            label = {"tasdiqlangan": "tasdiqlangan", "rad_etilgan": "xato signal", "yangi": "qaror bekor qilingan"}
+            raise HTTPException(409, f"Bu hodisani boshqa xodim allaqachon ko'rib chiqdi: "
+                                     f"{label.get(e.current, e.current)}{who}. Sahifa yangilandi.")
         return {"ok": True, "event": res}
     return await run_in_threadpool(_do)
 
@@ -1644,10 +1744,10 @@ async def review_event(request: Request, uid: str):
 async def event_loss(request: Request, uid: str):
     """3.1.0: tasdiqlangan o'g'irlik signaliga taxminiy zarar (so'm). Bo'sh yoki 0 — summa olib tashlanadi. Edge'ga
     `loss` buyrug'i ketadi (do'kondagi Telegram xabari ham yangilanadi)."""
+    u = await run_in_threadpool(_user, request)          # 3.2.0: kirish tekshiruvi tanani o'qishdan oldin
     body = await _json(request)
 
     def _do() -> dict:
-        u = _user(request)
         if not isinstance(body, dict):
             raise HTTPException(400, "JSON obyekt kutilgan")
         try:
@@ -1875,7 +1975,8 @@ async def _vt_stream(request: Request, u: dict, br: dict, fname: str, size: int,
     except BaseException:
         await run_in_threadpool(w.abort)
         raise
-    cdb.audit("video_test", u, f"#{t['id']} {fname}", {"branch": br["id"], "mb": round(size / 1e6, 1)}, ip=_ip(request))
+    await run_in_threadpool(cdb.audit, "video_test", u, f"#{t['id']} {fname}",
+                            {"branch": br["id"], "mb": round(size / 1e6, 1)}, ip=_ip(request))
     log.info("Video sinovi #%s yuklandi: %s (%.1f MB), filial #%s", t["id"], fname, size / 1e6, br["id"])
     return {"ok": True, "test": video_tests.public(t)}
 
@@ -2069,10 +2170,14 @@ async def stream(request: Request):
     scope = set(await run_in_threadpool(cdb.branch_ids_for, u))
     if hub.count() >= SSE_TOTAL:
         raise HTTPException(503, "jonli ulanishlar soni chegarada — keyinroq")
+    cid = int(u["company_id"])
+    if _sse_company.get(cid, 0) >= SSE_PER_COMPANY:
+        raise HTTPException(503, "kompaniyangizning jonli ulanishlari soni chegarada — eski tablarni yoping")
 
     async def gen():
         q = hub.subscribe(u["id"], scope, per_user=SSE_PER_USER, session=cdb.sha256(tok)[:16] if tok else "",
                           per_session=SSE_PER_SESSION)
+        _sse_company[cid] = _sse_company.get(cid, 0) + 1
         try:
             yield "retry: 3000\n\n"
             last = time.time()
@@ -2098,6 +2203,7 @@ async def stream(request: Request):
                     hub.update_scope(q, set(await run_in_threadpool(cdb.branch_ids_for, uu)))
         finally:
             hub.unsubscribe(q)
+            _sse_company[cid] = max(0, _sse_company.get(cid, 1) - 1)
     return StreamingResponse(gen(), media_type="text/event-stream",
                              headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"})
 

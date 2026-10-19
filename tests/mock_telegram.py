@@ -12,13 +12,16 @@ import threading
 import time
 
 from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 
 app = FastAPI()
 CALLS: list[dict] = []
 UPDATES: list[dict] = []
 FAIL_NEXT: dict[str, int] = {}     # method -> keyingi shuncha chaqiruv xato bilan qaytadi (tarmoq xatosi taqlidi)
 FAIL_STATUS: dict[str, int] = {}   # method -> xato kodi (sukut 500; 403 — "bot bloklangan")
+FAIL_DESC: dict[str, str] = {}     # 3.2.0: method -> xato matni (masalan "Forbidden: not enough rights ...")
+HTML_NEXT: dict[str, int] = {}     # 3.2.0: method -> keyingi shuncha javob JSON emas (nginx'ning HTML 502 sahifasi)
+MIGRATE: dict[str, int] = {}       # 3.2.0: chat_id -> superguruhning yangi raqami (400 + migrate_to_chat_id)
 _uid = [1000]
 _mid = [1]
 
@@ -64,10 +67,17 @@ async def method(token: str, method: str, request: Request):
     if delay or (bw and up):
         await asyncio.sleep(delay + (up / bw if bw else 0))
     CALLS.append({"method": method, "token": token, "data": data, "files": files, "t": time.time()})
+    if HTML_NEXT.get(method, 0) > 0:
+        HTML_NEXT[method] -= 1
+        return HTMLResponse("<html><body><h1>502 Bad Gateway</h1></body></html>", status_code=502)
+    if str(data.get("chat_id", "")) in MIGRATE:
+        return JSONResponse(status_code=400, content={
+            "ok": False, "error_code": 400, "description": "Bad Request: group chat was upgraded to a supergroup chat",
+            "parameters": {"migrate_to_chat_id": MIGRATE[str(data.get("chat_id"))]}})
     if FAIL_NEXT.get(method, 0) > 0:
         FAIL_NEXT[method] -= 1
         code = FAIL_STATUS.get(method, 500)
-        desc = "Forbidden: bot was blocked by the user" if code == 403 else "soxta tarmoq xatosi"
+        desc = FAIL_DESC.get(method) or ("Forbidden: bot was blocked by the user" if code == 403 else "soxta tarmoq xatosi")
         return JSONResponse(status_code=code, content={"ok": False, "error_code": code, "description": desc})
     if method == "getMe":
         return {"ok": True, "result": {"id": 42, "is_bot": True, "first_name": "Hushyor", "username": "hushyor_test_bot"}}

@@ -176,7 +176,7 @@ function renderKpis() {
   const act = sum.plan.cams.filter((c) => c.active).length;
   document.getElementById("k-cam").textContent = `${act}`;
   document.getElementById("k-cam-sub").textContent = `rejaga bog'langan · hozir ishlayapti: ${sum.live_cams.length}`;
-  document.getElementById("hinfo").textContent = heat ? (heat.obs ? `kuzatildi: ${H.fmtDur(heat.obs)}` : "ma'lumot yo'q") : "";
+  document.getElementById("hinfo").textContent = heat ? (heat.obs ? `kuzatildi: ${H.fmtDur(heat.obs)} (kameralar bo'yicha jami)` : "ma'lumot yo'q") : "";
   document.getElementById("hunit").textContent = heat ? `(${heat.unit}, eng ko'pi ${heat.max})` : "";
 }
 function renderTables() {

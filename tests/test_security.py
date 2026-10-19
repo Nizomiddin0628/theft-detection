@@ -550,19 +550,25 @@ def resilience(s: dict) -> None:
         for _ in range(3):
             maintenance.backup(other, keep=2)
             time.sleep(1.05)            # nom soniya aniqligida
-        ok("Boshqa papkaga qo'lda olingan zaxiralar aylantirilmaydi (o'chirilmaydi)", len(list(other.glob("cloud-*.db"))) == 3)
+        ok("Boshqa papkaga qo'lda olingan zaxiralar aylantirilmaydi (o'chirilmaydi)", len(list(other.glob("cloud-*.db.gz"))) == 3)
         os.environ["CLOUD_BACKUP_DIR"] = str(dest)
         try:
             paths = [maintenance.backup(dest, keep=2) for _ in range(3) if not time.sleep(1.05)]
         finally:
             os.environ.pop("CLOUD_BACKUP_DIR", None)
-        files = sorted(p.name for p in dest.glob("cloud-2*.db"))
+        files = sorted(p.name for p in dest.glob("cloud-2*.db.gz"))     # 3.2.0: siqilgan
         ok("Qo'lda qo'yilgan 'cloud-yangilashdan-oldin.db' o'chmadi", (dest / "cloud-yangilashdan-oldin.db").exists())
-        con = sqlite3.connect(str(paths[-1]))
+        import gzip
+        import shutil
+        unz = dest / "tekshiruv.db"
+        with gzip.open(paths[-1], "rb") as fi, open(unz, "wb") as fo:
+            shutil.copyfileobj(fi, fo)
+        con = sqlite3.connect(str(unz))
         n = con.execute("SELECT COUNT(*) FROM events").fetchone()[0]
         con.close()
-        ok("Zaxira nusxa: izchil SQLite (hodisalar bor), VAPID kaliti, eng yangi 2 tasi qoladi",
-           len(files) == 2 and n > 0 and len(list(dest.glob("vapid-*.pem"))) == 2, f"{files} n={n}")
+        unz.unlink()
+        ok("Zaxira nusxa: siqilgan (.db.gz), ochilganda izchil SQLite (hodisalar bor), VAPID kaliti, eng yangi 2 tasi qoladi",
+           paths[-1].name.endswith(".db.gz") and len(files) == 2 and n > 0 and len(list(dest.glob("vapid-*.pem"))) == 2, f"{files} n={n}")
         ok("Oxirgi zaxira vaqti saqlanadi (panel/monitoring)", maintenance.last_backup()[1] == paths[-1].name)
     st = httpx.get(f"{BASE}/api/v1/system", headers=A).json()
     ok("/system: versiya, disk, kliplar, zaxira; server fayl yo'li chiqmaydi", st.get("version") == cloud.VERSION

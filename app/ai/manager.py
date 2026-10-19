@@ -4,12 +4,13 @@ from __future__ import annotations
 import json
 import queue
 import re
+import shutil
 import threading
 import time
 from pathlib import Path
 
 from .. import db
-from ..config import CLIPS_DIR, FEEDBACK_DIR, POSES_DIR, SNAP_DIR, UPLOADS_DIR
+from ..config import CLIPS_DIR, DATA_DIR, DEMO, FEEDBACK_DIR, POSES_DIR, SNAP_DIR, UPLOADS_DIR
 from ..logutil import get_logger
 from .clipper import make_clip, make_snapshot
 from .safety import SAFETY_KINDS
@@ -42,6 +43,10 @@ class Manager:
         self.health: dict[int, dict] = {}   # kamera holati: {source_id: {"since", "alerted", "reason"}}
         self._started = time.time()
         self._load_health()
+        self._clip_threads: set[threading.Thread] = set()
+        self._restart_t: dict[int, float] = {}     # 3.2.0: to'xtab qolgan kamera oqimi oxirgi marta qachon qayta yoqildi
+        self._last_disk = 0.0
+        self._disk_warned = 0.0
         self._health_thread = threading.Thread(target=self._health_loop, daemon=True, name="health")
         self._health_thread.start()
 
@@ -66,6 +71,12 @@ class Manager:
             w = self.workers.get(source_id)
             if w and w.is_alive():
                 return True, "Allaqachon ishlayapti"
+            if w is not None:
+                # 3.2.0: eski (to'xtab qolgan) oqimning o'quvchisi ham to'xtasin — webcam bitta dasturga beriladi,
+                # IP kameraga ikkinchi oqim ochilmasin
+                w.stop()
+                if w.reader.is_alive():
+                    w.reader.join(5)
             if src["kind"] == "webcam":
                 for other in self.workers.values():
                     if (other.is_alive() and other.src["kind"] == "webcam"
@@ -86,10 +97,42 @@ class Manager:
 
     def stop_all(self) -> None:
         self.shutting_down = True
+        ws = list(self.workers.values())
         for sid in list(self.workers):
             self.stop_source(sid)
         for j in list(self.jobs.values()):
             j.stop()
+        # 3.2.0: to'xtashda tayyorlanayotgan klip(lar) yozib bo'linsin (avval jarayon bilan birga yo'qolardi va
+        # Telegram'da "klip tayyorlanmoqda" abadiy qolardi)
+        # 15 s: keyin bot va sinxronlash ham yopilishi kerak — hammasi nazoratchining kutishiga (run.py, 40 s) sig'sin
+        deadline = time.time() + 15
+        for w in ws:
+            w.join(max(0.1, min(5.0, deadline - time.time())))
+        for t in list(self._clip_threads):
+            t.join(max(0.1, deadline - time.time()))
+
+    def spawn_clip(self, p, frames) -> None:
+        """Klipni alohida oqimda yozish (to'xtashda kutiladi)."""
+        def run():
+            try:
+                self.finish_clip(p, frames)
+            finally:
+                self._clip_threads.discard(threading.current_thread())
+        t = threading.Thread(target=run, daemon=True, name=f"clip-{p.event_id}")
+        self._clip_threads.add(t)
+        t.start()
+
+    def reconcile_pending_clips(self) -> list[int]:
+        """3.2.0: oldingi ishga tushishdan klipi tayyorlanmay qolgan hodisalar (dastur yoki kompyuter o'chib qolgan) —
+        "klip yaratilmadi" deb belgilanadi: panel va Telegram'da "tayyorlanmoqda" abadiy qolmasin."""
+        rows = db.rows("SELECT id FROM events WHERE clip_path IS NULL AND COALESCE(clip_error, 0)=0 AND created_at < ? "
+                       "AND created_at > ?", (self._started, self._started - 7 * 86400))
+        ids = [int(r["id"]) for r in rows]
+        for i in ids:
+            db.update_event(i, clip_error=1)
+        if ids:
+            log.info("%d ta hodisaning klipi oldingi ishga tushishda tayyorlanmay qolgan — belgilandi", len(ids))
+        return ids
 
     def source_info(self) -> list[dict]:
         out = []
@@ -263,13 +306,15 @@ class Manager:
         log.info("Hodisa #%d: %s, ball %.0f (%s)", ev_id, alert["kind_label"], alert["score"],
                  source.get("name"))
         # Klipni kutmasdan: web panelga va Telegram'ga darhol (bulut sinovi — panelda ovozsiz, Telegram'ga baribir)
-        self.emit("update" if cloud else "new", ev_id)
+        # 3.2.0: "new" (panelda ovoz va xabarcha) — faqat jonli kamera; yuklangan video tahlili — "update"
+        self.emit("new" if job_id is None else "update", ev_id)
         if self.notifier is not None and _tg_allowed(job_id, cloud, ev_id):
             try:
                 self.notifier.notify_alert(ev_id)
             except Exception:
                 log.exception("Telegramga darhol xabar berishda xato")
-        if job_id is None and alert.get("kind") in SAFETY_KINDS:
+        if job_id is None and alert.get("kind") in SAFETY_KINDS and (DEMO or source.get("kind") != "file"):
+            # (3.2.0: "jonli rejim"da sinalayotgan video fayl — SMS ketmaydi)
             # 2.2.0: kritik xavfsizlik signali — SMS (sozlangan bo'lsa; alohida oqimda, kamera kutmaydi)
             try:
                 from .. import sms
@@ -306,9 +351,9 @@ class Manager:
             upd_ = {"clip_clean": r["clip_clean"]}
             if r.get("thumb_clean"):
                 upd_["thumb_clean"] = r["thumb_clean"]
-                if ev0.get("thumb_clean") and ev0["thumb_clean"] != r["thumb_clean"]:
-                    (CLIPS_DIR / ev0["thumb_clean"]).unlink(missing_ok=True)
             db.update_event(p.event_id, **upd_)
+            if r.get("thumb_clean") and ev0.get("thumb_clean") and ev0["thumb_clean"] != r["thumb_clean"]:
+                _unlink(CLIPS_DIR / ev0["thumb_clean"])
             if tg_ok:
                 early[0] = True
                 try:
@@ -316,8 +361,9 @@ class Manager:
                 except Exception:
                     log.exception("Telegramga klip yuborishda xato")
         try:
-            res = make_clip(frames, p.t_event, p.track_id, p.banner, p.live, CLIPS_DIR, stem, p.box, susp,
-                            on_clean=on_clean)
+            with _CLIP_SEM:   # 3.2.0: bir vaqtda ko'pi bilan 2 ta klip kodlanadi (signal ko'p bo'lganda AI qotmasin)
+                res = make_clip(frames, p.t_event, p.track_id, p.banner, p.live, CLIPS_DIR, stem, p.box, susp,
+                                on_clean=on_clean)
         except Exception:
             log.exception("Klip yaratishda xato (hodisa #%d)", p.event_id)
             # toza nusxa allaqachon yozilgan bo'lsa (on_clean) — u yo'qolmasin
@@ -333,16 +379,19 @@ class Manager:
                "clip_clean": res.get("clip_clean"),
                # Klip chiqmadi — Telegram xabarida "tayyorlanmoqda" o'rniga "klip yaratilmadi" yoziladi
                "clip_error": 0 if res["clip"] else 1}
+        stale = []
         if res["thumb"]:
             upd["thumb_path"] = res["thumb"]
             # Signal lahzasidagi tezkor rasm endi kerak emas — klipdan olingan rasm bilan almashadi
             if old.get("thumb_path") and old["thumb_path"] != res["thumb"]:
-                (CLIPS_DIR / old["thumb_path"]).unlink(missing_ok=True)
+                stale.append(old["thumb_path"])
         if res.get("thumb_clean"):
             upd["thumb_clean"] = res["thumb_clean"]
             if old.get("thumb_clean") and old["thumb_clean"] != res["thumb_clean"]:
-                (CLIPS_DIR / old["thumb_clean"]).unlink(missing_ok=True)
+                stale.append(old["thumb_clean"])
         db.update_event(p.event_id, **upd)
+        for name in stale:          # 3.2.0: avval baza, keyin fayl (Windows'da band fayl klipni to'xtatmasin)
+            _unlink(CLIPS_DIR / name)
         self.emit("clip", p.event_id)
         if tg_ok and not early[0]:
             try:
@@ -383,6 +432,129 @@ class Manager:
                 self._health_check()
             except Exception:
                 log.exception("Kamera holatini tekshirishda xato")
+            try:
+                self._revive_dead()
+            except Exception:
+                log.exception("To'xtab qolgan kamerani qayta yoqishda xato")
+            try:
+                self._cleanup()           # 3.2.0: soatiga bir marta — yangi klip bo'lmasa ham (avval faqat klipdan keyin)
+                if time.time() - self._last_disk >= 600:
+                    self._last_disk = time.time()
+                    self._disk_guard()
+            except Exception:
+                log.exception("Disk tozalashda xato")
+
+    def _revive_dead(self) -> None:
+        """3.2.0: kamera oqimi kutilmagan xato bilan to'xtab qolgan bo'lsa (foydalanuvchi to'xtatmagan) — qayta yoqiladi
+        (minutiga ko'pi bilan bir marta)."""
+        if self.shutting_down:
+            return
+        now = time.time()
+        for sid, w in list(self.workers.items()):
+            if w.is_alive() or w.src.get("kind") == "file" or now - self._restart_t.get(sid, 0) < 60:
+                continue
+            if not db.scalar("SELECT enabled FROM sources WHERE id=?", (sid,)):
+                continue
+            self._restart_t[sid] = now
+            log.warning("Kamera oqimi to'xtab qolgan (%s) — qayta yoqilmoqda", w.src.get("name"))
+            self.start_source(sid)
+
+    DISK_MIN_FREE = 2 * 1024 ** 3        # shundan kam bo'sh joy qolsa — eski kliplar o'chiriladi
+    DISK_TARGET_FREE = 4 * 1024 ** 3
+    DISK_PROTECT_SEC = 86400             # oxirgi sutkadagi kliplar hech qachon o'chirilmaydi (yangi dalil)
+    DISK_CONFIRMED_SEC = 7 * 86400       # tasdiqlangan o'g'irlik videosi — kamida shuncha kun saqlanadi
+    DISK_CLIPS_SIGNIFICANT = 2 * 1024 ** 3   # kliplar jami shundan kam bo'lsa disk ularsiz to'lgan — tasdiqlanganlarga tegilmaydi
+    BACKUPS_KEEP = 5                     # data/backups dagi yangilanish zaxiralari
+
+    @staticmethod
+    def _free_bytes() -> int | None:
+        try:
+            return shutil.disk_usage(DATA_DIR).free
+        except OSError:
+            return None
+
+    def _disk_guard(self) -> None:
+        """3.2.0: disk to'lib qolmasin (baza va yangi signallar yozilmay qoladi). Avval eski yangilanish zaxiralari,
+        keyin eng eski tekshirilmagan/xato kliplar (oxirgi sutkadagilari himoyada), oxirida — faqat disk haqiqatan
+        kliplar bilan to'lgan bo'lsa — 7 kundan eski tasdiqlanganlarning videolari (hodisa yozuvi va rasm qoladi).
+        Bo'laklab o'chiriladi va har bo'lakdan keyin bo'sh joy qayta o'lchanadi: o'chirish joy bermasa (disk boshqa
+        narsa bilan to'lgan) — to'xtaydi. Panel va Telegram'da ogohlantirish (kuniga bir marta)."""
+        bdir = DATA_DIR / "backups"
+        if bdir.is_dir():
+            olds = sorted((d for d in bdir.iterdir() if d.is_dir() and d.name.startswith("update_")),
+                          key=lambda d: d.name)
+            for d in olds[:-self.BACKUPS_KEEP]:
+                shutil.rmtree(d, ignore_errors=True)
+        free0 = self._free_bytes()
+        if free0 is None or free0 >= self.DISK_MIN_FREE:
+            return
+        now = time.time()
+        freed, n = 0, 0
+
+        def clips_total() -> int:
+            tot = 0
+            try:
+                for f in CLIPS_DIR.rglob("*.mp4"):
+                    try:
+                        tot += f.stat().st_size
+                    except OSError:
+                        pass
+            except OSError:
+                pass
+            return tot
+
+        phases = [("status != 'tasdiqlangan'", now - self.DISK_PROTECT_SEC)]
+        if clips_total() >= self.DISK_CLIPS_SIGNIFICANT:
+            phases.append(("status = 'tasdiqlangan'", now - max(self.DISK_CONFIRMED_SEC, self.DISK_PROTECT_SEC)))
+        free = free0
+        stalled = False
+        for status_sql, before in phases:
+            last_id = 0
+            exhausted = False
+            while free < self.DISK_TARGET_FREE and not getattr(self, "shutting_down", False):
+                rows = db.rows(f"SELECT * FROM events WHERE {status_sql} AND clip_path IS NOT NULL AND created_at < ? "
+                               "AND id > ? ORDER BY id LIMIT 50", (before, last_id))
+                if not rows:
+                    exhausted = True
+                    break
+                batch = 0
+                for ev in rows:
+                    last_id = max(last_id, int(ev["id"]))
+                    for key in ("clip_path", "clip_clean"):
+                        f = CLIPS_DIR / ev[key] if ev.get(key) else None
+                        if f is not None and f.exists():
+                            try:
+                                sz = f.stat().st_size
+                                f.unlink()
+                                batch += sz
+                            except OSError:
+                                pass
+                    db.update_event(ev["id"], clip_path=None, clip_clean=None, clip_error=1)
+                    n += 1
+                if batch == 0:
+                    continue                  # fayllari allaqachon yo'q (qo'lda o'chirilgan) — yozuvlar tozalandi, davom
+                freed += batch
+                f_now = self._free_bytes()
+                if f_now is None or f_now <= free:
+                    # o'chirish joy bermadi — disk boshqa narsa bilan to'lmoqda: to'xtaymiz (tasdiqlanganlarga o'tmaymiz)
+                    stalled = True
+                    break
+                free = f_now
+            # tasdiqlangan o'g'irliklarga faqat tekshirilmaganlar tugagan bo'lsa va o'chirish haqiqatan joy bergan bo'lsa
+            if stalled or free >= self.DISK_TARGET_FREE or not exhausted:
+                break
+        free = free0
+        log.warning("Diskda joy kam (%.1f GB) — %d ta eski klip o'chirildi (%.1f GB bo'shadi)", free / 1024 ** 3, n,
+                    freed / 1024 ** 3)
+        if time.time() - self._disk_warned > 86400 and self.notifier is not None:
+            self._disk_warned = time.time()
+            try:
+                self.notifier.send_text_all(
+                    f"💾 <b>Kompyuter diskida joy kam:</b> {free / 1024 ** 3:.1f} GB qoldi. Eng eski {n} ta klip "
+                    "o'chirildi. Diskni tozalang yoki Sozlamalarda hodisalarni saqlash muddatini qisqartiring.",
+                    ttl=6 * 3600)
+            except Exception:  # noqa: BLE001
+                log.exception("Disk ogohlantirishini yuborib bo'lmadi")
 
     def _health_check(self) -> None:
         now = time.time()
@@ -559,6 +731,16 @@ def archive_feedback(ev: dict) -> None:
         (FEEDBACK_DIR / f"ev{int(ev['id']):05d}.json").write_text(json.dumps(data), encoding="utf-8")
     except (OSError, ValueError):
         log.exception("Hodisa #%s javobini arxivlab bo'lmadi", ev.get("id"))
+
+
+_CLIP_SEM = threading.BoundedSemaphore(2)
+
+
+def _unlink(path: Path) -> None:
+    try:
+        path.unlink(missing_ok=True)
+    except OSError:                       # Windows: fayl hozir ochiq (panel, antivirus) — keyingi tozalashda
+        pass
 
 
 def delete_event_files(ev: dict) -> None:

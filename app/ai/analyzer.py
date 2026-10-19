@@ -335,6 +335,10 @@ class Analyzer:
                         hm.carry = 0
                 elif t - hm.cand_t > 0.8:
                     hm.carry = 0
+                # 3.2.0: zonaga kirishda "oldin faol edimi" — shu kadrdagi yangilanishdan OLDINGI qiymat bilan. (Avval
+                # polka zonasi har kadrda last_active_t = t qilardi va kirish sharti `last_active_t < t` hech qachon
+                # bajarilmasdi: polka chizilgan kamerada cho'ntak/sumka signallarining ko'pi o'chib qolardi.)
+                prev_active_t = hm.last_active_t
                 if confident:
                     if hs["active"]:
                         hm.last_active_t = t
@@ -378,13 +382,13 @@ class Analyzer:
                         if gone_down and p["sig"]["offscreen"]:
                             zone = "offscreen"
 
-                recent_active = (t - hm.last_active_t <= 1.6) or (t - hm.hold_t <= 2.0)
+                recent_active = (t - prev_active_t <= 1.6) or (t - hm.hold_t <= 2.0)
                 if zone != hm.zone:
                     entering_ok = confident or zone == "offscreen"
                     hm.zone = zone
                     hm.zone_enter_t = t
-                    hm.zone_from_active = bool(zone and entering_ok and recent_active and hm.last_active_t < t)
-                    hm.entry_active_t = max(hm.last_active_t, hm.hold_t)
+                    hm.zone_from_active = bool(zone and entering_ok and recent_active and prev_active_t < t)
+                    hm.entry_active_t = max(prev_active_t, hm.hold_t)
                     hm.zone_low_conf = False
                     hm.zone_entry_conf = hs["conf"] if hs["vis"] else 0.0
                     hm.zone_check_t = -1e9

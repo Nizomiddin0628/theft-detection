@@ -320,7 +320,8 @@ def events_for(t: dict, limit: int = 200) -> list[dict]:
         if d.get("job_id") != t["job_id"]:
             continue
         out.append({"uid": r["uid"], "kind": r["kind"], "score": r["score"], "status": r["status"],
-                    "level": d.get("level"), "reasons": [str(x) for x in (d.get("reasons") or [])][:3],
+                    "level": d.get("level"),
+                    "reasons": [str(x) for x in (d.get("reasons") if isinstance(d.get("reasons"), list) else [])][:3],
                     "video_time": d.get("video_time"), "clip_file": r["clip_file"], "thumb_file": r["thumb_file"],
                     "clip_clean": r.get("clip_clean")})
         if len(out) >= limit:

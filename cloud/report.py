@@ -60,7 +60,9 @@ def compare(ids: list[int], t0: float, t1: float, off: int = 0, now: float | Non
                                                        "avg_wait": None, "theft": 0, "safety": 0, "unreviewed": 0}}
     inl = ",".join(str(i) for i in ids)                          # butun sonlar — SQL'ga xavfsiz
     names = {r["id"]: r for r in cdb.rows(f"SELECT id, name, last_seen, version FROM branches WHERE id IN ({inl})")}
-    p0, p1 = t0 - 7 * 86400, t1 - 7 * 86400
+    # 3.2.0: davr hali tugamagan bo'lsa (bugun, joriy hafta) — o'tgan haftaning XUDDI SHU qismi bilan solishtiriladi
+    # (avval chala davr to'liq davr bilan solishtirilib, "tashriflar kamaydi" degan noto'g'ri tavsiya chiqardi)
+    p0, p1 = t0 - 7 * 86400, (min(t1, max(now, t0)) if now < t1 else t1) - 7 * 86400
     vis = {}
     for r in cdb.visits_hourly(ids, t0, t1, off=off):
         vis[r["branch_id"]] = vis.get(r["branch_id"], 0) + r["in"]

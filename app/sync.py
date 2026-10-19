@@ -414,6 +414,10 @@ class SyncWorker(threading.Thread):
                             db.review_event(ev["id"], status, by, str(c["note"])[:2000] if c.get("note") is not None else None)
                             if status == "yangi":
                                 db.update_event(ev["id"], reviewed_by=None, reviewed_at=None)
+                            elif t_cloud_local > 0:
+                                # 3.2.0: qaror vaqti — bulutdagi vaqt (shu kompyuter soatiga o'tkazilgan), "hozir" emas:
+                                # aks holda bir partiyadagi keyingi (to'g'rilangan) buyruq "eskirgan" deb tashlanardi
+                                db.update_event(ev["id"], reviewed_at=t_cloud_local)
                             log.info("Bulutdan tekshirish: hodisa #%d → %s (%s)", ev["id"], status, by)
                             if self.manager is not None:
                                 try:
@@ -456,7 +460,7 @@ class SyncWorker(threading.Thread):
             return
         if (ev.get("loss_sum") or None) == amount:
             return
-        losses.set_loss(ev["id"], amount, str(c.get("by") or "Bulut")[:100])
+        losses.set_loss(ev["id"], amount, str(c.get("by") or "Bulut")[:100], at=t_cloud_local if t_cloud_local > 0 else None)
         log.info("Bulutdan zarar summasi: hodisa #%d → %s", ev["id"], amount)
         if self.manager is not None:
             try:
@@ -476,6 +480,28 @@ class SyncWorker(threading.Thread):
         """
         now = time.time()
         with db.tx() as c:
+            # 3.2.0: hodisalar (va kamera/navbat signallari) birinchi — uzoq aloqasizlikdan keyin minglab daqiqalik
+            # ko'rsatkichlar orqasida kutib qolmasin (bulut 10 daqiqadan eski hodisa uchun xabar yubormaydi)
+            prio = [dict(r) for r in c.execute(
+                "SELECT * FROM outbox WHERE sending=0 AND failed=0 AND next_try <= ? AND kind IN ('event', 'health', "
+                "'qalert') ORDER BY id LIMIT ?", (now, self.batch_size)).fetchall()]
+            if prio:
+                kind = prio[0]["kind"]
+                batch = [r for r in prio if r["kind"] == kind]
+                ids = [r["id"] for r in batch]
+                c.execute(f"UPDATE outbox SET sending=1 WHERE id IN ({','.join('?' * len(ids))})", ids)
+                return batch
+            for r in c.execute("SELECT * FROM outbox WHERE sending=0 AND failed=0 AND next_try <= ? AND kind='clip' "
+                               "ORDER BY id LIMIT 50", (now,)).fetchall():
+                r = dict(r)
+                try:
+                    lid = json.loads(r["payload"]).get("local_id")
+                except ValueError:
+                    lid = None
+                if lid is None or not c.execute("SELECT 1 FROM outbox WHERE key=? AND failed=0",
+                                                (f"ev:{lid}",)).fetchone():
+                    c.execute("UPDATE outbox SET sending=1 WHERE id=?", (r["id"],))
+                    return [r]
             rows = [dict(r) for r in c.execute(
                 "SELECT * FROM outbox WHERE sending=0 AND failed=0 AND next_try <= ? ORDER BY id LIMIT ?",
                 (now, self.batch_size)).fetchall()]

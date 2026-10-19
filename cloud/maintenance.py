@@ -13,6 +13,7 @@ Hodisa yozuvi o'chmaydi — faqat klip/rasm fayli (panelda "klip saqlanmagan").
 """
 from __future__ import annotations
 
+import gzip
 import logging
 import os
 import re
@@ -91,6 +92,14 @@ def prune_clips(now: float | None = None, cfg: dict | None = None) -> dict:
             freed += _drop_files(ev)
             out["expired"] += 1
     if cfg["min_free_gb"] > 0 and free_gb() < cfg["min_free_gb"]:
+        # 3.2.0: avval eski zaxira nusxalar (eng yangi 2 tasi qoladi) — dalil kliplaridan oldin
+        try:
+            bd = Path(cfg["backup_dir"])
+            if bd.is_dir() and _rotate(bd, 2):
+                log.warning("Diskda joy kam — eski zaxira nusxalar o'chirildi (eng yangi 2 tasi qoldi)")
+        except OSError:
+            pass
+    if cfg["min_free_gb"] > 0 and free_gb() < cfg["min_free_gb"]:
         # Disk to'lib qolsa yangi kliplar yozilmay qoladi — eng eski tasdiqlanmagan kliplardan boshlab bo'shatiladi.
         # Oxirgi sutka kliplari himoyada; o'chirish joy bo'shatmasa (disk boshqa narsadan to'lgan yoki kliplar boshqa
         # diskda) — to'xtaydi: behuda klip o'chirilmaydi.
@@ -99,9 +108,14 @@ def prune_clips(now: float | None = None, cfg: dict | None = None) -> dict:
             before = free_gb()
             if before >= cfg["min_free_gb"]:
                 break
-            rows = cdb.rows("SELECT uid, clip_file, thumb_file, clip_clean FROM events WHERE clip_file IS NOT NULL AND "
-                            f"status <> 'tasdiqlangan' AND {_AGE} < :p ORDER BY {_AGE} LIMIT 20",
+            # 3.2.0: eng ko'p klip saqlagan filialdan boshlab (bitta filial diskni to'ldirsa, boshqalarning dalillari
+            # birinchi bo'lib o'chmasin)
+            heavy = cdb.row("SELECT branch_id, COUNT(*) AS n FROM events WHERE clip_file IS NOT NULL AND "
+                            f"status <> 'tasdiqlangan' AND {_AGE} < :p GROUP BY branch_id ORDER BY n DESC LIMIT 1",
                             {"p": now - LOW_DISK_PROTECT_SEC})
+            rows = cdb.rows("SELECT uid, clip_file, thumb_file, clip_clean FROM events WHERE clip_file IS NOT NULL AND "
+                            f"status <> 'tasdiqlangan' AND {_AGE} < :p AND branch_id = :b ORDER BY {_AGE} LIMIT 20",
+                            {"p": now - LOW_DISK_PROTECT_SEC, "b": heavy["branch_id"]}) if heavy else []
             if not rows:
                 log.warning("Diskda joy kam (%.1f GB), lekin o'chirsa bo'ladigan eski klip qolmadi", before)
                 break
@@ -149,16 +163,33 @@ def backup(dest: Path | None = None, keep: int | None = None) -> Path:
     stamp = time.strftime("%Y%m%d-%H%M%S")
     src = _sqlite_path()
     if src is not None:
-        out = dest / f"cloud-{stamp}.db"
+        # 3.2.0: diskda joy yetmasa zaxira olinmaydi (zaxira diskni to'ldirib, xizmatni to'xtatmasin)
+        try:
+            need = src.stat().st_size * 2 + cfg["min_free_gb"] * 2 ** 30
+            if shutil.disk_usage(dest).free < need:
+                raise RuntimeError(f"diskda joy yetarli emas ({shutil.disk_usage(dest).free / 2 ** 30:.1f} GB bo'sh) — "
+                                   "zaxira olinmadi")
+        except OSError:
+            pass
+        raw = dest / f"cloud-{stamp}.db"
         s = sqlite3.connect(str(src), timeout=30)
         try:
-            d = sqlite3.connect(str(out))
+            d = sqlite3.connect(str(raw))
             try:
                 s.backup(d)
             finally:
                 d.close()
         finally:
             s.close()
+        # 3.2.0: siqilgan holda saqlanadi (daqiqalik JSON ko'rsatkichlar ~10 baravar kichrayadi)
+        out = dest / f"cloud-{stamp}.db.gz"
+        try:
+            with open(raw, "rb") as fi, gzip.open(out, "wb", compresslevel=6) as fo:
+                shutil.copyfileobj(fi, fo, 1 << 20)
+            raw.unlink(missing_ok=True)
+        except OSError:
+            out.unlink(missing_ok=True)
+            out = raw
     else:
         exe = shutil.which("pg_dump")
         if not exe:
@@ -186,15 +217,29 @@ def backup(dest: Path | None = None, keep: int | None = None) -> Path:
     # Aylanish faqat sozlangan zaxira papkasida va faqat shu skript yaratgan nomlar (cloud-YYYYmmdd-HHMMSS.db):
     # qo'lda qo'yilgan "cloud-yangilashdan-oldin.db" kabi fayllar o'chmaydi va haqiqiy zaxirani siqib chiqarmaydi
     if keep > 0 and dest.resolve() == Path(cfg["backup_dir"]).resolve():
-        for kind, ext in (("cloud", "db"), ("cloud", "pgdump"), ("vapid", "pem")):
-            rx = re.compile(rf"{kind}-\d{{8}}-\d{{6}}\.{ext}")
-            mine = [p for p in dest.glob(f"{kind}-*.{ext}") if rx.fullmatch(p.name)]
-            old = sorted(mine, key=lambda p: p.name, reverse=True)[keep:]
-            for p in old:
-                p.unlink(missing_ok=True)
+        _rotate(dest, keep)
     cdb.kv_set("last_backup", f"{time.time():.0f}|{out.name}")
     log.info("Zaxira nusxa: %s (%.1f MB)", out, out.stat().st_size / 2 ** 20)
     return out
+
+
+_BACKUP_RX = re.compile(r"cloud-\d{8}-\d{6}\.(db|db\.gz|pgdump)")
+
+
+def _rotate(dest: Path, keep: int) -> int:
+    """Faqat shu skript yaratgan nomlar (cloud-YYYYmmdd-HHMMSS.db[.gz] / .pgdump, vapid-...pem): eng yangi `keep` tasi
+    qoladi. Qo'lda qo'yilgan "cloud-yangilashdan-oldin.db" kabi fayllar o'chmaydi."""
+    n = 0
+    mine = sorted((p for p in dest.glob("cloud-*") if _BACKUP_RX.fullmatch(p.name)), key=lambda p: p.name[:21],
+                  reverse=True)
+    for p in mine[keep:]:
+        p.unlink(missing_ok=True)
+        n += 1
+    rxv = re.compile(r"vapid-\d{8}-\d{6}\.pem")
+    vap = sorted((p for p in dest.glob("vapid-*.pem") if rxv.fullmatch(p.name)), key=lambda p: p.name, reverse=True)
+    for p in vap[keep:]:
+        p.unlink(missing_ok=True)
+    return n
 
 
 def last_backup() -> tuple[float, str]:

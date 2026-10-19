@@ -8,6 +8,47 @@ klipini avtomatik kesib, **Telegram botga** sabablari bilan yuboradi. Qo'riqchi 
 
 ---
 
+## 3.2.0 — To'liq ko'rib chiqish: ~90 kamchilik tuzatildi (yangi imkoniyat yo'q)
+
+* **Telegram xabari yo'qolmaydi:** har signal har chat uchun avval bazaga (yetkazish navbati) yoziladi, keyin yuboriladi.
+  Internet/Telegram uzilsa yoki dastur o'chib qolsa — keyin o'zi qayta yuboriladi (10 s → 15 daqiqagacha oraliq,
+  24 soat ichida); 15 daqiqadan kech yetsa «⏰ Kechikkan xabar» deb yoziladi. Kamera uzildi/tiklandi va navbat xabarlari
+  ham qayta yuboriladi. Javobi kelmagan yuborish (tarmoq uzildi) qayta-qayta takrorlanmaydi (nusxa ko'paymaydi).
+  Botni bloklagan/guruhdan chiqargan chat o'chiriladi; guruh superguruhga aylansa — yangi raqamga o'zi ko'chadi;
+  HTML javob (nginx 502, Wi-Fi kirish sahifasi) — vaqtinchalik xato. So'rovlar oqimi to'xtab qolsa — qayta ishga tushadi.
+* **«Telegramga yuborish» o'chib qolishi:** Sozlamalarni saqlash bu bayroqni jimgina o'chirardi — tuzatildi; o'chiq
+  bo'lsa panel yuqorisida «yuborish o'chiq» va Tayyorlik ro'yxatida qizil band.
+* **Do'kon paneli xavfsizligi:** sessiyalar serverda (parol o'zgarsa yoki chiqilsa — boshqa qurilmalardagi sessiyalar
+  ham bekor); DNS-rebinding'dan himoya (faqat IP, kompyuter nomi, `.local`/`.lan`, `PUBLIC_URL` bilan kiriladi;
+  boshqa domen — tunnel yoki proksi orqali ochilsa — `.env` da `ALLOWED_HOSTS=domen`); kamera manzilidagi login/parol
+  diagnostikada yashiriladi. Yangilangandan keyin panelga bir marta qayta kiriladi.
+* **Kamera va AI barqarorligi:** 10 s kadr kelmasa — qayta ulanadi; soat orqaga surilsa tahlil buzilmaydi; to'xtab qolgan
+  ish oqimi qayta tiklanadi; klip yaratish bir vaqtda 2 tadan oshmaydi; disk to'lsa (< 2 GB) eng eski tekshirilmagan
+  kliplar o'chiriladi — oxirgi sutkadagilar va 7 kundan yangi tasdiqlangan o'g'irliklar himoyada, o'chirish joy
+  bermasa (disk boshqa narsa bilan to'lgan) to'xtaydi, Telegram'ga ogohlantirish;
+  dastur o'chganda «klip tayyorlanmoqda» da qolgan hodisalar ishga tushganda tuzatiladi; kamera jim qolsa ham kutib
+  turgan klip yakunlanadi.
+* **Xavfsizlik signallari:** tungi kirish — odam uzluksiz ko'rinsa (≤ 8 s uzilish), bir odamga bitta signal, qayta signal
+  faqat boshqa joyda paydo bo'lsa; yiqilish/yotish/olomon/yong'in — bir hodisani bir necha kamera ko'rsa bitta signal
+  (bitta SMS). SMS tarmoq xatosi bilan yetmasa — 2 marta qayta.
+* **Vaqt mintaqasi:** kompyuter mintaqasi do'konnikidan (sukut UTC+5) farq qilsa — Tayyorlik ro'yxatida ogohlantirish.
+  Bulut paneli vaqtlarni kompaniya mintaqasida ko'rsatadi (brauzer mintaqasida emas).
+* **Zarar summasi:** «jonli rejim»da sinalgan video fayl signallari hisobga kirmaydi; bulut buyrug'i bulutdagi kiritilgan
+  vaqt bilan yoziladi; 3.1.0 dan eski do'kon kompyuterlarida summa so'ralmaydi va «yozilmagan» deb sanalmaydi.
+* **Bulut:** ikki xodim bir signalga bir vaqtda qaror qilsa — ikkinchisiga «boshqa xodim allaqachon …» (409), ustidan
+  yozilmaydi; edge'dan kelgan noto'g'ri sonlar (NaN, juda katta) bazani buzmaydi; panel so'rovlari 256 KB bilan
+  cheklangan; har filialga kunlik klip kvotasi (429); disk kam bo'lsa kliplar filiallar orasida adolatli o'chiriladi;
+  zaxira nusxalar siqilgan (`.db.gz`, joy yetmasa olinmaydi); kamera ko'rsatkichlari 90 kun saqlanadi; «Tizim» va
+  jonli oqim (SSE) kompaniya doirasida; bitta chatga bir xabar (manzil bo'yicha takror yo'q). Video sinovi signallari
+  hisob va sanoqlarga kirmaydi.
+* **Bulut paneli:** navbat bilan tekshirishda «O'tkazib yuborish» ro'yxati va filtrlar sahifa yangilanganda saqlanadi
+  (URL'da). Do'kon panelida hodisalar ro'yxati «Yana» bosilganda yangi hodisa kelgani uchun takrorlanmaydi/siljimaydi.
+* **Ishga tushirish:** supervisor port bo'shashini kutadi; dastur ishlayotganda Windows uyquga ketmaydi; serverni
+  yangilash muvaffaqiyatsiz bo'lsa avvalgi holatga qaytadi; yangilash skripti kod o'rnatilgach darhol qayta ishga
+  tushiradi va `/healthz` ni tekshiradi, chala qolsa — kod qaytariladi.
+* Sinov: `python -m tests.test_320` (Telegram navbati, 403/superguruh/HTML javob, panel sessiyalari va Host himoyasi,
+  AI qayta ulanish/klip/disk, tungi kirish, sinxronlash tartibi, bulut 409/kvota/sanitizatsiya/zaxira).
+
 ## 3.1.0 — Video sinovida zonalar va o'lchovlar, sinov natijasi Telegram'da, toza klip, oldini olingan zarar
 
 * **Signal aniqlansa — Telegram'ga xabar (asosiy qoida):** bulut panelidagi Video sinovi signallari endi Telegram'ga
@@ -804,11 +845,20 @@ Yangi imkoniyat yo'q; 1.4.0 ni to'liq ko'rib chiqishda topilgan kamchiliklar tuz
 ### Windows
 1. [python.org](https://www.python.org/downloads/) dan **Python 3.11 yoki 3.12** ni o'rnating.
    O'rnatishda **"Add python.exe to PATH"** belgisini albatta qo'ying.
-2. ZIP faylni oching (masalan `C:\hushyor-ai`).
+2. [git-scm.com](https://git-scm.com/download/win) dan **Git** ni o'rnating va kodni oling (tavsiya — keyingi
+   yangilanishlar bitta `.ps1` skript bilan keladi, u git'ni talab qiladi):
+   `git clone https://github.com/Nizomiddin0628/theft-detection.git C:\hushyor-ai`.
+   ZIP bilan ham bo'ladi, lekin unda yangilanishlar `scripts\windows\update.ps1 -Zip` orqali. Papka yo'lida faqat
+   lotin harflari bo'lsin (masalan `C:\hushyor-ai`, `C:\Users\Иван\...` emas).
 3. `install_windows.bat` faylini ikki marta bosing (1.8.0, tavsiya). U quyidagilarni qiladi:
    * kutubxonalarni o'rnatadi (3–10 daqiqa, internet kerak);
    * panel parolini so'raydi;
    * Windows'ga kirganda avtomatik ishga tushishni sozlaydi.
+
+   Do'kon kompyuteri uchun (3.2.0): dastur ishlayotganda Windows o'zi uyquga ketmaydi. Elektr o'chib-yonganda
+   dastur Windows'ga kirilgandan keyin ishga tushadi — kompyuterda avtomatik kirishni yoqing (`netplwiz` →
+   "Foydalanuvchi nomi va parol talab qilinsin" belgisini olib tashlang), BIOS'da "elektr kelganda yoqilish"
+   (Restore on AC power loss) ni yoqing; noutbukda qopqoq yopilganda "Hech narsa qilmaslik" ni tanlang.
 
    Oddiy ishga tushirish uchun: `start_windows.bat`.
 4. Brauzer o'zi ochiladi: **http://localhost:8000** — login `admin`. Parol o'rnatishda bergan parolingiz;
@@ -956,6 +1006,7 @@ python -m cloud.server --leads            # 2.6.0 saytdagi so'rovlar va 10-bosqi
 | `ADMIN_USER`, `ADMIN_PASSWORD` | Web panel logini va paroli — **parolni o'zgartiring** |
 | `PORT` | Web panel porti (standart 8000) |
 | `PUBLIC_URL` | Panel internetda ochiq bo'lsa — Telegram xabarida "Panelda ochish" tugmasi chiqadi |
+| `ALLOWED_HOSTS` | 3.2.0: panel IP, kompyuter nomi va `PUBLIC_URL` dan boshqa domen bilan ham ochilsin (tunnel, proksi) — vergul bilan |
 | `AI_THREADS` | AI uchun CPU oqimlari (standart: yadrolar − 2, ko'pi bilan 4). Kompyuter qotsa — kamaytiring |
 
 Bitta token bilan faqat bitta dastur ishlashi mumkin (Telegram cheklovi). Agar bot "Conflict" xatosini

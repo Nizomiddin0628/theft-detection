@@ -1899,6 +1899,24 @@ input[type="range"] {
   .rail-nav li {
     flex: 1 0 56px;
   }
+
+  /* 3.2.0: o'ng chetdagi xiralik — menyu davom etishini ko'rsatadi (Taqqoslash, Grafiklar, Xodimlar, Sozlamalar) */
+  .rail-nav {
+    mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent);
+    -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent);
+  }
+
+  /* 3.2.0: telefonda ham jonli ulanish uzilganini ko'rsatish (qo'riqchi yangi signallar kelmayotganini bilsin) */
+  .live:not(.on) {
+    display: block;
+    position: fixed;
+    top: 8px;
+    right: 8px;
+    z-index: 60;
+    padding: 3px 8px;
+    border-radius: 999px;
+    background: #3a1f12;
+  }
 }
 
 /* 3.1.0: ikki-uch tugmali almashtirgich (klip: Belgili / Toza) va zarar summasi */

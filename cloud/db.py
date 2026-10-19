@@ -117,6 +117,7 @@ events = Table(
     Column("received_at", Float),                         # bulutga birinchi kelgan vaqt (bulut soati)
     Column("clip_clean", String(200)),                    # 3.1.0: chizmalarsiz klip (Telegram'ga shu ketadi)
     Column("loss_sum", BigInteger),                       # 3.1.0: tasdiqlangan o'g'irlikning taxminiy zarari (so'm, qo'lda)
+    Column("job_id", BigInteger),                         # 3.2.0: video tahlili (Video sinovi) hodisasi — hisoblagichlarga kirmaydi
     Index("ix_events_branch_time", "branch_id", "created_at"),
 )
 metrics_minute = Table(
@@ -358,7 +359,7 @@ video_tests = Table(                                       # 3.0.0: bulut paneli
 EXTRA_COLUMNS = {
     "branches": {"offline_since": "FLOAT", "occupancy": "JSON", "queues": "JSON", "flow_plans": "JSON",
                  "readiness": "JSON"},
-    "events": {"received_at": "FLOAT", "clip_clean": "VARCHAR(200)", "loss_sum": "BIGINT"},
+    "events": {"received_at": "FLOAT", "clip_clean": "VARCHAR(200)", "loss_sum": "BIGINT", "job_id": "BIGINT"},
     "video_tests": {"zones": "JSON", "metrics": "JSON", "notified": "BOOLEAN"},
 }
 
@@ -477,7 +478,42 @@ def init_db() -> dict:
             info["visits_backfilled"] = nv
     except Exception as e:  # noqa: BLE001
         info["visits_backfill_error"] = str(e)[:160]
+    try:
+        nj = _backfill_job_ids()
+        if nj:
+            info["job_ids_backfilled"] = nj
+    except Exception as e:  # noqa: BLE001
+        info["job_ids_backfill_error"] = str(e)[:160]
     return info
+
+
+def _backfill_job_ids() -> int:
+    """3.2.0: events.job_id ustuni qo'shilgach — oldingi video tahlili hodisalari (data ichida job_id) bir marta belgilanadi."""
+    if kv_get("events_job_ids", "") == "1":
+        return 0
+    from sqlalchemy import Text, cast
+
+    n, last = 0, ""
+    body = cast(events.c.data, Text)
+    # Bo'laklab (500 tadan, har biri o'z tranzaksiyasida): katta bazada xotira to'lmasin va yozuvchilar uzoq
+    # to'silmasin. Har hodisada "job_id": null bor (edge hamma ustunni yuboradi) — ular umuman o'qilmaydi
+    while True:
+        with engine().begin() as c:
+            page = c.execute(events.select().with_only_columns(events.c.uid, events.c.data)
+                             .where(events.c.job_id.is_(None), events.c.uid > last, body.like('%"job_id": %'),
+                                    ~body.like('%"job_id": null%'))
+                             .order_by(events.c.uid).limit(500)).fetchall()
+            for r in page:
+                d = json_load(r.data) or {}
+                jid = d.get("job_id") if isinstance(d, dict) else None
+                if isinstance(jid, (int, float)) and not isinstance(jid, bool):
+                    c.execute(events.update().where(events.c.uid == r.uid).values(job_id=int(jid)))
+                    n += 1
+        if len(page) < 500:
+            break
+        last = page[-1].uid
+    kv_set("events_job_ids", "1")
+    return n
 
 
 # ----------------------------------------------------------------------------- yordamchilar
@@ -688,7 +724,7 @@ def put_flow_hour(conn, branch_id: int, item: dict) -> bool:
     for m in (item.get("moves") or [])[:500] if isinstance(item.get("moves"), list) else []:
         try:
             a, b, c = int(m[0]), int(m[1]), int(m[2])
-        except (TypeError, ValueError, IndexError):
+        except (TypeError, ValueError, IndexError, KeyError, OverflowError):
             continue
         if c > 0:
             moves.append([a, b, min(c, 10**6)])

@@ -5,6 +5,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 import { api, isSafety, KIND_UZ, ROLE_UZ, type Me } from "@/lib/api";
+import { setCompanyTz } from "@/lib/format";
 import { beep, emitLive, getPref, unlockAudio, type LiveMsg } from "@/lib/live";
 import { IconBell, IconCart, IconChart, IconDoor, IconExit, IconFilm, IconList, IconMap, IconPeople, IconScale, IconShield, IconStore, IconWall } from "./Icons";
 import ThemeToggle from "./ThemeToggle";
@@ -65,7 +66,10 @@ export default function Shell({ children }: { children: ReactNode }) {
   useEffect(() => {
     api<Me & { authenticated: boolean }>("/auth/status")
       .then((r) => {
-        if (r.authenticated) setMe(r);
+        if (r.authenticated) {
+          setCompanyTz((r as Me & { tz_offset?: number }).tz_offset);    // 3.2.0: vaqtlar do'kon mintaqasida
+          setMe(r);
+        }
         else window.location.replace("/login/?next=" + encodeURIComponent(window.location.pathname + window.location.search));
       })
       .catch((e: Error) => setFailed(e.message));

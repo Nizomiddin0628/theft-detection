@@ -98,7 +98,7 @@ function LoginForm() {
       <button className="btn primary" type="submit" disabled={busy || !email || !password}>
         {busy ? "Tekshirilmoqda…" : "Kirish"}
       </button>
-      <p className="muted small">Parolni unutdingizmi? Kompaniya egasi yangi parol bilan foydalanuvchi qo&apos;shib beradi.</p>
+      <p className="muted small">Parolni unutdingizmi? Kompaniya egasi <b>Xodimlar</b> sahifasida sizga yangi parol berib qo&apos;yadi.</p>
     </form>
   );
 }

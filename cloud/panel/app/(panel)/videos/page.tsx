@@ -88,6 +88,17 @@ function Upload({ data, onDone }: { data: VideoTestsResp; onDone: () => void }) 
       setBranch(String(first.id));
     }
   }, [usable, branch]);
+  // 3.2.0: yuklash davomida sahifani yopish/yangilash — brauzer ogohlantiradi (aks holda video jimgina yo'qolardi)
+  const uploading = prog !== null;
+  useEffect(() => {
+    if (!uploading) return;
+    const warn = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = "";
+    };
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [uploading]);
   const sel = usable.find((b) => String(b.id) === branch) ?? null;
   const maxBytes = data.limits.max_mb * 1024 * 1024;
   const tooBig = !!file && file.size > maxBytes;

@@ -51,7 +51,7 @@ import cv2  # noqa: E402
 import httpx  # noqa: E402
 import numpy as np  # noqa: E402
 
-from app import db, losses, reports, sync  # noqa: E402
+from app import config, db, losses, reports, sync  # noqa: E402
 from app.ai import clipper, video_metrics, zones as zones_mod  # noqa: E402
 from app.config import CLIPS_DIR  # noqa: E402
 from cloud import notify, service  # noqa: E402
@@ -434,7 +434,7 @@ def edge_web_suite(ev_tg: int) -> None:
     ok("Boshqaruv paneli: jami 475 000 so'm (Telegram 150 000 + guruh 75 000 + panel 250 000)", s.get("total") == 475000,
        str(s))
     csv = c.get("/api/export/events.csv").text
-    ok("CSV — 'Taxminiy zarar (so'm)' ustuni va qiymat", "Taxminiy zarar (so'm)" in csv and ",250000" in csv)
+    ok("CSV — 'Taxminiy zarar (so'm)' ustuni va qiymat", "Taxminiy zarar (so'm)" in csv and ";250000" in csv)
     t0 = time.time() - 3600
     d = reports.compute("daily", t0, time.time() + 60)
     txt = reports.text(d)
@@ -529,8 +529,8 @@ def cloud_suite() -> None:
     sync._worker = w
     w.start()
     wait(lambda: (cdb.row("SELECT version FROM branches WHERE id=:b", {"b": bid}) or {}).get("version"), 15)
-    ok("Edge 3.1.0 bulutga ulandi", (cdb.row("SELECT version FROM branches WHERE id=:b", {"b": bid}) or {}).get("version")
-       == "3.1.0")
+    ok(f"Edge {config.APP_VERSION} bulutga ulandi", (cdb.row("SELECT version FROM branches WHERE id=:b", {"b": bid}) or {}).get("version")
+       == config.APP_VERSION)
 
     # --- jonli hodisa: toza klip bulutga, bulut boti toza videoni yuboradi
     ev = _event()
@@ -931,4 +931,5 @@ def main() -> int:
 
 if __name__ == "__main__":
     code = main()
+    sys.stdout.flush()                 # Windows'da chiqish quvurga ketganda oxirgi "Natija" qatori yo'qolmasin
     os._exit(code)

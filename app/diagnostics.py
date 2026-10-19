@@ -187,7 +187,9 @@ def info() -> dict:
     out["env"] = _safe(_env_keys)
     out["cameras"] = _safe(lambda: [{k: (redact(str(v)) if isinstance(v, str) else v) for k, v in s.items()}
                                     for s in get_manager().source_info()], [])
-    out["camera_health"] = _safe(lambda: {str(k): v for k, v in get_manager().health.items()}, {})
+    # 3.2.0: sabab matnida kamera manzili (login/parol bilan) bo'lishi mumkin edi — yashiriladi
+    out["camera_health"] = _safe(lambda: json.loads(redact(json.dumps(
+        {str(k): v for k, v in get_manager().health.items()}, ensure_ascii=False, default=str))), {})
     out["zones"] = _safe(lambda: db.rows("SELECT source_id, kind, COUNT(*) AS n FROM zones WHERE enabled=1 "
                                          "GROUP BY source_id, kind"), [])
     out["telegram"] = _safe(lambda: {**{k: v for k, v in (get_bot().info() or {}).items() if k != "username"},

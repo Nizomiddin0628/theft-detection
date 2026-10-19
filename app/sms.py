@@ -182,8 +182,23 @@ def notify_event(event_id: int, sync: bool = False) -> int:
         return 0
     if sync:
         return _deliver(ev, s)
-    threading.Thread(target=_deliver, args=(ev, s), daemon=True, name=f"sms-{event_id}").start()
+    threading.Thread(target=_deliver_retry, args=(ev, s), daemon=True, name=f"sms-{event_id}").start()
     return len(phones(s))
+
+
+SMS_RETRY = (30.0, 120.0)        # 3.2.0: tarmoq xatosi bilan yetmagan SMS — qayta (yiqilish xabari muhim)
+
+
+def _deliver_retry(ev: dict, s: dict) -> int:
+    n = _deliver(ev, s)
+    for delay in SMS_RETRY:
+        missing = [ph for ph in phones(s)
+                   if not db.scalar("SELECT 1 FROM sms_log WHERE event_id=? AND phone=? AND ok=1", (ev["id"], ph))]
+        if not missing:
+            break
+        time.sleep(delay)
+        n += _deliver(ev, s)
+    return n
 
 
 _deliver_lock = threading.Lock()

@@ -122,16 +122,23 @@ foreach ($f in $keep) {
 $newFiles = @()
 $oldHead = ""
 if ($stage) {
+    # 3.2.0: panel build'i AVVAL to'liq nusxalanadi (keyin fayllar sikli uning ichiga yozmasin - avval
+    # panel_dist\panel_dist bo'lib qolardi va orqaga qaytarishda panel buzilardi)
+    if (Test-Path "cloud\panel_dist") {      # panel build'i to'liq (xesh nomli fayllar)
+        New-Item -ItemType Directory -Force -Path (Join-Path $bakCode "cloud") | Out-Null
+        Copy-Item "cloud\panel_dist" (Join-Path $bakCode "cloud\panel_dist") -Recurse -Force
+    }
     foreach ($rel in $files) {
         $cur = Join-Path $root $rel
+        if ($rel -like "cloud\panel_dist\*" -or $rel -like "cloud/panel_dist/*") {
+            if (-not (Test-Path $cur)) { $newFiles += $rel }
+            continue
+        }
         if (Test-Path $cur) {
             $dst = Join-Path $bakCode $rel
             New-Item -ItemType Directory -Force -Path (Split-Path $dst) | Out-Null
             Copy-Item $cur $dst -Force
         } else { $newFiles += $rel }
-    }
-    if (Test-Path "cloud\panel_dist") {      # panel build'i to'liq (xesh nomli fayllar)
-        Copy-Item "cloud\panel_dist" (Join-Path $bakCode "cloud\panel_dist") -Recurse -Force
     }
 } else {
     $oldHead = (git rev-parse HEAD 2>$null)

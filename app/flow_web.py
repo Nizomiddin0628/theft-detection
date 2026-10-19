@@ -521,7 +521,7 @@ def flow_csv(days: int = 30):
     days = max(1, min(int(days), 90))
     t0 = _day0() - (days - 1) * 86400
     buf = io.StringIO()
-    w = csv.writer(buf)
+    w = csv.writer(buf, delimiter=";")   # 3.2.0: Excel (uz/ru Windows) ustunlarni to'g'ri ajratsin
     w.writerow(["kun", "reja", "bo'lim", "tashriflar"])
     names = {r["id"]: r["name"] for r in db.rows("SELECT id, name FROM floor_plans")}
     rows = db.rows("SELECT plan_id, section_id, MAX(section_name) AS name, CAST((t - ?) / 86400 AS INTEGER) AS d, "

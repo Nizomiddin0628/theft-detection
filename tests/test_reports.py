@@ -357,6 +357,10 @@ def telegram_suite() -> None:
     tg.FAIL_NEXT.clear()
     tg.FAIL_STATUS.clear()
     ok("Telegram 403 (bloklangan) — doimiy xato deb belgilanadi", row and row["perm"] == 1 and row["tries"] == 1, str(row))
+    # 3.2.0: botni bloklagan chat obunachilar ro'yxatidan o'chadi — keyingi sinovlar uchun qaytaramiz
+    ok("... va o'sha chat obunachilikdan o'chirildi", row and db.scalar(
+        "SELECT active FROM subscribers WHERE chat_id=?", (row["chat_id"],)) == 0)
+    db.execute("UPDATE subscribers SET active=1")
     clear()
     seed(t0)
     tg.CALLS.clear()

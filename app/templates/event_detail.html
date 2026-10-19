@@ -24,6 +24,8 @@
         {% endif %}
         {% elif ev.thumb_url %}
         <div class="video-box"><img src="{{ ev.thumb_url }}" alt=""></div>
+        {% elif ev.clip_error %}
+        <div class="video-box"><div class="empty" style="color:#94a3b8;padding-top:22%">Bu hodisa uchun klip yaratilmadi (kamera kadri yo'q edi).</div></div>
         {% else %}
         <div class="video-box"><div class="empty" style="color:#94a3b8;padding-top:22%">Klip tayyorlanmoqda… sahifani bir necha soniyadan keyin yangilang.</div></div>
         {% endif %}

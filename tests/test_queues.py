@@ -15,6 +15,7 @@ import os
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 from pathlib import Path
 
@@ -704,14 +705,20 @@ def telegram_suite() -> None:
     bot = telegram_bot.TelegramBot.__new__(telegram_bot.TelegramBot)
     sent = []
     bot.token = "x"
+    bot._ob_queued, bot._ob_lock = set(), threading.Lock()      # 3.2.0: yetkazish navbati holati (__init__ dagidek)
     bot._enqueue = lambda prio, kind, a, b=None: sent.append((kind, a, b))
     db.execute("INSERT OR REPLACE INTO subscribers(chat_id, name, username, created_at, active) VALUES(1001,'A','a',?,1)",
                (time.time(),))
     db.execute("INSERT OR REPLACE INTO subscribers(chat_id, name, username, created_at, active) VALUES(1002,'B','b',?,1)",
                (time.time(),))
     db.execute("UPDATE subscribers SET queue_alerts=0 WHERE chat_id=1002")
+    db.execute("DELETE FROM tg_outbox")
     n = bot.send_queue_alert("🧾 test")
-    ok("Navbat signali faqat o'chirmaganlarga", n == 1 and [x[1] for x in sent] == [1001], str(sent))
+    # 3.2.0: avval yetkazish navbatiga (tg_outbox) — yetmasa qayta yuboriladi
+    queued = [(r["chat_id"], r["text"]) for r in db.rows("SELECT chat_id, text FROM tg_outbox WHERE kind='text'")]
+    ok("Navbat signali faqat o'chirmaganlarga", n == 1 and queued == [(1001, "🧾 test")]
+       and [x[0] for x in sent] == ["otext"], f"{sent} {queued}")
+    db.execute("DELETE FROM tg_outbox")
     m = bot._queue_markup(1001)
     ok("/navbat tugmasi: 'o'chirish' (yoqilgan chat)", m["inline_keyboard"][0][0]["callback_data"] == "qa:off")
     ok("/navbat tugmasi: 'yoqish' (o'chirgan chat)", bot._queue_markup(1002)["inline_keyboard"][0][0]["callback_data"] == "qa:on")

@@ -98,6 +98,29 @@ def autostart_task() -> bool | None:
 
 
 # ============================================================================= tayyorlik ro'yxati
+def tz_offset_now() -> int:
+    """Kompyuterning hozirgi vaqt mintaqasi (UTC dan soniya)."""
+    lt = time.localtime()
+    off = getattr(lt, "tm_gmtoff", None)
+    if off is None:
+        off = -(time.altzone if lt.tm_isdst > 0 else time.timezone)
+    return int(off)
+
+
+def tz_expected() -> int:
+    """Do'kon vaqt mintaqasi (sukut: O'zbekiston, UTC+5; boshqa joy uchun sozlamada `store_tz_offset` soat)."""
+    try:
+        return int(round(float(db.get_setting("store_tz_offset", "") or 5) * 3600))
+    except ValueError:
+        return 5 * 3600
+
+
+def _fmt_off(sec: int) -> str:
+    sign = "+" if sec >= 0 else "−"
+    h, m = divmod(abs(int(sec)) // 60, 60)
+    return f"{sign}{h:02d}:{m:02d}"
+
+
 def _items() -> list[dict]:
     from . import reports, sync
     from .ai.counting import LINE_KIND
@@ -134,7 +157,11 @@ def _items() -> list[dict]:
             "/telegram")
     else:
         st = (bot.info() or {}).get("status") or ""
-        if subs == 0:
+        if not db.flag("telegram_enabled"):
+            # 3.2.0: avval Sozlamalarni saqlash bu bayroqni jimgina o'chirib qo'yardi
+            add("telegram", "Telegram bot", "bad", "«Telegramga yuborish» o'chirilgan — signallar hech kimga bormaydi. "
+                                                   "Telegram sahifasida yoqing.", "/telegram")
+        elif subs == 0:
             add("telegram", "Telegram bot", "bad", "Bot ulangan, lekin hech kim obuna bo'lmagan (ulanish kodini yuboring)",
                 "/telegram")
         elif st and st not in ("ishlayapti", "ulangan"):
@@ -159,6 +186,14 @@ def _items() -> list[dict]:
                 "/sources")
         else:
             add("cameras", "Kameralar", "ok", f"{len(srcs)} ta kamera ishlayapti", "/sources")
+    # 3.2.0: kompyuter vaqt mintaqasi — ish vaqti, tungi kirish, kunlik hisoblar shunga tayanadi
+    want = tz_expected()
+    have = tz_offset_now()
+    if abs(have - want) >= 60:
+        add("timezone", "Vaqt mintaqasi", "warn",
+            f"Kompyuterda UTC{_fmt_off(have)}, do'kon vaqti UTC{_fmt_off(want)}. Ish vaqti, tungi kirish va kunlik hisoblar "
+            "noto'g'ri chiqadi. Windows: Sozlamalar → Vaqt va til → Vaqt mintaqasi (masalan, (UTC+05:00) Toshkent), "
+            "keyin dasturni qayta ishga tushiring.", optional=True)
     # 5. Zonalar (kassa/xodim joyi — xato signal kamayadi)
     if srcs:
         nz = {r["source_id"]: r["n"] for r in db.rows("SELECT source_id, COUNT(*) AS n FROM zones WHERE enabled=1 "

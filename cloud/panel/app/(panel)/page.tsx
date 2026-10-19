@@ -50,6 +50,8 @@ export default function Dashboard() {
   const oldest = evs.length ? Math.min(...evs.map((e) => e.created_at)) : null;
   const bs = branches.data ?? [];
   const offline = bs.filter((b) => !b.online && b.last_seen).length;
+  // 3.2.0: haqiqiy soni filiallar bo'yicha (ro'yxat 60 tagacha yuklanadi — avval son 60 da to'xtab qolardi)
+  const pendingTotal = bs.length ? Math.max(evs.length, bs.reduce((a, b) => a + (b.pending_review || 0), 0)) : evs.length;
 
   return (
     <>
@@ -61,7 +63,9 @@ export default function Dashboard() {
               ? offline
                 ? `${bs.length} ta filialdan ${offline} tasi bilan aloqa yo'q.`
                 : `${bs.length} ta filial, hammasi aloqada.`
-              : "Filiallar ro'yxati yuklanmoqda."}
+              : branches.loading
+                ? "Filiallar ro'yxati yuklanmoqda."
+                : "Hali filial qo'shilmagan."}
           </p>
         </div>
       </div>
@@ -144,7 +148,7 @@ export default function Dashboard() {
         <div className="wall-head">
           <div>
             <span className="wall-count" data-testid="pending-count">
-              {evs.length}
+              {pendingTotal}
             </span>
             <h2 id="wall-h" style={{ display: "inline" }}>
               Tekshirish kerak
@@ -153,7 +157,17 @@ export default function Dashboard() {
           <span className="wall-sub">
             <span>{oldest ? `Eng eskisi ${ago(oldest)}` : "Yangi signal kelsa, shu yerda paydo bo'ladi"}</span>
             {evs.length > 0 ? (
-              <Link className="btn small on-dark" href={`/events/?uid=${encodeURIComponent(evs[evs.length - 1].uid)}&queue=1`}>
+              <Link
+                className="btn small on-dark"
+                href={`/events/?uid=${encodeURIComponent(evs[evs.length - 1].uid)}&queue=1`}
+                onClick={() => {
+                  try {
+                    sessionStorage.removeItem("hushyor_queue_skipped");       // yangi navbat — o'tkazilganlar unutiladi
+                  } catch {
+                    /* jim */
+                  }
+                }}
+              >
                 Navbat bilan tekshirish
               </Link>
             ) : null}

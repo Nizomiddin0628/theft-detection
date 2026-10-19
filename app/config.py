@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+import re
 import secrets
 from pathlib import Path
 
@@ -35,15 +36,33 @@ def _load_dotenv(env_file: Path | None = None) -> None:
     env_file = env_file or BASE_DIR / ".env"
     if not env_file.exists():
         return
-    for raw in env_file.read_text(encoding="utf-8-sig").splitlines():
+    raw_bytes = env_file.read_bytes()
+    # 3.2.0: Notepad'da "Unicode" (UTF-16) yoki "ANSI" bilan saqlangan .env ham o'qiladi (avval dastur umuman
+    # ishga tushmasdi — UnicodeDecodeError)
+    if raw_bytes.startswith((b"\xff\xfe", b"\xfe\xff")):
+        text = raw_bytes.decode("utf-16", errors="replace")
+    else:
+        try:
+            text = raw_bytes.decode("utf-8-sig")
+        except UnicodeDecodeError:
+            text = raw_bytes.decode("cp1251", errors="replace")
+    for raw in text.splitlines():
         line = raw.strip()
         if not line or line.startswith("#") or "=" not in line:
             continue
         if line.lower().startswith("export "):
             line = line[7:].strip()
         key, value = line.split("=", 1)
-        key = key.strip().lstrip("﻿")
-        value = value.strip().strip('"').strip("'")
+        key = key.strip().lstrip("\ufeff")
+        value = value.strip()
+        if value[:1] in ('"', "'") and value.count(value[0]) >= 2:
+            value = value[1:value.index(value[0], 1)]          # "qiymat"  # izoh
+        elif not re.search(r"PASSWORD|TOKEN|SECRET|KEY", key, re.I):
+            # PORT=8000  # izoh — faqat "bo'shliq + # + bo'shliq" izoh hisoblanadi; parol va kalitlarga tegilmaydi
+            # (3.1.0 da "ADMIN_PASSWORD=Dokon #2024" butunligicha olinardi — o'zgarmasin)
+            m = re.search(r"\s#(\s|$)", value)
+            if m:
+                value = value[:m.start()].rstrip()
         if key:
             os.environ.setdefault(key, value)
 
@@ -62,7 +81,12 @@ ADMIN_PASSWORD = env("ADMIN_PASSWORD", "admin123")
 HOST = env("HOST", "0.0.0.0")
 # 2.6.0: demo rejimi (scripts/demo.py) — namuna ma'lumot, faqat alohida "demo" papkasida (haqiqiy data/ da hech qachon)
 DEMO = env("HUSHYOR_DEMO") == "1" and DATA_DIR.name == "demo"
-PORT = int(env("PORT", "8000"))
+try:
+    PORT = int(env("PORT", "8000"))
+except ValueError:
+    PORT = 8000
+# 3.2.0: panel ochiladigan qo'shimcha domen nomlari (vergul bilan; IP manzillar va kompyuter nomi doim ruxsat)
+ALLOWED_HOSTS = [h.strip().lower() for h in env("ALLOWED_HOSTS", "").split(",") if h.strip()]
 PUBLIC_URL = env("PUBLIC_URL", "").rstrip("/")
 # Bulut (markaziy server): bo'sh bo'lsa — hamma narsa faqat shu kompyuterda, yuborilmaydi
 CLOUD_URL = env("CLOUD_URL", "").rstrip("/")
@@ -181,4 +205,4 @@ SETTINGS_MIGRATIONS = {
 SETTINGS_VERSION = max(SETTINGS_MIGRATIONS)
 
 APP_NAME = "Hushyor AI"
-APP_VERSION = "3.1.0"
+APP_VERSION = "3.2.0"

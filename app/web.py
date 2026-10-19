@@ -3,13 +3,17 @@ from __future__ import annotations
 
 import asyncio
 import csv
+import hashlib
 import hmac
 import io
+import ipaddress
 import json
 import os
 import platform
 import re
+import secrets
 import shutil
+import socket
 import sys
 import threading
 import time
@@ -27,14 +31,19 @@ from starlette.middleware.sessions import SessionMiddleware
 
 from . import db, metrics, sync
 from .ai.manager import archive_feedback, delete_event_files, get_manager
-from .config import (ADMIN_PASSWORD, ADMIN_USER, APP_NAME, APP_VERSION, BASE_DIR, CLIPS_DIR, DATA_DIR, DEMO,
-                     EVAL_DIR, HOST, MODELS_DIR, PUBLIC_URL, SECRET_KEY, SENSITIVITY_PRESETS, UPLOADS_DIR, env)
+from .config import (ADMIN_PASSWORD, ADMIN_USER, ALLOWED_HOSTS, APP_NAME, APP_VERSION, BASE_DIR, CLIPS_DIR,
+                     DATA_DIR, DEMO, EVAL_DIR, HOST, MODELS_DIR, PUBLIC_URL, SECRET_KEY, SENSITIVITY_PRESETS,
+                     UPLOADS_DIR, env)
 from .logutil import MEMORY_LOG, get_logger, setup_logging
 from . import evaluation, flow_web, pilot_web, queue_web, safety_web, visits
 from .ai import zones as zones_mod
 from .ai.safety import SAFETY_KINDS
 # 2.2.0: o'g'irlik aniqligi (precision, model javoblari) xavfsizlik signallarisiz hisoblanadi
 NOT_SAFETY = "(kind IS NULL OR kind NOT IN (" + ",".join(f"'{k}'" for k in SAFETY_KINDS) + "))"
+# 3.2.0: do'kondagi jonli kamera hodisasi (yuklangan video tahlili va "jonli rejim"da sinalgan video emas) — bosh sahifa
+# va menyudagi hisoblagichlar faqat shularni sanaydi (demo rejimida namuna videolar kamera o'rnida)
+LIVE_EV = ("job_id IS NULL" if DEMO else
+           "job_id IS NULL AND (source_id IS NULL OR source_id NOT IN (SELECT id FROM sources WHERE kind='file'))")
 from .telegram_bot import KIND_UZ, get_bot, latency_stats, susp_info
 
 log = get_logger("web")
@@ -113,6 +122,10 @@ def _startup() -> None:
 
     queues.set_notifier(bot)                # 2.0.0: navbat qoidalari signallari
     bot.start()
+    try:
+        _reconcile_telegram(mgr, bot)
+    except Exception:  # noqa: BLE001
+        log.exception("Oldingi ishga tushishdan qolgan kliplarni tekshirib bo'lmadi")
     # 3.0.0: tahlil paytida to'xtab qolgan bulut video sinovlari qaytadan navbatga (faqat shu yerda — asosiy dasturda)
     try:
         from . import cloud_tests
@@ -136,6 +149,18 @@ def _startup() -> None:
         log.warning("Panel standart parol (admin123) bilan tarmoqqa ochiq (HOST=%s). .env da ADMIN_PASSWORD ni "
                     "o'zgartiring yoki HOST=127.0.0.1 qiling", HOST)
     log.info("%s %s ishga tushdi", APP_NAME, APP_VERSION)
+
+
+def _reconcile_telegram(mgr, bot) -> None:
+    """3.2.0: oldingi ishga tushishdan qolganlar: klipi tayyorlanmagan hodisalar — "klip yaratilmadi" (Telegram
+    xabaridagi "tayyorlanmoqda" yangilanadi); klipi yozilgan-u, Telegram xabariga qo'shilmay qolganlar — qo'shiladi."""
+    for ev_id in mgr.reconcile_pending_clips():
+        if db.scalar("SELECT 1 FROM tg_messages WHERE event_id=?", (ev_id,)):
+            bot.refresh_event(ev_id)
+    rows = db.rows("SELECT DISTINCT e.id FROM events e JOIN tg_messages m ON m.event_id=e.id WHERE e.clip_path IS NOT "
+                   "NULL AND m.kind IN ('photo', 'text') AND e.created_at > ?", (time.time() - 6 * 3600,))
+    for r in rows:
+        bot.notify_clip(int(r["id"]))
 
 
 def _warmup() -> None:
@@ -243,21 +268,149 @@ EDGE_CSP = ("default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 's
             "object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'")
 
 
+_HOSTS_OK: set[str] = set()
+
+
+def _allowed_hosts() -> set[str]:
+    if not _HOSTS_OK:
+        hs = {"localhost", "testserver", "testclient"}
+        try:
+            hn = socket.gethostname().lower()
+            hs |= {hn, f"{hn}.local", socket.getfqdn().lower()}
+        except OSError:
+            pass
+        if PUBLIC_URL:
+            hs.add(_bare_host(_host_of(PUBLIC_URL)))
+        hs |= {_bare_host(h) for h in ALLOWED_HOSTS}       # "panel.example.com:8443" ham to'g'ri tushunilsin
+        _HOSTS_OK.update(h for h in hs if h)
+    return _HOSTS_OK
+
+
+_PRIVATE_SUFFIXES = (".local", ".lan", ".home", ".home.arpa", ".internal", ".localdomain")
+
+
+def _bare_host(h: str) -> str:
+    h = h.strip().lower()
+    if h.startswith("["):
+        return h[1:].split("]", 1)[0]
+    return h.rsplit(":", 1)[0] if h.count(":") == 1 else h
+
+
+def _host_allowed(request: Request) -> bool:
+    """3.2.0: DNS rebinding himoyasi. Begona sayt o'z domenini 127.0.0.1 ga yo'naltirib, do'kon kompyuteridagi
+    brauzer orqali panelga "o'zi" bo'lib kira olmasin: panel faqat IP manzil, kompyuter nomi (nuqtasiz yoki .local),
+    PUBLIC_URL yoki .env dagi ALLOWED_HOSTS bilan ochiladi."""
+    raw = request.headers.get("host") or ""
+    if not raw:
+        return True
+    host = _bare_host(raw)
+    try:
+        ipaddress.ip_address(host)
+        return True
+    except ValueError:
+        pass
+    # nuqtasiz nom va faqat ichki tarmoqda bo'ladigan qo'shimchalar (router DNS: shop-pc.lan, .home ...) — ularni
+    # tashqi sayt o'z domeni qilib ro'yxatdan o'tkaza olmaydi
+    if "." not in host or host.endswith(_PRIVATE_SUFFIXES):
+        return True
+    return host in _allowed_hosts() or "*" in ALLOWED_HOSTS
+
+
+def _session_fp() -> str:
+    """Joriy login/parol izi: .env da parol (yoki login) almashsa, eski sessiyalar darhol yaroqsiz."""
+    return hmac.new(SECRET_KEY.encode(), f"{ADMIN_USER}\0{ADMIN_PASSWORD}".encode(), hashlib.sha256).hexdigest()[:20]
+
+
+SESSION_MAX_AGE = 14 * 24 * 3600
+_sid_cache: dict[str, float] = {}          # sid -> oxirgi tekshiruv (bazaga har so'rovda bormaslik uchun)
+_sid_lock = threading.Lock()
+
+
+def _sid_valid(sid: str) -> bool:
+    if not sid:
+        return False
+    now = time.time()
+    with _sid_lock:
+        t = _sid_cache.get(sid)
+        if t is not None and now - t < 60:
+            return True
+    try:
+        row = db.row("SELECT created_at, last_seen FROM web_sessions WHERE sid=?", (sid,))
+    except Exception:  # noqa: BLE001 — baza band bo'lsa panel yopilib qolmasin
+        return t is not None
+    if not row or now - float(row["created_at"] or 0) > SESSION_MAX_AGE:
+        with _sid_lock:
+            _sid_cache.pop(sid, None)
+        return False
+    if now - float(row["last_seen"] or 0) > 300:
+        try:
+            db.execute("UPDATE web_sessions SET last_seen=? WHERE sid=?", (now, sid))
+        except Exception:  # noqa: BLE001
+            pass
+    with _sid_lock:
+        _sid_cache[sid] = now
+    return True
+
+
+def _session_ok(request: Request) -> bool:
+    s = request.session
+    if not s.get("user"):
+        return False
+    if s.get("fp") != _session_fp() or not _sid_valid(str(s.get("sid") or "")):
+        s.clear()                          # eski (3.2.0 dan oldingi), chiqilgan yoki parol almashgan sessiya
+        return False
+    return True
+
+
+def _session_start(request: Request, username: str) -> None:
+    sid = secrets.token_urlsafe(18)
+    now = time.time()
+    try:
+        db.execute("DELETE FROM web_sessions WHERE created_at < ?", (now - SESSION_MAX_AGE,))
+        db.execute("INSERT INTO web_sessions(sid, created_at, last_seen) VALUES(?,?,?)", (sid, now, now))
+    except Exception:  # noqa: BLE001
+        log.exception("Sessiyani yozib bo'lmadi")
+    request.session.clear()                # oldingi sessiyadagi hech narsa yangi kirishga o'tmasin
+    request.session.update({"user": username, "sid": sid, "fp": _session_fp()})
+    with _sid_lock:
+        _sid_cache[sid] = now
+
+
+def _session_end(request: Request) -> None:
+    sid = str(request.session.get("sid") or "")
+    if sid:
+        try:
+            db.execute("DELETE FROM web_sessions WHERE sid=?", (sid,))
+        except Exception:  # noqa: BLE001
+            log.exception("Sessiyani o'chirib bo'lmadi")
+        with _sid_lock:
+            _sid_cache.pop(sid, None)
+    request.session.clear()
+
+
 @app.middleware("http")
 async def auth_mw(request: Request, call_next):
     path = request.url.path
-    if not path.startswith(PUBLIC_PATHS) and not request.session.get("user"):
+    if not _host_allowed(request):
+        bad = _bare_host(request.headers.get("host") or "")[:100]
+        return Response(f"Noto'g'ri manzil (Host: {bad}). Panelni kompyuter IP manzili yoki nomi bilan oching. Domen "
+                        f"(tunnel, proksi) orqali ochish kerak bo'lsa — .env ga ALLOWED_HOSTS={bad} (yoki PUBLIC_URL) "
+                        "yozib, dasturni qayta ishga tushiring.", status_code=400,
+                        media_type="text/plain; charset=utf-8")
+    if not path.startswith(PUBLIC_PATHS) and not await run_in_threadpool(_session_ok, request):
         if path.startswith(("/api", "/stream", "/media")):
             return JSONResponse({"detail": "Kirish talab qilinadi"}, status_code=401)
         return RedirectResponse(f"/login?next={path}", status_code=303)
     if request.method in ("POST", "PUT", "PATCH", "DELETE") and _cross_site(request):
         return JSONResponse({"detail": "Boshqa saytdan so'rov rad etildi (CSRF)"}, status_code=403)
-    if path == "/api/models/upload":
-        # Juda katta fayl diskga ham yozilmasin (Starlette multipart'ni avval vaqtinchalik faylga oladi)
+    lim = {"/api/models/upload": MODEL_UPLOAD_LIMIT, "/api/upload": 2_000_000_000,
+           "/api/eval/videos": 4_000_000_000, "/api/safety/videos": 2_000_000_000}.get(path)
+    if lim:
+        # Juda katta fayl diskga ham yozilmasin (Starlette multipart'ni avval vaqtinchalik faylga oladi — 3.2.0 dan
+        # video yuklashlarda ham: chegaradan katta fayl C: diskdagi vaqtinchalik papkani to'ldirmasin)
         try:
-            if int(request.headers.get("content-length") or 0) > MODEL_UPLOAD_LIMIT + (1 << 20):
-                return JSONResponse({"detail": f"Fayl juda katta (chegara {MODEL_UPLOAD_LIMIT // (1 << 20)} MB)"},
-                                    status_code=413)
+            if int(request.headers.get("content-length") or 0) > lim + (1 << 20):
+                return JSONResponse({"detail": f"Fayl juda katta (chegara {lim // (1 << 20)} MB)"}, status_code=413)
         except ValueError:
             pass
     resp = await call_next(request)
@@ -270,13 +423,13 @@ async def auth_mw(request: Request, call_next):
 
 # Sessiya middleware'i auth middleware'idan keyin qo'shiladi — shunda u tashqi qavat bo'ladi
 app.add_middleware(SessionMiddleware, secret_key=SECRET_KEY, session_cookie="hushyor_session",
-                   max_age=14 * 24 * 3600, same_site="lax")
+                   max_age=SESSION_MAX_AGE, same_site="lax")
 
 
 def page(request: Request, name: str, active: str, title: str, **ctx) -> HTMLResponse:
     s = db.get_settings()
     subs = db.scalar("SELECT COUNT(*) FROM subscribers WHERE active=1") or 0
-    pending = db.scalar("SELECT COUNT(*) FROM events WHERE status='yangi'") or 0
+    pending = db.scalar(f"SELECT COUNT(*) FROM events WHERE status='yangi' AND {LIVE_EV}") or 0
     base = {"nav": NAV, "active": active, "title": title, "settings": s, "app_name": APP_NAME,
             "version": APP_VERSION, "user": request.session.get("user"), "subs": subs, "pending": pending,
             "presets": SENSITIVITY_PRESETS, "kind_uz": KIND_UZ, "default_pw_warn": default_password_warning(),
@@ -318,9 +471,14 @@ async def body_data(request: Request) -> dict:
     ctype = request.headers.get("content-type", "")
     if "application/json" in ctype:
         try:
-            return await request.json()
+            d = await request.json()
         except ValueError:
             return {}
+        if d is None:
+            return {}
+        if not isinstance(d, dict):
+            raise HTTPException(400, "So'rov tanasi JSON obyekt bo'lishi kerak")
+        return d
     form = await request.form()
     return {k: v for k, v in form.items()}
 
@@ -425,8 +583,7 @@ def login(request: Request, username: str = Form(...), password: str = Form(...)
         return RedirectResponse("/login?error=default", status_code=303)
     if good:
         _login_ok(ip)
-        request.session.clear()            # oldingi sessiyadagi hech narsa yangi kirishga o'tmasin
-        request.session["user"] = username
+        _session_start(request, username)
         return RedirectResponse(safe_next(next), status_code=303)
     _login_failed(ip)
     return RedirectResponse("/login?error=1", status_code=303)
@@ -435,7 +592,7 @@ def login(request: Request, username: str = Form(...), password: str = Form(...)
 @app.get("/logout")
 @app.post("/logout")
 def logout(request: Request):
-    request.session.clear()
+    _session_end(request)
     return RedirectResponse("/login", status_code=303)
 
 
@@ -654,14 +811,14 @@ def snapshot(source_id: int):
 def api_summary():
     d0 = day_start()
     cnt = lambda sql, *p: db.scalar(sql, p) or 0  # noqa: E731
-    today = cnt("SELECT COUNT(*) FROM events WHERE created_at>=?", d0)
-    ok = cnt("SELECT COUNT(*) FROM events WHERE created_at>=? AND status='tasdiqlangan'", d0)
-    no = cnt("SELECT COUNT(*) FROM events WHERE created_at>=? AND status='rad_etilgan'", d0)
-    pending = cnt("SELECT COUNT(*) FROM events WHERE status='yangi'")
-    all_ok = cnt(f"SELECT COUNT(*) FROM events WHERE status='tasdiqlangan' AND {NOT_SAFETY}")
-    all_no = cnt(f"SELECT COUNT(*) FROM events WHERE status='rad_etilgan' AND {NOT_SAFETY}")
+    today = cnt(f"SELECT COUNT(*) FROM events WHERE created_at>=? AND {LIVE_EV}", d0)
+    ok = cnt(f"SELECT COUNT(*) FROM events WHERE created_at>=? AND status='tasdiqlangan' AND {LIVE_EV}", d0)
+    no = cnt(f"SELECT COUNT(*) FROM events WHERE created_at>=? AND status='rad_etilgan' AND {LIVE_EV}", d0)
+    pending = cnt(f"SELECT COUNT(*) FROM events WHERE status='yangi' AND {LIVE_EV}")
+    all_ok = cnt(f"SELECT COUNT(*) FROM events WHERE status='tasdiqlangan' AND {NOT_SAFETY} AND {LIVE_EV}")
+    all_no = cnt(f"SELECT COUNT(*) FROM events WHERE status='rad_etilgan' AND {NOT_SAFETY} AND {LIVE_EV}")
     hours = [0] * 24
-    for r in db.rows("SELECT created_at FROM events WHERE created_at>=?", (d0,)):
+    for r in db.rows(f"SELECT created_at FROM events WHERE created_at>=? AND {LIVE_EV}", (d0,)):
         hours[time.localtime(r["created_at"]).tm_hour] += 1
     latest = [event_public(db.decode_event(e)) for e in db.rows("SELECT * FROM events ORDER BY id DESC LIMIT 8")]
     return {
@@ -1191,8 +1348,8 @@ def open_public(url: str, timeout: float = 60.0, max_redirects: int = 5):
 @app.post("/api/upload-url")
 async def api_upload_url(request: Request):
     d = await body_data(request)
-    url = (d.get("url") or "").strip()
-    mode = d.get("mode", "fast")
+    url = str(d.get("url") or "").strip()
+    mode = str(d.get("mode") or "fast")
     zsrc = str(d.get("zone_source") or "")
     zsid = int(zsrc) if zsrc.isdigit() else None
     if not re.match(r"^https?://", url):
@@ -1289,7 +1446,7 @@ def api_job_delete(job_id: int):
 # ----------------------------------------------------------------------------- hodisalar
 @app.get("/api/events")
 def api_events(status: str = "", source: str = "", job: int = 0, days: int = 0, q: str = "",
-               page: int = 1, per: int = 24):
+               page: int = 1, per: int = 24, before: int = 0):
     where, params = [], []
     if status in ("yangi", "tasdiqlangan", "rad_etilgan"):
         where.append("status=?")
@@ -1309,9 +1466,18 @@ def api_events(status: str = "", source: str = "", job: int = 0, days: int = 0, 
     w = ("WHERE " + " AND ".join(where)) if where else ""
     total = db.scalar(f"SELECT COUNT(*) FROM events {w}", params) or 0
     per = max(1, min(per, 100))
-    rows = db.rows(f"SELECT * FROM events {w} ORDER BY id DESC LIMIT ? OFFSET ?",
-                   [*params, per, (max(page, 1) - 1) * per])
-    return {"total": total, "page": page, "per": per,
+    page = max(1, min(page, 100_000))
+    if before > 0:
+        # 3.2.0: "Yana ko'rsatish" — oxirgi ko'rilgan hodisadan eskilari (OFFSET emas: orada tekshirilgan yoki yangi
+        # kelgan hodisalar tufayli ba'zilari tushib qolmaydi, takrorlanmaydi)
+        ww = ("WHERE " + " AND ".join([*where, "id<?"]))
+        rows = db.rows(f"SELECT * FROM events {ww} ORDER BY id DESC LIMIT ?", [*params, min(before, 2 ** 62), per + 1])
+    else:
+        rows = db.rows(f"SELECT * FROM events {w} ORDER BY id DESC LIMIT ? OFFSET ?",
+                       [*params, per + 1, (page - 1) * per])
+    more = len(rows) > per
+    rows = rows[:per]
+    return {"total": total, "page": page, "per": per, "next_before": rows[-1]["id"] if more and rows else None,
             "items": [event_public(db.decode_event(r)) for r in rows]}
 
 
@@ -1444,7 +1610,7 @@ def csv_safe(v):
 @app.get("/api/export/events.csv")
 def api_export():
     buf = io.StringIO()
-    wr = csv.writer(buf)
+    wr = csv.writer(buf, delimiter=";")   # 3.2.0: Excel (uz/ru Windows) ustunlarni to'g'ri ajratsin
     wr.writerow(["ID", "Vaqt", "Shubhali lahza", "Klipdagi o'rni (s)", "Kamera", "Turi", "Ball", "Daraja", "Holat",
                  "Kim tekshirdi", "Izoh", "Sabablar", "Klip", "Taxminiy zarar (so'm)"])
     for e in db.rows("SELECT * FROM events ORDER BY id DESC"):
@@ -1548,11 +1714,12 @@ async def api_reports_settings_save(request: Request):
         vals["report_time"] = t
     if vals:
         db.set_settings(vals)
-    for sub in d.get("subscribers") or []:
+    subs_in = d.get("subscribers") or []
+    for sub in subs_in if isinstance(subs_in, list) else []:
         try:
             db.execute("UPDATE subscribers SET reports=? WHERE chat_id=?", (int(bool(sub.get("reports"))),
                                                                             int(sub["chat_id"])))
-        except (KeyError, TypeError, ValueError):
+        except (AttributeError, KeyError, TypeError, ValueError):
             continue
     return {"ok": True}
 
@@ -1854,7 +2021,10 @@ async def api_train(request: Request):
     if train_state["running"]:
         raise HTTPException(409, "O'qitish allaqachon ketmoqda")
     d = await body_data(request)
-    n_syn = int(d.get("synthetic") or 3000)
+    try:
+        n_syn = int(d.get("synthetic") or 3000)
+    except (TypeError, ValueError):
+        raise HTTPException(400, "synthetic: son kiriting")
     pl = (d.get("poselift") or "").strip() or None
     use_fb = str(d.get("feedback", "1")) in ("1", "on", "true")
     # 2.3.0: panel sukut bo'yicha challenger (soya) model o'qitadi — champion darhol almashmaydi
@@ -2051,6 +2221,11 @@ NUMERIC = {"threshold": (0, 100), "dwell_sec": (0.1, 3), "pre_sec": (1, 30), "po
 FLAGS = ["use_ml", "signal_pocket", "signal_torso", "signal_bag", "signal_vanish", "signal_looking",
          "signal_offscreen", "telegram_enabled", "telegram_send_video", "personal_items", "camera_alerts",
          "show_objects", "signal_exit"]
+# 3.2.0: Sozlamalar sahifasidagi formada BOR bayroqlar. Forma yuborilganda faqat shular "belgilanmagan = o'chiq" deb
+# olinadi. (Avval FLAGS ning hammasi olinardi: Telegram sahifasidagi "Telegramga yuborish", "Video klip" va "Kamera
+# uzilsa xabar" Sozlamalarni saqlash bilan jimgina o'chib qolardi.)
+SETTINGS_FORM_FLAGS = ["signal_pocket", "signal_torso", "signal_bag", "signal_vanish", "signal_looking",
+                       "signal_offscreen", "signal_exit", "personal_items", "use_ml", "show_objects"]
 
 
 @app.get("/api/settings")
@@ -2072,11 +2247,13 @@ async def api_save_settings(request: Request):
         if k in d and str(d[k]).strip() != "" and k not in vals:
             try:
                 v = float(d[k])
-            except ValueError:
+            except (TypeError, ValueError):
+                raise HTTPException(400, f"{k}: son kiriting")
+            if v != v or v in (float("inf"), float("-inf")):
                 raise HTTPException(400, f"{k}: son kiriting")
             vals[k] = max(lo, min(hi, v))
     if d.get("_form") == "full":
-        for k in FLAGS:
+        for k in SETTINGS_FORM_FLAGS:
             vals[k] = "1" if str(d.get(k, "0")) in ("1", "on", "true") else "0"
     else:
         for k in FLAGS:

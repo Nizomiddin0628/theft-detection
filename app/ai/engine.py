@@ -266,7 +266,7 @@ class Engine:
         try:
             self._build(want, pref, s, save_bench)
         except Exception as e:  # noqa: BLE001 — buzuq/yo'q model kameralarni to'xtatmasin
-            if want == "yolo11" or strict:
+            if strict:
                 raise
             # 2.7.0: avval litsenziyasi toza zaxira (open-ml — MoveNet Lightning dastur bilan birga keladi), keyin YOLO11
             log.error("%s modellarini yuklab bo'lmadi: %s", want, e)
@@ -327,9 +327,13 @@ class Engine:
                     log.warning("%s OpenVINO'da yuklanmadi (%s) — ONNX Runtime ishlatiladi", key, e)
                 try:
                     return runtime.Runner(model_zoo.path(key), "onnxruntime", self.threads)
-                except Exception:
-                    # ONNX Runtime ham ocholmadi — fayl buzuq: chetga olinadi, panelda qayta yuklash mumkin bo'ladi
-                    model_zoo.mark_broken(key)
+                except Exception as e2:
+                    # ONNX Runtime ham ocholmadi. 3.2.0: fayl faqat haqiqatan buzuq bo'lsa (fayl tuzilmasi o'qilmaydi)
+                    # chetga olinadi — xotira yetmasligi kabi vaqtinchalik xato tufayli model butunlay o'chib qolmasin
+                    msg = str(e2)
+                    if any(m in msg for m in ("INVALID_PROTOBUF", "Protobuf parsing failed", "INVALID_GRAPH",
+                                              "No graph was found")):
+                        model_zoo.mark_broken(key)
                     raise
 
         self.pose = mk(self.pose_name)

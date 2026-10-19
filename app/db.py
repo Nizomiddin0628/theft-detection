@@ -139,6 +139,28 @@ CREATE TABLE IF NOT EXISTS notify_log (
     error TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_notify_sent ON notify_log(t_sent);
+-- 3.2.0: Telegram'ga yetkazilishi kerak bo'lgan xabarlar (hodisa signali har chatga, kamera/navbat matnlari).
+-- Internet yoki Telegram ishlamasa, dastur qayta ishga tushsa ham yo'qolmaydi: yetgach (yoki muddati o'tgach) o'chadi
+CREATE TABLE IF NOT EXISTS tg_outbox (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    kind TEXT NOT NULL,           -- alert (hodisa) | text
+    event_id INTEGER,
+    chat_id INTEGER NOT NULL,
+    text TEXT,
+    attempts INTEGER DEFAULT 0,
+    next_try REAL DEFAULT 0,
+    created_at REAL,
+    expires_at REAL,
+    last_error TEXT
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_tg_outbox_ev ON tg_outbox(kind, event_id, chat_id);
+CREATE INDEX IF NOT EXISTS idx_tg_outbox_next ON tg_outbox(next_try);
+-- 3.2.0: panel sessiyalari (chiqish, parol almashishi eski cookie'ni darhol bekor qiladi)
+CREATE TABLE IF NOT EXISTS web_sessions (
+    sid TEXT PRIMARY KEY,
+    created_at REAL,
+    last_seen REAL
+);
 CREATE INDEX IF NOT EXISTS idx_notify_event ON notify_log(event_id);
 CREATE TABLE IF NOT EXISTS model_versions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,

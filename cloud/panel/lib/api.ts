@@ -205,6 +205,7 @@ export interface EventFull {
   thumb_file: string | null;
   clip_clean?: string | null;
   loss_sum?: number | null;
+  loss_ok?: boolean;               // 3.2.0: zarar summasini yozish mumkinmi (server hal qiladi: versiya, turi)
   data: Record<string, unknown> | null;
 }
 
@@ -323,6 +324,9 @@ export const AUDIT_UZ: Record<string, string> = {
   review: "Hodisa tekshirildi",
   clip_view: "Klip ko'rildi",
   telegram_link: "Telegram ulandi",
+  loss: "Zarar summasi kiritildi",
+  video_test: "Video sinovi yuklandi",
+  video_test_cancel: "Video sinovi bekor qilindi",
 };
 
 export interface SystemStatus {

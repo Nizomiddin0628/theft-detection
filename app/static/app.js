@@ -45,7 +45,7 @@ const H = (() => {
   function evCard(ev) {
     const img = ev.thumb_url
       ? `<img src="${ev.thumb_url}" loading="lazy" alt="">`
-      : `<div class="empty" style="color:#94a3b8;padding-top:22%">Klip tayyorlanmoqda…</div>`;
+      : `<div class="empty" style="color:#94a3b8;padding-top:22%">${ev.clip_error ? "Rasm yo'q" : "Klip tayyorlanmoqda…"}</div>`;
     const btns = ev.status === "yangi"
       ? `<button class="btn sm ok" onclick="H.review(${ev.id},'tasdiqlangan',this)">✓ Tasdiqlash</button>
          <button class="btn sm" onclick="H.review(${ev.id},'rad_etilgan',this)">✕ Xato</button>`
@@ -120,17 +120,24 @@ const H = (() => {
       const tgDot = document.getElementById("tg-dot"), tgText = document.getElementById("tg-text");
       if (tgDot) {
         const ok = tg.status === "ishlayapti";
-        tgDot.className = "dot " + (ok ? (s.subs ? "on" : "warn") : (tg.enabled ? "off" : ""));
-        tgText.textContent = ok ? (s.subs ? `${s.subs} obunachi` : "obunachi yo'q") : (tg.status || "—");
+        // 3.2.0: bot ishlayapti-yu, "Telegramga yuborish" o'chiq — signallar ketmaydi, buni yashirmaymiz
+        const off = ok && tg.sending === false;
+        tgDot.className = "dot " + (off ? "warn" : ok ? (s.subs ? "on" : "warn") : (tg.enabled ? "off" : ""));
+        tgText.textContent = off ? "yuborish o'chiq" : ok ? (s.subs ? `${s.subs} obunachi` : "obunachi yo'q") : (tg.status || "—");
+        if (off) tgText.title = "Telegram sahifasida «Telegramga yuborish yoqilgan» ni yoqing";
       }
       const run = (s.sources || []).filter((x) => x.running).length;
       const camDot = document.getElementById("cam-dot"), camText = document.getElementById("cam-text");
       if (camDot) { camDot.className = "dot " + (run ? "on" : ""); camText.textContent = `${run} ta yoqilgan`; }
-      const np = document.getElementById("nav-pending");
-      if (np) np.textContent = s.pending;
+      let np = document.getElementById("nav-pending");
+      if (!np && s.pending) {
+        const link = document.querySelector('.nav a[href="/events"]');
+        if (link) { np = document.createElement("span"); np.className = "badge"; np.id = "nav-pending"; link.appendChild(np); }
+      }
+      if (np) { np.textContent = s.pending; np.classList.toggle("hidden", !s.pending); }
       if (lastId && s.last_id > lastId) {
         const ev = (s.latest || []).find((e) => e.id === s.last_id);
-        if (ev) toast(`${evHead(ev)}<br><a href="/events/${ev.id}">Ko'rish →</a>`, "alert", 9000);
+        if (ev && !ev.job_id) toast(`${evHead(ev)}<br><a href="/events/${ev.id}">Ko'rish →</a>`, "alert", 9000);
       }
       lastId = s.last_id;
       sessionStorage.setItem("lastEventId", String(lastId));

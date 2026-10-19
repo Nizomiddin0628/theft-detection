@@ -1,11 +1,11 @@
 "use client";
 
 import { useRouter, useSearchParams } from "next/navigation";
-import { Suspense, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 
 import EventView from "@/components/EventView";
 import { api, clipUrl, KIND_UZ, STATUS_UZ, type Branch, type EventRow, type Status } from "@/lib/api";
-import { scoreTone, som, when } from "@/lib/format";
+import { dayStart, scoreTone, som, when } from "@/lib/format";
 import { useLive } from "@/lib/live";
 import { useData, useInterval } from "@/lib/useData";
 
@@ -25,19 +25,34 @@ const PERIODS = [
 
 function since(days: string): number | null {
   if (!days) return null;
-  if (days === "1") {
-    const d = new Date();
-    d.setHours(0, 0, 0, 0);
-    return d.getTime() / 1000;
-  }
+  if (days === "1") return dayStart();          // kompaniya vaqti bo'yicha bugun
   return Date.now() / 1000 - Number(days) * 86400;
 }
 
-function EventList({ initial }: { initial: Status | "" }) {
+const LIST_KEY = "hushyor_events_filters";
+
+function EventList({ initial, initBranch, initPeriod }: { initial: Status | ""; initBranch: string; initPeriod: string }) {
   const router = useRouter();
   const [status, setStatus] = useState<Status | "">(initial);
-  const [branch, setBranch] = useState("");
-  const [period, setPeriod] = useState("7");
+  const [branch, setBranch] = useState(initBranch);
+  const [period, setPeriod] = useState(initPeriod);
+  // 3.2.0: filtrlar manzilda va sessiyada — hodisani ochib qaytganda (Esc, "Ro'yxatga qaytish", Orqaga) saqlanadi
+  useEffect(() => {
+    const q = new URLSearchParams({ status, branch, period });
+    // manzilda faqat sukutdan farqli filtrlar (yangi, hamma filial, 7 kun — manzil toza "/events/" qoladi)
+    const u = new URLSearchParams();
+    if (status !== "yangi") u.set("status", status);
+    if (branch) u.set("branch", branch);
+    if (period !== "7") u.set("period", period);
+    const want = u.toString() ? `/events/?${u}` : "/events/";
+    try {
+      if (window.location.pathname + window.location.search !== want)
+        window.history.replaceState(window.history.state, "", want);
+      sessionStorage.setItem(LIST_KEY, q.toString());
+    } catch {
+      /* jim */
+    }
+  }, [status, branch, period]);
   const branches = useData(() => api<{ branches: Branch[] }>("/branches").then((r) => r.branches));
   const list = useData(() => {
     const q = new URLSearchParams({ limit: "200" });
@@ -144,7 +159,10 @@ function EventList({ initial }: { initial: Status | "" }) {
                     <td style={{ whiteSpace: "nowrap" }}>{when(e.created_at)}</td>
                     <td>{e.branch_name}</td>
                     <td>{e.source_name}</td>
-                    <td>{KIND_UZ[e.kind] ?? e.kind}</td>
+                    <td>
+                      {KIND_UZ[e.kind] ?? e.kind}
+                      {e.video ? <span className="muted small"> · 🧪 Video sinovi</span> : null}
+                    </td>
                     <td className={`num score ${scoreTone(e.score)}`}>{Math.round(e.score)}</td>
                     <td>
                       <span className={`pill ${e.status}`}>{STATUS_UZ[e.status] ?? e.status}</span>
@@ -166,8 +184,24 @@ function EventsPage() {
   const params = useSearchParams();
   const uid = params.get("uid");
   if (uid) return <EventView uid={uid} queue={params.get("queue") === "1"} />;
-  const st = params.get("status");
-  return <EventList initial={st === "tasdiqlangan" || st === "rad_etilgan" || st === "" ? st : "yangi"} />;
+  let src: URLSearchParams = params as unknown as URLSearchParams;
+  if (!params.has("status") && !params.has("branch") && !params.has("period")) {
+    try {
+      const saved = sessionStorage.getItem(LIST_KEY);
+      if (saved) src = new URLSearchParams(saved);
+    } catch {
+      /* jim */
+    }
+  }
+  const st = src.get("status");
+  const pr = src.get("period");
+  return (
+    <EventList
+      initial={st === "tasdiqlangan" || st === "rad_etilgan" || st === "" ? st : "yangi"}
+      initBranch={/^\d+$/.test(src.get("branch") || "") ? String(src.get("branch")) : ""}
+      initPeriod={pr === "1" || pr === "7" || pr === "30" || pr === "" ? pr : "7"}
+    />
+  );
 }
 
 export default function Page() {

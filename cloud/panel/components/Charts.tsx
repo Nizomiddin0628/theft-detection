@@ -2,6 +2,8 @@
 // Oddiy SVG grafiklar: soatlik chiziq va ustun. Kutubxonasiz; o'lcham konteynerga moslanadi (matn har doim 1:1).
 import { useEffect, useMemo, useRef, useState, type PointerEvent } from "react";
 
+import { parts, tzShift } from "@/lib/format";
+
 export interface Series {
   name: string;
   color: string;
@@ -44,15 +46,15 @@ function fmtTick(v: number): string {
 }
 
 function label(ts: number, spanH: number): string {
-  const d = new Date(ts * 1000);
-  if (spanH <= 30) return `${String(d.getHours()).padStart(2, "0")}:00`;
-  return `${d.getDate()}.${String(d.getMonth() + 1).padStart(2, "0")}`;
+  const d = parts(ts);
+  if (spanH <= 30) return `${String(d.h).padStart(2, "0")}:00`;
+  return `${d.d}.${String(d.mo + 1).padStart(2, "0")}`;
 }
 
 function stamp(ts: number): string {
-  const d = new Date(ts * 1000);
+  const d = parts(ts);
   const p = (n: number) => String(n).padStart(2, "0");
-  return `${p(d.getDate())}.${p(d.getMonth() + 1)}, ${p(d.getHours())}:00`;
+  return `${p(d.d)}.${p(d.mo + 1)}, ${p(d.h)}:00`;
 }
 
 function scales(xs: number[], top: number, W: number) {
@@ -66,8 +68,8 @@ function scales(xs: number[], top: number, W: number) {
   const cand = [1, 2, 3, 4, 6, 12, 24, 48, 72, 120, 168, 240];
   const every = cand.find((h) => spanH / h <= room) ?? 240;
   const xt: number[] = [];
-  const offset = new Date().getTimezoneOffset() * 60;
-  // mahalliy soat bo'yicha yaxlit nuqtalar
+  const offset = -tzShift();
+  // kompaniya (mahalliy) soati bo'yicha yaxlit nuqtalar
   const start = Math.ceil((x0 - offset) / (every * 3600)) * every * 3600 + offset;
   for (let t = start; t <= x1; t += every * 3600) xt.push(t);
   return { sx, sy, spanH, xt };

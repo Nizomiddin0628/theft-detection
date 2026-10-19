@@ -20,8 +20,15 @@ def allowed(ev: dict | None) -> bool:
     if not ev:
         return False
     from .ai.safety import SAFETY_KINDS
+    from .config import DEMO
 
-    return (ev.get("kind") or "") not in SAFETY_KINDS and ev.get("job_id") is None
+    if (ev.get("kind") or "") in SAFETY_KINDS or ev.get("job_id") is not None:
+        return False
+    if not DEMO and ev.get("source_id") is not None:
+        # 3.2.0: "jonli rejim"da sinalgan video fayl — do'kondagi haqiqiy o'g'irlik emas
+        if db.scalar("SELECT kind FROM sources WHERE id=?", (ev["source_id"],)) == "file":
+            return False
+    return True
 
 
 _MULT = (("mlrd", 1_000_000_000), ("milliard", 1_000_000_000), ("mln", 1_000_000), ("million", 1_000_000),
@@ -75,13 +82,14 @@ def fmt_sum(n) -> str:
     return f"{v:,}".replace(",", " ") + " so'm"
 
 
-def set_loss(event_id: int, amount: int | None, by: str) -> dict | None:
-    """Summani yozadi (None — olib tashlaydi). Bulut navbatiga (sync hook) va Telegram'ga o'zgarish o'zi ketadi."""
+def set_loss(event_id: int, amount: int | None, by: str, at: float | None = None) -> dict | None:
+    """Summani yozadi (None — olib tashlaydi). Bulut navbatiga (sync hook) va Telegram'ga o'zgarish o'zi ketadi.
+    at — kiritilgan vaqt (bulut buyrug'ida bulutdagi vaqt; sukut — hozir)."""
     ev = db.get_event(event_id)
     if not ev or not allowed(ev):
         return None
     db.update_event(event_id, loss_sum=amount, loss_by=(by or "")[:100] if amount else None,
-                    loss_at=time.time() if amount else None)
+                    loss_at=(at or time.time()) if amount else None)
     return db.get_event(event_id)
 
 

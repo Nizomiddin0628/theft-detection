@@ -324,10 +324,12 @@ def telegram_suite() -> None:
                "VALUES(5003, 'Q3', 'q3', ?, 1, 1, 1)", (time.time(),))
     tg.CALLS.clear()
     tg.FAIL_STATUS["sendMessage"] = 403
-    tg.FAIL_NEXT["sendMessage"] = 1                  # 5001 ga yetmaydi
+    tg.FAIL_DESC["sendMessage"] = "Forbidden: not enough rights to send text messages to the chat"
+    tg.FAIL_NEXT["sendMessage"] = 1                  # 5001 ga yetmaydi (obunachi o'chirilmaydi — huquq qaytishi mumkin)
     n1 = pilot.poll_tick(bot, at)
     tg.FAIL_NEXT.clear()
     tg.FAIL_STATUS.clear()
+    tg.FAIL_DESC.clear()
     ok("So'rov bir chatga yetmadi — hafta yopilmaydi, keyingi urinish faqat unga", n1 == 1
        and pilot.poll_week(at + 60) == w0, str(n1))
     tg.CALLS.clear()

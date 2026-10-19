@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type FormEvent } from "react";
+import { useRef, useState, type FormEvent } from "react";
 
 import { useSession } from "@/components/Shell";
 import { api, AUDIT_UZ, ROLE_UZ, type AuditRow, type Branch, type Role } from "@/lib/api";
@@ -234,11 +234,14 @@ function AuditLog({ users }: { users: UserRow[] }) {
   const [action, setAction] = useState("");
   const [items, setItems] = useState<AuditRow[]>([]);
   const [more, setMore] = useState(false);
+  const reqSeq = useRef(0);
   const load = async (before?: number) => {
     const q = new URLSearchParams({ limit: "100" });
     if (action) q.set("action", action);
     if (before) q.set("before_id", String(before));
+    const my = ++reqSeq.current;
     const r = await api<{ items: AuditRow[] }>(`/audit?${q}`);
+    if (my !== reqSeq.current) return r.items;    // 3.2.0: filtr tez almashsa — eski javob yangisining ustiga yozmasin
     setItems((xs) => (before ? [...xs, ...r.items] : r.items));
     setMore(r.items.length === 100);
     return r.items;

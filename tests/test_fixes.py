@@ -144,7 +144,7 @@ def web_suite() -> None:
                            "level": "o'rta", "kind": "pocket", "reasons": ["+SUM(1,2)"], "breakdown": {}, "track_id": 1,
                            "status": "yangi", "note": "@HYPERLINK(\"http://evil\")"})
     csv_text = s.get("/api/export/events.csv").content.decode("utf-8-sig")
-    line = [ln for ln in csv_text.splitlines() if ln.startswith(f"{eid},")]
+    line = [ln for ln in csv_text.splitlines() if ln.startswith(f"{eid};")]
     ok("CSV eksport: formula sifatida bajariladigan matn neytrallangan (=, +, @)", line and "'=cmd" in line[0]
        and "'@HYPERLINK" in line[0] and "'+SUM" in line[0], line[0][:120] if line else "qator yo'q")
     db.execute("DELETE FROM events WHERE id=?", (eid,))
@@ -372,6 +372,8 @@ def telegram_suite() -> None:
     ok("Navbat ustuvorligi: band bajaruvchi bo'shagach — avval yangi signal, keyin qolgan kliplar",
        "alert99" in order and order.index("alert99") == 2, str(order[:5]))
 
+    ob_tick0, ob_backoff0 = tb.OB_TICK, tb.OB_BACKOFF
+    tb.OB_TICK = 0.3                       # 3.2.0: yetkazish navbati (tg_outbox) sinovda tez aylansin
     bot = tb.TelegramBot(token="777:TEST", api_base=f"http://127.0.0.1:{TG_PORT}")
     bot.start()
     wait(lambda: bot.me is not None, 10)
@@ -418,8 +420,8 @@ def telegram_suite() -> None:
 
     # 2.3.1: signal xabari Telegram ishlamay turgan paytda yetmadi (rasm ham, matn ham — har biri 3 urinish) →
     # keyinroq qayta yuboriladi (avval butunlay yo'qolardi: soak sinovida "telegram 5xx" paytidagi hodisalar)
-    alert_retry0 = tb.ALERT_RETRY
-    tb.ALERT_RETRY = (0.8, 0.8, 0.8)
+    # 3.2.0: qayta urinish — bazadagi yetkazish navbati (tg_outbox) orqali
+    tb.OB_BACKOFF = (0.8,) * 7
     def sent_for(e, method):
         return [c for c in tg.calls(method)
                 if re.search(rf"#{e}\b", str(c["data"].get("caption") or c["data"].get("text") or ""))]
@@ -436,7 +438,7 @@ def telegram_suite() -> None:
     tg.FAIL_NEXT.clear()
     # Qayta urinish kutilayotganda klip tayyor bo'ldi: klip bosqichi to'liq xabar (video) yuboradi, qayta urinish
     # o'sha chatni o'tkazib yuboradi — takror yo'q
-    tb.ALERT_RETRY = (2.5, 2.5)
+    tb.OB_BACKOFF = (2.5,) * 7
     e5 = db.insert_event({"source_id": 1, "source_name": "Kassa", "created_at": time.time(), "t_detect": time.time(),
                           "score": 80, "level": "yuqori", "kind": "bag", "reasons": ["sabab"], "breakdown": {},
                           "track_id": 5, "status": "yangi", "thumb_path": snap.name})
@@ -470,7 +472,7 @@ def telegram_suite() -> None:
     ok("Poyga: qayta urinish yuborgan rasmga klip videosi qo'shiladi", len(tg.calls("editMessageMedia")) > n_ed
        and db.scalar("SELECT kind FROM tg_messages WHERE event_id=?", (e6,)) == "video",
        str(db.scalar("SELECT kind FROM tg_messages WHERE event_id=?", (e6,))))
-    tb.ALERT_RETRY = alert_retry0
+    tb.OB_BACKOFF = ob_backoff0
 
     # Klip yaratilmagan: "tayyorlanmoqda" o'rniga ogohlantirish
     e3 = db.insert_event({"source_id": 1, "source_name": "Kassa", "created_at": time.time(), "t_detect": time.time(),
@@ -509,6 +511,7 @@ def telegram_suite() -> None:
     ok("Ko'p chatdan tavakkal (30 xato) — ulanish kodi o'zi almashadi", rotated)
 
     bot.stop()
+    tb.OB_TICK = ob_tick0
     # Toza to'xtash: katta video yuklanayotganda dastur (jarayon) darhol yopiladi — alohida jarayonda o'lchanadi
     os.environ["MOCK_TG_BW"] = "20000"          # 300 KB → ~15 s yuklash
     script = f"""

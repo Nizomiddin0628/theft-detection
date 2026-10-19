@@ -247,7 +247,7 @@ function PrefsPanel({ info, reload, guard }: { info: NotifyInfo; reload: () => v
   return (
     <div className="panel">
       <h2>Nima haqida xabar beriladi</h2>
-      {PREF_ROWS.filter((r) => !(guard && r.key === "escalation")).map((r) => (
+      {PREF_ROWS.filter((r) => !(guard && (r.key === "escalation" || r.key === "digest"))).map((r) => (
         <label className="switch-row" key={r.key}>
           <span>
             {r.title}

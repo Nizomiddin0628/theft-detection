@@ -118,6 +118,28 @@ def render_frames(frames: list[BufFrame], highlight: int | None, banner: str,
 FFMPEG_TIMEOUT = 120
 
 
+def imwrite(path, img, params=()) -> bool:
+    """cv2.imwrite o'rniga: Windows'da lotin bo'lmagan harfli yo'lda (C:\\Users\\Иван\\...) cv2.imwrite jimgina
+    yozmaydi (3.2.0). Rasm xotirada kodlanib, Python orqali yoziladi."""
+    ok, buf = cv2.imencode(Path(path).suffix or ".jpg", img, list(params))
+    if not ok:
+        return False
+    try:
+        Path(path).write_bytes(buf.tobytes())
+        return True
+    except OSError:
+        return False
+
+
+def imread(path):
+    """cv2.imread o'rniga (lotin bo'lmagan harfli yo'l ham)."""
+    try:
+        data = np.fromfile(str(path), dtype=np.uint8)
+    except OSError:
+        return None
+    return cv2.imdecode(data, cv2.IMREAD_COLOR) if data.size else None
+
+
 def write_mp4(images, path: Path, fps: float) -> bool:
     """H.264 MP4 yozish. images — ro'yxat yoki har chaqirilganda yangi iterator qaytaradigan funksiya
     (ffmpeg ishlamasa, zaxira yozuvchi uchun kadrlar qaytadan chiziladi)."""
@@ -194,12 +216,12 @@ def make_snapshot(frame: np.ndarray, ann: tuple | None, highlight: int | None, b
         else frame.copy()
     if clean_path is not None:
         clean_path.parent.mkdir(parents=True, exist_ok=True)
-        cv2.imwrite(str(clean_path), img, [cv2.IMWRITE_JPEG_QUALITY, 85])
+        imwrite(clean_path, img, [cv2.IMWRITE_JPEG_QUALITY, 85])
     persons, objects, status = ann if ann else ([], [], {})
     annotate.draw(img, persons, objects, status, highlight=highlight, scale=scale, banner=banner,
                   time_text=time_text)
     path.parent.mkdir(parents=True, exist_ok=True)
-    return bool(cv2.imwrite(str(path), img, [cv2.IMWRITE_JPEG_QUALITY, 85]))
+    return bool(imwrite(path, img, [cv2.IMWRITE_JPEG_QUALITY, 85]))
 
 
 def make_clip(frames: list[BufFrame], event_t: float, highlight: int, banner: str, live: bool,
@@ -254,7 +276,7 @@ def make_clip(frames: list[BufFrame], event_t: float, highlight: int, banner: st
             clean_path.unlink(missing_ok=True)
         if "clean" in kept:
             tc = out_dir / f"{stem}_clean.jpg"
-            if cv2.imwrite(str(tc), kept["clean"], [cv2.IMWRITE_JPEG_QUALITY, 88]):
+            if imwrite(tc, kept["clean"], [cv2.IMWRITE_JPEG_QUALITY, 88]):
                 res["thumb_clean"] = tc.name
         if on_clean is not None and res["clip_clean"]:
             try:
@@ -277,7 +299,7 @@ def make_clip(frames: list[BufFrame], event_t: float, highlight: int, banner: st
         return res
     try:                               # rasm/qirqim xatosi tayyor klip(lar)ni yo'qotmasin
         thumb_path = out_dir / f"{stem}.jpg"
-        if cv2.imwrite(str(thumb_path), kept["thumb"], [cv2.IMWRITE_JPEG_QUALITY, 88]):
+        if imwrite(thumb_path, kept["thumb"], [cv2.IMWRITE_JPEG_QUALITY, 88]):
             res["thumb"] = thumb_path.name
         idx = min(idx, len(frames) - 1)
         if person_box is not None:
@@ -292,7 +314,7 @@ def make_clip(frames: list[BufFrame], event_t: float, highlight: int, banner: st
                 y2 = int(min(raw.shape[0], b[3] + bh * 0.10))
                 if x2 - x1 > 10 and y2 - y1 > 10:
                     crop_path = out_dir / f"{stem}_crop.jpg"
-                    if cv2.imwrite(str(crop_path), raw[y1:y2, x1:x2], [cv2.IMWRITE_JPEG_QUALITY, 90]):
+                    if imwrite(crop_path, raw[y1:y2, x1:x2], [cv2.IMWRITE_JPEG_QUALITY, 90]):
                         res["crop"] = crop_path.name
     except Exception:  # noqa: BLE001
         log.exception("Klip rasmi yoki odam qirqimi yozilmadi (%s)", stem)

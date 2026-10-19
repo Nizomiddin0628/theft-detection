@@ -36,7 +36,9 @@ function worst(rows: CompareBranch[], f: (b: CompareBranch) => number | null | u
   const vals = rows.map((b) => ({ id: b.id, v: f(b) })).filter((x) => x.v !== null && x.v !== undefined) as { id: number; v: number }[];
   if (vals.length < 2) return null;
   const w = vals.reduce((m, x) => ((high ? x.v > m.v : x.v < m.v) ? x : m));
-  return w.v ? w.id : null;
+  if (vals.every((x) => x.v === w.v)) return null;          // hammasi bir xil — "eng yomoni" yo'q
+  // 3.2.0: past qiymat yomon bo'lgan ustunda (ishlash vaqti) 0% ham — eng yomoni (kompyuter butun hafta o'chiq)
+  return high && !w.v ? null : w.id;
 }
 
 export default function ComparePage() {

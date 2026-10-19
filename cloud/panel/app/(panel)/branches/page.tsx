@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 
 import { useSession } from "@/components/Shell";
 import { api, type Branch, type HealthRow } from "@/lib/api";
@@ -268,6 +268,14 @@ export default function BranchesPage() {
     if (m.kind === "branch" || m.kind === "health") list.reload();
   });
   useInterval(() => list.reload(0), 30000);
+  // 3.2.0: boshqa sahifadan /branches/#bN havolasi — kartalar ma'lumot kelgach chiziladi, shundan keyin o'sha filialga
+  const scrolled = useRef(false);
+  useEffect(() => {
+    if (scrolled.current || !list.data || !window.location.hash) return;
+    scrolled.current = true;
+    const el = document.getElementById(window.location.hash.slice(1));
+    if (el) el.scrollIntoView({ block: "start" });
+  }, [list.data]);
 
   return (
     <>

@@ -120,7 +120,7 @@ def counts_csv(days: int = 30):
     days = max(1, min(int(days), 365))
     t0 = counting.day_start() - (days - 1) * 86400
     buf = io.StringIO()
-    w = csv.writer(buf)
+    w = csv.writer(buf, delimiter=";")   # 3.2.0: Excel (uz/ru Windows) ustunlarni to'g'ri ajratsin
     w.writerow(["vaqt", "kamera", "chiziq", "yo'nalish", "turi"])
     for r in db.rows("SELECT * FROM counts WHERE t>=? ORDER BY t", (t0,)):
         kind = "xodim" if r["staff"] else ("ish vaqtidan tashqari" if r["offhours"] else "xaridor")

@@ -767,7 +767,9 @@ def on_minute(minute: int) -> None:
         from .. import sync
 
         if sync.cloud_supports("flow"):
-            cur_h = _hour(minute + 59)
+            # 3.2.0: daqiqa oxiri (minute + 60) bo'yicha: HH:59 daqiqasi yozilganda HH soati yopilgan hisoblanadi va oxirgi
+            # (to'liq) qiymati yuboriladi (avval soatning oxirgi ~9 daqiqasi bulutga yetmasdi)
+            cur_h = _hour(minute + 60)
             for plan_id, hour in sorted(touched):
                 # Yopilgan soat — oxirgi marta; joriy soat — yangi tashrif bo'lsa yoki 10 daqiqada bir (heatmap)
                 if hour < cur_h or (plan_id, hour) in dirty or minute % CLOUD_EVERY_SEC < 60:
