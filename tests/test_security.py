@@ -123,7 +123,7 @@ def a01_access(s: dict) -> None:
         if not path.startswith("/api/v1/") or path in PUBLIC or "/edge/" in path or "/admin/" in path:
             continue
         url = BASE + path.replace("{branch_id}", str(s["a1"])).replace("{user_id}", "1").replace(
-            "{uid}", "devA1:1").replace("{target_id}", "1").replace("{device_id}", "devA1").replace("{name}", "devA1_1.mp4")
+            "{uid}", "devA1:1").replace("{target_id}", "1").replace("{device_id}", "devA1").replace("{name}", "devA1_1.mp4").replace("{tid}", "1")
         for m in sorted(getattr(r, "methods", set()) - {"HEAD"}):
             n += 1
             code = httpx.request(m, url, json={} if m in ("POST", "PUT") else None, timeout=10).status_code

@@ -277,6 +277,22 @@ def _owner(browser, s: dict) -> None:
     ok("To'g'ri parol → so'ralgan sahifaga qaytdi", page.url == f"{BASE}/events/", page.url)
     ok("Panel login javobida token yo'q (faqat HttpOnly cookie)", seen_login and seen_login[-1].get("ok")
        and "token" not in seen_login[-1], str(seen_login)[:120])
+    # 3.0.0: mavzu tugmasi (chap menyu) — tizim → yorug' → tungi, qayta yuklashda saqlanadi (theme.js), → tizim
+    th = "document.documentElement.getAttribute('data-theme')"
+    page.click(".theme-toggle")
+    t1 = page.evaluate(th)
+    page.click(".theme-toggle")
+    t2 = page.evaluate(th)
+    page.reload()
+    page.wait_for_selector(".theme-toggle", timeout=10000)
+    t3 = page.evaluate(th)
+    bg = [int(x) for x in re.findall(r"\d+", page.evaluate("getComputedStyle(document.body).backgroundColor"))[:3]]
+    lab = page.get_attribute(".theme-toggle", "aria-label") or ""
+    page.click(".theme-toggle")
+    ok("Mavzu tugmasi: yorug' → tungi, qayta yuklashda saqlanadi, fon to'q; yana bosilsa — tizim bo'yicha",
+       (t1, t2, t3) == ("light", "dark", "dark") and sum(bg) < 150 and lab.startswith("Mavzu: tungi")
+       and page.evaluate(th) is None and page.evaluate("localStorage.getItem('hushyor-theme')") is None,
+       f"{t1} {t2} {t3} {bg} {lab!r}")
     # Ochiq yo'naltirish: "/\t/evil.com" brauzerda "//evil.com" bo'lib qoladi — panel tashqariga chiqarmasligi kerak
     for bad in ("%2F%09%2Fevil.example", "%2F%5Cevil.example", "https%3A%2F%2Fevil.example", "%2F%2Fevil.example",
                 "%2F.%2F%2Fevil.example", "%2Fa%2F..%2F%2Fevil.example", "%2F%252e%2F%2Fevil.example"):

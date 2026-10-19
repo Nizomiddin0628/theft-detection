@@ -8,17 +8,20 @@
 <meta property="og:title" content="Hushyor AI — do&#39;kon kameralari uchun sun&#39;iy intellekt">
 <meta property="og:description" content="O&#39;g&#39;irlik signallari, tashriflar, kassa navbati, do&#39;kon oqimi va kunlik hisobot — mavjud kameralar bilan.">
 <meta name="theme-color" content="#0f1b2a">
+<meta name="color-scheme" content="light dark">
 <link rel="alternate" hreflang="uz" href="./">
 <link rel="alternate" hreflang="ru" href="ru/">
 <link rel="alternate" hreflang="en" href="en/">
 <link rel="icon" href="img/belgi.svg" type="image/svg+xml">
 <link rel="preload" href="fonts/ibm-plex-sans-latin.woff2" as="font" type="font/woff2" crossorigin>
-<link rel="stylesheet" href="style.css?v=2.9.0">
+<!-- 3.0.0: tanlangan mavzu (yorug'/tungi) birinchi chizishdan oldin qo'yiladi — oq "chaqnash" bo'lmasin -->
+<script src="theme.js?v=3.0.0"></script>
+<link rel="stylesheet" href="style.css?v=3.0.0">
 <script src="sozlama.js" defer></script>
-<script src="app.js?v=2.9.0" defer></script>
+<script src="app.js?v=3.0.0" defer></script>
 </head>
 <!-- Bu fayl yasaladi: scripts/build_site.py (shablon scripts/site_template.html, matnlar scripts/site_text.py) -->
-<body class="no-js" data-i18n="{&#34;busy&#34;: &#34;&#34;, &#34;call&#34;: &#34;yoki qo\u0027ng\u0027iroq qiling:&#34;, &#34;expired&#34;: &#34;&#34;, &#34;fail&#34;: &#34;Yuborib bo\u0027lmadi \u2014 birozdan keyin qayta urinib ko\u0027ring.&#34;, &#34;k_addr&#34;: &#34;Manzil&#34;, &#34;k_email&#34;: &#34;Email&#34;, &#34;k_phone&#34;: &#34;Telefon&#34;, &#34;k_tg&#34;: &#34;Telegram&#34;, &#34;name&#34;: &#34;Ismingizni yozing&#34;, &#34;net&#34;: &#34;Internet bilan muammo \u2014 qayta urinib ko\u0027ring&#34;, &#34;phone&#34;: &#34;Telefon raqamini to\u0027liq yozing: +998 90 123 45 67&#34;, &#34;phone_bad&#34;: &#34;&#34;, &#34;sending&#34;: &#34;Yuborilmoqda\u2026&#34;, &#34;thanks&#34;: &#34;Rahmat! So\u0027rovingiz qabul qilindi \u2014 tez orada bog\u0027lanamiz.&#34;, &#34;version&#34;: &#34;versiya&#34;}">
+<body class="no-js" data-i18n="{&#34;busy&#34;: &#34;&#34;, &#34;call&#34;: &#34;yoki qo\u0027ng\u0027iroq qiling:&#34;, &#34;expired&#34;: &#34;&#34;, &#34;fail&#34;: &#34;Yuborib bo\u0027lmadi \u2014 birozdan keyin qayta urinib ko\u0027ring.&#34;, &#34;k_addr&#34;: &#34;Manzil&#34;, &#34;k_email&#34;: &#34;Email&#34;, &#34;k_phone&#34;: &#34;Telefon&#34;, &#34;k_tg&#34;: &#34;Telegram&#34;, &#34;name&#34;: &#34;Ismingizni yozing&#34;, &#34;net&#34;: &#34;Internet bilan muammo \u2014 qayta urinib ko\u0027ring&#34;, &#34;phone&#34;: &#34;Telefon raqamini to\u0027liq yozing: +998 90 123 45 67&#34;, &#34;phone_bad&#34;: &#34;&#34;, &#34;sending&#34;: &#34;Yuborilmoqda\u2026&#34;, &#34;thanks&#34;: &#34;Rahmat! So\u0027rovingiz qabul qilindi \u2014 tez orada bog\u0027lanamiz.&#34;, &#34;theme_dark&#34;: &#34;tungi&#34;, &#34;theme_fmt&#34;: &#34;Mavzu: {cur}. Bosing \u2014 {next}&#34;, &#34;theme_light&#34;: &#34;yorug\u0027&#34;, &#34;theme_system&#34;: &#34;tizim bo\u0027yicha&#34;, &#34;version&#34;: &#34;versiya&#34;}">
 <a class="skip" href="#asosiy">Asosiy qismga o&#39;tish</a>
 <header class="top">
   <div class="wrap top-in">
@@ -35,6 +38,11 @@
       <a href="ru/" hreflang="ru" lang="ru" title="Русский">RU</a>
       <a href="en/" hreflang="en" lang="en" title="English">EN</a>
     </nav>
+    <button class="theme-btn" type="button" id="theme-btn" data-mode="system" aria-label="Mavzu: tizim bo&#39;yicha. Bosing — yorug&#39;" title="Mavzu: tizim bo&#39;yicha. Bosing — yorug&#39;">
+      <svg class="ti ti-system" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><circle cx="12" cy="12" r="8"/><path class="fill" d="M12 4a8 8 0 0 1 0 16z"/></svg>
+      <svg class="ti ti-light" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2.5v2.2M12 19.3v2.2M2.5 12h2.2M19.3 12h2.2M5.3 5.3l1.6 1.6M17.1 17.1l1.6 1.6M5.3 18.7l1.6-1.6M17.1 6.9l1.6-1.6"/></svg>
+      <svg class="ti ti-dark" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M20 14.6A8.2 8.2 0 1 1 9.4 4a6.6 6.6 0 0 0 10.6 10.6z"/></svg>
+    </button>
     <a class="btn small top-cta" href="#aloqa">So&#39;rov qoldirish</a>
   </div>
 </header>

@@ -8,6 +8,35 @@ klipini avtomatik kesib, **Telegram botga** sabablari bilan yuboradi. Qo'riqchi 
 
 ---
 
+## 3.0.0 — Video sinovi (bulut panelidan), yorug'/tungi mavzu, Caddy'li server
+
+* **Video sinovi** (bulut paneli → «Video sinovi»): video internetdagi panelga yuklanadi, tanlangan filialning do'kon
+  kompyuteri (edge — AI o'sha yerda) uni bulutdan yuklab oladi (hajm va sha256 tekshiriladi), odatdagi «Video tahlili»
+  navbatiga qo'yadi va natijani qaytaradi: holat va foiz panelda jonli, topilgan signallar rasm va klip bilan — shu
+  yerda va Hodisalar'da. Zonalar: istalgan kameraning zonalarini qo'llash mumkin. Bekor qilish (edge olguncha ham,
+  tahlil paytida ham). Edge videoni tekshirib olgach u bulutdan o'chiriladi; 2 kunda olinmagani — "xato". Video
+  sinovi uchun na bulut, na do'kon Telegram'iga xabar ketmaydi, do'kon panelida ovozli signal ham yo'q (jonli emas).
+  Edge bulutdagi yangi buyruqni ~15 soniyada sezadi (`/edge/poll`). Dastur tahlil paytida qayta ishga tushsa — sinov
+  qaytadan tahlil qilinadi (2 martadan ko'p bo'lsa — "xato": video kompyuterni yiqitayotgan bo'lishi mumkin).
+  Cheklovlar: `CLOUD_VIDEO_MAX_MB` (300), `CLOUD_VIDEO_QUOTA_MB` (2000), `CLOUD_VIDEO_MIN_FREE_MB` (1024 — server
+  boshqa saytlar bilan bo'lishilgan bo'lsa ular to'lib qolmasin), bir vaqtda 5 ta sinov. Do'kon kompyuteri 3.0.0
+  bo'lishi va bulutga ulangan bo'lishi kerak.
+* **Do'kon kompyuterini bulutga ulash — buyruq qatoridan:** `python -m app.sync --device-id` (qurilma identifikatori →
+  bulut panelida Filiallar → Qo'shish → token), so'ng `python -m app.sync --connect https://<bulut> <TOKEN>` — aloqani
+  tekshiradi va `.env` ga `CLOUD_URL`, `EDGE_TOKEN` ni yozadi (boshqa qatorlarga tegmaydi); `--check` — tekshirish.
+  Edge panelidagi «Video tahlili» ro'yxatida bunday vazifalar «bulutdan» belgisi bilan.
+* **Oqim sahifasi** filial yoki reja hali yo'q bo'lganda buzilib qolardi ("This page couldn't load") — tuzatildi
+  (server ham bo'sh tuzilmani to'liq qaytaradi).
+* **Yorug'/tungi mavzu**: saytda (UZ/RU/EN yonida) va bulut panelida (menyuda, kirish sahifasida) tugma —
+  Tizim → Yorug' → Tungi. Tanlov brauzerda eslab qolinadi (sayt va panelda bitta), sahifa oqarib ketmaydi
+  (`theme.js` `<head>` da). Sayt to'liq tungi ranglarda (matn kontrasti ≥ 4,5:1). CSP o'zgarmadi.
+* **Server (deploy/install_vps.sh)**: serverda 80/443 ni **Caddy** egallagan bo'lsa (boshqa saytlar Caddy orqali) —
+  nginx/certbot o'rnatilmaydi, Caddyfile'ga faqat shu domen bloki qo'shiladi (aniq nom tekshiruvi, zaxira,
+  `caddy validate`, xato bo'lsa eski holat; "/" — sayt, panelga kirgan — panel). 80/443 boshqa dasturda bo'lsa —
+  hech narsa o'zgartirilmaydi. Himoyalar: skript repo ichidan yurgizilmasa (manba "/" bo'lib qolsa) yoki diskda
+  1,5 GB dan kam joy bo'lsa — to'xtaydi; paket o'rnatilganda boshqa xizmatlar qayta yoqilmaydi (NEEDRESTART_SUSPEND).
+  nginx'da video yuklash va yuklab olish uchun alohida `location` (katta tana, buferlanmaydi).
+
 ## 2.9.0 — sayt: uch til, «Qanday ishlaydi» tomir tizimi, boy imkoniyatlar
 
 * **Uch til:** o'zbekcha `/sayt/`, ruscha `/sayt/ru/`, inglizcha `/sayt/en/` — tepada til almashtirgich, `hreflang`,

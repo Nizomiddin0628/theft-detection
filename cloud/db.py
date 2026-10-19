@@ -322,6 +322,33 @@ leads = Table(                                             # 2.6.0: saytdagi so'
     Index("ix_leads_phone", "phone"),
 )
 
+video_tests = Table(                                       # 3.0.0: bulut panelidagi "Video sinovi" (cloud/video_tests.py)
+    "video_tests", meta,
+    Column("id", Integer, primary_key=True),
+    Column("company_id", Integer, ForeignKey("companies.id"), nullable=False),
+    Column("branch_id", Integer, ForeignKey("branches.id"), nullable=False),
+    Column("user_id", Integer),
+    Column("filename", String(200), nullable=False),
+    Column("size", BigInteger, nullable=False),
+    Column("sha256", String(64), nullable=False),
+    Column("zone_source_id", Integer),                    # edge kamerasi — uning zonalari videoga qo'llanadi
+    Column("zone_source_name", String(200)),
+    Column("status", String(20), nullable=False),         # kutilmoqda | yuklanmoqda | navbatda | ishlanmoqda | tayyor | xato | bekor
+    Column("progress", Float, nullable=False, default=0),
+    Column("job_id", Integer),                            # edge'dagi vazifa (hodisalar data.job_id bilan bog'lanadi)
+    Column("events", Integer, nullable=False, default=0),
+    Column("duration", Float),
+    Column("error", String(300)),
+    Column("created_at", Float, nullable=False),
+    Column("updated_at", Float),
+    Column("started_at", Float),
+    Column("done_at", Float),
+    Column("file_deleted", Boolean, nullable=False, default=False),
+    Column("token", String(40)),                          # tasodifiy: edge hisobotini aynan shu sinovga bog'laydi
+    Index("ix_video_tests_company", "company_id", "created_at"),
+    sqlite_autoincrement=True,                            # o'chirilgan sinov raqami qayta berilmasin (edge eslab qoladi)
+)
+
 # Mavjud bazalarga (1.6.0) qo'shiladigan ustunlar: create_all eski jadvalni o'zgartirmaydi
 EXTRA_COLUMNS = {
     "branches": {"offline_since": "FLOAT", "occupancy": "JSON", "queues": "JSON", "flow_plans": "JSON",

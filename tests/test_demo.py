@@ -349,6 +349,19 @@ def cloud_suite(label: str) -> None:
            re.search(r'class="vas-fig" role="img" aria-label="[^"]{40,}"', html_) is not None
            and len(re.findall(r'<svg class="vas-svg vas-[hv]"[^>]*aria-hidden="true"', html_)) == 2
            and 'aria-pressed="true"' not in html_ and not re.search(r'class="vf[^"]*"[^>]*filter=', html_))
+        # 3.0.0: mavzu tugmasi — theme.js <head> da (CSS'dan oldin, versiya bilan), tugma va uch belgi, tungi tokenlar
+        head = html_.split("</head>", 1)[0]
+        ok(f"{pre}: mavzu tugmasi (tizim/yorug'/tungi) va theme.js <head> da, CSS'dan oldin",
+           re.search(r'<script src="(?:\.\./)?theme\.js\?v=[\w.]+"></script>', head) is not None
+           and head.index("theme.js") < head.index("style.css") and 'id="theme-btn"' in html_
+           and 'data-mode="system"' in html_ and all(f"ti-{m}" in html_ for m in ("system", "light", "dark"))
+           and re.search(r'id="theme-btn"[^>]*aria-label="[^"]{12,}"', html_) is not None
+           and '<meta name="color-scheme" content="light dark">' in head)
+    css = (ROOT / "site" / "style.css").read_text(encoding="utf-8")
+    ok(f"{label}: sayt CSS — tungi mavzu: tizim sozlamasi va majburiy tanlov (bir xil tokenlar)",
+       ':root:not([data-theme="light"])' in css and ':root[data-theme="dark"]' in css
+       and "prefers-color-scheme: dark" in css and c.get("/sayt/theme.js").status_code == 200
+       and "hushyor-theme" in c.get("/sayt/theme.js").text)
     ok(f"{label}: /sayt/ru → /sayt/ru/ (qiyshiq chiziqsiz ham ochiladi)",
        c.get("/sayt/ru", follow_redirects=True).status_code == 200)
     ok(f"{label}: shrift va litsenziyasi beriladi, app.js va style.css bor",
@@ -822,6 +835,45 @@ def browser_suite() -> None:
             ok("harakat kamaytirilgan: sxema izohlari o'zi almashmaydi, sahnalar oxirgi holatda (SMS, 82)",
                k1 == "cams" and pg.evaluate(cur_js) == k1
                and pg.evaluate("getComputedStyle(document.querySelector('.fv-sms')).opacity") == "1")
+            ctx.close()
+            # 3.0.0: mavzu tugmasi — tizim bo'yicha → yorug' → tungi → tizim; tanlov qayta yuklashda saqlanadi
+            theme_js = "document.documentElement.getAttribute('data-theme')"
+
+            def dark_bg(p) -> bool:
+                rgb = [int(x) for x in re.findall(r"\d+", p.evaluate("getComputedStyle(document.body).backgroundColor"))[:3]]
+                return sum(rgb) < 150
+            ctx = b.new_context(viewport={"width": 1366, "height": 900}, color_scheme="light")
+            pg = ctx.new_page()
+            errs = []
+            pg.on("pageerror", lambda e: errs.append(str(e)))
+            pg.goto(f"http://127.0.0.1:{port}/sayt/en/")
+            pg.wait_for_load_state("networkidle")
+            t0, light0 = pg.evaluate(theme_js), not dark_bg(pg)
+            pg.click("#theme-btn")
+            t1 = pg.evaluate(theme_js)
+            pg.click("#theme-btn")
+            t2, dark2 = pg.evaluate(theme_js), dark_bg(pg)
+            lab = pg.get_attribute("#theme-btn", "aria-label") or ""
+            pg.reload()
+            pg.wait_for_load_state("networkidle")
+            t3, dark3 = pg.evaluate(theme_js), dark_bg(pg)
+            tg_ink = pg.evaluate("getComputedStyle(document.querySelector('.tg')).color")
+            ok("mavzu: tugma tizim → yorug' → tungi, tanlov qayta yuklashda saqlanadi, fon haqiqatan to'q",
+               t0 is None and light0 and t1 == "light" and t2 == "dark" and dark2 and t3 == "dark" and dark3
+               and lab.startswith("Theme: dark") and not errs, f"{t0} {t1} {t2} {t3} {lab!r} {errs[:2]}")
+            ok("mavzu: tungi rejimda Telegram kartasi yorug' qoladi (matn to'q)", tg_ink == "rgb(19, 32, 47)", tg_ink)
+            pg.click("#theme-btn")
+            ok("mavzu: uchinchi bosish — yana tizim bo'yicha (tanlov o'chiriladi)", pg.evaluate(theme_js) is None
+               and pg.evaluate("localStorage.getItem('hushyor-theme')") is None and not dark_bg(pg))
+            ctx.close()
+            ctx = b.new_context(viewport={"width": 360, "height": 740}, is_mobile=True, color_scheme="dark")
+            pg = ctx.new_page()
+            pg.goto(f"http://127.0.0.1:{port}/sayt/")
+            pg.wait_for_load_state("networkidle")
+            ok("mavzu: tizim tungi bo'lsa — tanlovsiz ham sayt to'q, telefonda siljish yo'q",
+               pg.evaluate(theme_js) is None and dark_bg(pg)
+               and pg.evaluate("document.documentElement.scrollWidth") <= 360
+               and pg.get_attribute("#theme-btn", "data-mode") == "system")
             ctx.close()
             # Ruscha va inglizcha sahifa: telefon kengligi, xato yo'q, forma xabarlari o'z tilida
             for lg, url, msg_name, thanks in (("ru", "/sayt/ru/", "Укажите имя", "Спасибо"),

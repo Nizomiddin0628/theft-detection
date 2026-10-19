@@ -134,3 +134,33 @@ export const IconMap = (p: P) => (
     <path d="M9 4v14M15 6v14" />
   </svg>
 );
+
+// 3.0.0: Video sinovi
+export const IconFilm = (p: P) => (
+  <svg {...base} {...p}>
+    <rect x="3" y="4" width="18" height="16" rx="2" />
+    <path d="M7 4v16M17 4v16M3 9h4M3 15h4M17 9h4M17 15h4" />
+    <path d="M10.5 9.5v5l4-2.5z" />
+  </svg>
+);
+
+// 3.0.0: mavzu tugmasi — tizim bo'yicha (yarim to'la doira), yorug' (quyosh), tungi (oy)
+export const IconAuto = (p: P) => (
+  <svg {...base} {...p}>
+    <circle cx="12" cy="12" r="8" />
+    <path d="M12 4a8 8 0 0 1 0 16z" fill="currentColor" stroke="none" />
+  </svg>
+);
+
+export const IconSun = (p: P) => (
+  <svg {...base} {...p}>
+    <circle cx="12" cy="12" r="4" />
+    <path d="M12 2.5v2.2M12 19.3v2.2M2.5 12h2.2M19.3 12h2.2M5.3 5.3l1.6 1.6M17.1 17.1l1.6 1.6M5.3 18.7l1.6-1.6M17.1 6.9l1.6-1.6" />
+  </svg>
+);
+
+export const IconMoon = (p: P) => (
+  <svg {...base} {...p}>
+    <path d="M20 14.6A8.2 8.2 0 1 1 9.4 4a6.6 6.6 0 0 0 10.6 10.6z" />
+  </svg>
+);

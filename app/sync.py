@@ -33,6 +33,8 @@ BATCH = 50                       # bitta so'rovda eng ko'p hodisa / ko'rsatkich
 CLIP_LIMIT = 60 * 1024 * 1024    # klip fayli chegarasi (serverniki bilan bir xil)
 BACKOFF_MIN, BACKOFF_MAX = 5.0, 300.0
 HELLO_SEC = 60.0                 # heartbeat oralig'i
+HELLO_ACTIVE_SEC = 15.0          # 3.0.0: bulut video sinovi ishlayotganda (panelda foiz yangilanib tursin)
+POLL_SEC = 15.0                  # 3.0.0: bulutda yangi buyruq bormi (masalan, panelda video yuklandi) — yengil so'rov
 CLIP_MAX_ATTEMPTS = 50           # klip shuncha vaqtinchalik xatodan keyin "rad etilgan" bo'ladi (boshqalar — cheksiz)
 CLIP_REQUEUE_MAX = 3             # 409 (hodisa serverda yo'q) sababli klipni qayta navbatga qo'yish chegarasi
 BACKFILL_DAYS = 7                # bulut birinchi ulanganda oxirgi shuncha kunlik hodisalar yuboriladi
@@ -224,6 +226,8 @@ class SyncWorker(threading.Thread):
         self.auth_failed = False
         self.hello_failed = True         # birinchi hello'gacha "ulanish yo'q" deb olinadi (kutayotgan qatorlar ochiladi)
         self.server_time_skew = None
+        self.last_poll = 0.0
+        self.hello_due = False           # 3.0.0: navbatdan tashqari hello kerak (hello_soon / poll)
 
     # ------------------------------------------------------------------ boshqaruv
     def stop(self) -> None:
@@ -272,6 +276,8 @@ class SyncWorker(threading.Thread):
 
     def hello(self) -> bool:
         """Heartbeat: qurilma, versiya, kameralar, navbat. Server vaqti bilan farq ham o'lchanadi."""
+        # Bayroq yig'ishdan OLDIN tushiriladi: hello davomida yangi o'zgarish bo'lsa (hello_soon) — keyingi sikl yana yuboradi
+        self.hello_due = False
         cams = []
         if self.manager is not None:
             try:
@@ -311,6 +317,14 @@ class SyncWorker(threading.Thread):
             payload["readiness"] = pilot.summary()
         except Exception:  # noqa: BLE001
             log.exception("Tayyorlik holatini olib bo'lmadi")
+        try:
+            from . import cloud_tests           # 3.0.0: bulut panelidan yuborilgan video sinovlari holati
+
+            vt = cloud_tests.report()
+            if vt:
+                payload["video_tests"] = vt
+        except Exception:  # noqa: BLE001
+            log.exception("Video sinovlari holatini olib bo'lmadi")
         t0 = time.time()
         payload["time"] = t0
         code, body = self._post(f"/api/v{API_VERSION}/edge/hello", payload, timeout=15)
@@ -348,7 +362,14 @@ class SyncWorker(threading.Thread):
         done: list[int] = []
         for c in cmds:
             try:
-                if c.get("type") == "review" and c.get("local_id"):
+                if c.get("type") in ("video_test", "video_test_cancel"):
+                    from . import cloud_tests      # 3.0.0: bulut panelidagi "Video sinovi"
+
+                    if c["type"] == "video_test":
+                        cloud_tests.accept(c, self)
+                    else:
+                        cloud_tests.cancel(c, self.manager)
+                elif c.get("type") == "review" and c.get("local_id"):
                     ev = db.get_event(int(c["local_id"]))
                     status = str(c.get("status") or "")
                     if ev and status in ("yangi", "tasdiqlangan", "rad_etilgan"):
@@ -584,6 +605,14 @@ class SyncWorker(threading.Thread):
         if not (self.url and self.token):
             return
         install_hooks()
+        try:
+            from . import cloud_tests
+
+            n = cloud_tests.resume(self)
+            if n:
+                log.info("Bulut video sinovlari: %d ta yuklab olish davom ettirilmoqda", n)
+        except Exception:  # noqa: BLE001
+            log.exception("Bulut video sinovlarini tiklab bo'lmadi")
         bf_key = f"sync_backfilled:{self.url}"
         if not db.get_setting(bf_key, ""):
             n = backfill()
@@ -598,7 +627,7 @@ class SyncWorker(threading.Thread):
                         break
                     self.auth_failed = False
                     self.state = "ulanmoqda"
-                if self.state != "ishlayapti" or time.time() - self.last_hello >= HELLO_SEC:
+                if self.state != "ishlayapti" or self.hello_due or time.time() - self.last_hello >= self._hello_every():
                     # Heartbeat — ayni paytda ulanish tekshiruvi. Ulanish tiklangach kutayotgan qatorlar darhol ketadi
                     if not self.hello():
                         if self.auth_failed:
@@ -623,11 +652,36 @@ class SyncWorker(threading.Thread):
                 if time.time() - last_prune > 3600:
                     last_prune = time.time()
                     self._prune()
+                if time.time() - self.last_poll >= POLL_SEC and cloud_supports("video_tests"):
+                    self.last_poll = time.time()
+                    if self._poll():
+                        continue                        # buyruq bor — darhol hello (buyruqlar shu javobda keladi)
                 self.wake.wait(5.0)
                 self.wake.clear()
             except Exception:
                 log.exception("Bulut sinxronizatsiyasida xato")
                 self.stop_evt.wait(5)
+
+    def _poll(self) -> bool:
+        """3.0.0: bulutda yetkazilmagan buyruq bormi (GET /edge/poll). Bor bo'lsa — keyingi sikl darhol hello yuboradi.
+        Xato — jim (keyingi hello odatdagidek)."""
+        try:
+            r = self.client.get(f"{self.url}/api/v{API_VERSION}/edge/poll", timeout=10)
+            body = r.json() if r.status_code == 200 else {}
+        except (httpx.HTTPError, ValueError):
+            return False
+        if isinstance(body, dict) and int(body.get("pending") or 0) > 0:
+            self.hello_due = True
+            return True
+        return False
+
+    def _hello_every(self) -> float:
+        try:
+            from . import cloud_tests
+
+            return HELLO_ACTIVE_SEC if cloud_tests.active() else HELLO_SEC
+        except Exception:  # noqa: BLE001
+            return HELLO_SEC
 
     def _wait_backoff(self) -> None:
         """Eksponensial kutish. Yangi qator (kick) kutishni qisqartirmaydi — server yotgan bo'lsa urish befoyda."""
@@ -638,6 +692,14 @@ class SyncWorker(threading.Thread):
 
 
 _worker: SyncWorker | None = None
+
+
+def hello_soon() -> None:
+    """3.0.0: navbatdagi hello'ni kutmasdan yuborish (masalan, bulut video sinovi holati o'zgardi)."""
+    w = _worker
+    if w is not None and w.is_alive():
+        w.hello_due = True
+        w.kick()
 
 
 def get_worker(manager=None) -> SyncWorker:
@@ -659,3 +721,98 @@ def start_worker(manager=None) -> SyncWorker:
         _worker = w = SyncWorker(manager=manager)
     w.start()
     return w
+
+
+# ----------------------------------------------------------------------------- 3.0.0: buyruq qatori (ulash)
+def check_connection(url: str, token: str) -> tuple[bool, str]:
+    """Bulut manzili va qurilma tokeni to'g'rimi (GET /edge/poll — buyruqlarni olmaydi, hech narsani o'zgartirmaydi)."""
+    url = url.rstrip("/")
+    try:
+        r = httpx.get(f"{url}/api/v{API_VERSION}/edge/poll", timeout=15,
+                      headers={"Authorization": f"Bearer {token}", "X-Device-Id": device_id(),
+                               "X-Api-Version": str(API_VERSION), "User-Agent": f"HushyorAI/{APP_VERSION}"})
+    except httpx.HTTPError as e:
+        return False, f"server bilan aloqa yo'q ({e.__class__.__name__}) — manzil va internetni tekshiring"
+    if r.status_code == 200:
+        return True, "aloqa bor, token to'g'ri"
+    if r.status_code == 401:
+        return False, "token xato (yoki u boshqa qurilma identifikatori uchun berilgan)"
+    if r.status_code in (404, 405):
+        return False, "bulut serveri eski (3.0.0 dan oldingi) yoki manzil noto'g'ri"
+    return False, f"bulut javobi HTTP {r.status_code}"
+
+
+def write_env(updates: dict[str, str], env_file=None):
+    """.env dagi kalitlarni almashtiradi (bo'lmasa — qo'shadi), qolgan qatorlarga tegmaydi. UTF-8 (BOM'siz)."""
+    from pathlib import Path
+
+    from .config import BASE_DIR
+
+    f = Path(env_file) if env_file else BASE_DIR / ".env"
+    lines = f.read_text(encoding="utf-8-sig").splitlines() if f.exists() else []
+    out, done = [], set()
+    for raw in lines:
+        s = raw.strip()
+        key = s.split("=", 1)[0].strip() if "=" in s and not s.startswith("#") else None
+        if key and key.lower().startswith("export "):
+            key = key[7:].strip()
+        if key in updates:
+            if key not in done:
+                out.append(f"{key}={updates[key]}")
+                done.add(key)
+            continue
+        out.append(raw)
+    out += [f"{k}={v}" for k, v in updates.items() if k not in done]
+    f.write_text("\n".join(out) + "\n", encoding="utf-8")
+    return f
+
+
+def main(argv=None) -> int:
+    """python -m app.sync --device-id | --connect <URL> <TOKEN> | --check"""
+    import argparse
+    import re
+
+    ap = argparse.ArgumentParser(prog="python -m app.sync", description="Do'kon kompyuterini bulutga ulash")
+    ap.add_argument("--device-id", action="store_true", help="qurilma identifikatori (bulut panelida filial qo'shish uchun)")
+    ap.add_argument("--connect", nargs=2, metavar=("URL", "TOKEN"), help="tekshirib, .env ga CLOUD_URL va EDGE_TOKEN yozadi")
+    ap.add_argument("--check", action="store_true", help=".env dagi CLOUD_URL va EDGE_TOKEN bilan aloqani tekshirish")
+    a = ap.parse_args(argv)
+    try:
+        dev = db.get_setting("device_id", "")
+    except Exception:  # noqa: BLE001 — baza hali yo'q
+        dev = ""
+    if not dev:
+        print("Qurilma identifikatori hali yo'q — dasturni bir marta ishga tushiring (start_windows.bat), keyin qaytadan.")
+        return 1
+    if a.device_id:
+        print(dev)
+        return 0
+    if a.connect:
+        url, token = a.connect[0].strip().rstrip("/"), a.connect[1].strip()
+        if not re.fullmatch(r"https?://[^\s/]+(/[^\s]*)?", url):
+            print("Manzil http:// yoki https:// bilan boshlanishi kerak, masalan: https://hushyor.misol.uz")
+            return 1
+        if not re.fullmatch(r"[A-Za-z0-9_\-.~]{16,200}", token):
+            print("Token noto'g'ri ko'rinishda (bulut panelidagi EDGE_TOKEN= dan keyingi qism kerak)")
+            return 1
+        ok, why = check_connection(url, token)
+        print(("OK: " if ok else "XATO: ") + why)
+        if not ok:
+            return 1
+        f = write_env({"CLOUD_URL": url, "EDGE_TOKEN": token})
+        print(f"Yozildi: {f} (CLOUD_URL, EDGE_TOKEN). Endi dasturni qayta ishga tushiring:")
+        print("  Stop-ScheduledTask HushyorAI; Start-ScheduledTask HushyorAI      (yoki start_windows.bat)")
+        return 0
+    if a.check:
+        if not configured():
+            print("Bulut sozlanmagan (.env da CLOUD_URL va EDGE_TOKEN yo'q)")
+            return 1
+        ok, why = check_connection(CLOUD_URL, EDGE_TOKEN)
+        print(("OK: " if ok else "XATO: ") + why + f"  ({CLOUD_URL}, qurilma {dev})")
+        return 0 if ok else 1
+    ap.print_help()
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -620,6 +620,9 @@ kbd {
     color: var(--amber);
   }
 }
+:root[data-theme="dark"] .score.mid {
+  color: var(--amber);
+}
 
 .tabs {
   display: flex;
@@ -1517,9 +1520,66 @@ input[type="range"] {
 }
 
 .login-form-wrap {
+  position: relative;
   display: grid;
   place-items: center;
   padding: 32px 16px;
+}
+
+/* 3.0.0: mavzu tugmasi — kichik dumaloq (kirish sahifasi, telefondagi sarlavha); chap menyuda — .rail-link */
+.theme-chip {
+  display: inline-grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 50%;
+  background: var(--surface);
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.theme-chip:hover {
+  color: var(--text);
+  border-color: var(--line-strong);
+}
+
+.theme-chip:focus-visible,
+.theme-toggle:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+.login-theme {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+}
+
+.top-theme {
+  display: none;
+}
+
+@media (max-width: 760px) {
+  .top-theme {
+    display: inline-grid;
+  }
+
+  /* telefonda kirish sahifasi bir ustun: tugma sahifaning o'ng yuqori burchagida (to'q qism ustida) */
+  .login {
+    position: relative;
+  }
+
+  .login-form-wrap {
+    position: static;
+  }
+
+  .login-theme {
+    top: 14px;
+    right: 14px;
+  }
 }
 
 .login-form {

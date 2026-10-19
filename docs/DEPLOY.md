@@ -89,6 +89,14 @@ sudo bash /root/hushyor-src/deploy/install_vps.sh panel.dokon.uz admin@dokon.uz 
 sudo bash /root/hushyor-src/deploy/install_vps.sh 203.0.113.7 admin@dokon.uz --postgres      # domensiz (UzCloud IP)
 ```
 
+**Serverda boshqa saytlar Caddy orqali ishlasa (3.0.0)** — skript buni o'zi aniqlaydi: nginx va certbot
+o'rnatilmaydi, `/etc/caddy/Caddyfile` ga faqat shu domen uchun bitta blok qo'shiladi (oldin zaxira, keyin
+`caddy validate`; xato bo'lsa fayl eski holatiga qaytariladi), sertifikatni Caddy o'zi oladi. Domen sifatida
+boshqa saytlaringiz kabi nom bering, masalan `hushyor.185-196-215-179.sslip.io`. 80/443 boshqa dasturda (apache,
+docker) bo'lsa — skript hech narsani o'zgartirmay to'xtaydi. Majburlash: `HUSHYOR_WEB=caddy` yoki `HUSHYOR_WEB=nginx`.
+Skriptni **faqat repo ichidan** yurgizing (`bash /root/hushyor-src/deploy/install_vps.sh ...`) — boshqa joyga
+ko'chirilsa, u o'zi to'xtaydi.
+
 Skript quyidagilarni o'rnatadi:
 
 - Python muhiti (faqat bulut kutubxonalari: `requirements-cloud.txt`).
@@ -103,7 +111,9 @@ Boshqa nginx saytlariga va Telegram botlariga tegmaydi.
 3. Birinchi egani yarating (skript buyruqni chiqaradi):
    `cd /opt/hushyor-ai && sudo -u hushyor .venv/bin/python -m cloud.server --init-owner admin@dokon.uz - "Kompaniya"`
 4. Bulut Telegram boti uchun @BotFather'da **alohida** bot oching. Edge botining tokeni bilan bir xil bo'lmasin, aks holda ikkalasi "Conflict" beradi. Tokenni `/opt/hushyor-ai/.env` dagi `CLOUD_TELEGRAM_BOT_TOKEN=` ga yozing, so'ng: `sudo systemctl restart hushyor-cloud`.
-5. Panelda: **Filiallar → Qo'shish**. "Qurilma identifikatori" edge panelida turadi (**Tizim holati → Bulut**). Panel bergan tokenni edge'ning `.env` fayliga yozing:
+5. Panelda: **Filiallar → Qo'shish**. (3.0.0: identifikator va ulash buyruq qatoridan ham —
+   `.venv\Scripts\python -m app.sync --device-id`, keyin `.venv\Scripts\python -m app.sync --connect https://panel.dokon.uz TOKEN`
+   — u aloqani tekshirib `.env` ga o'zi yozadi; so'ng dasturni qayta ishga tushiring.) "Qurilma identifikatori" edge panelida turadi (**Tizim holati → Bulut**). Panel bergan tokenni edge'ning `.env` fayliga yozing:
    ```
    CLOUD_URL=https://panel.dokon.uz
    EDGE_TOKEN=<token>
@@ -112,6 +122,11 @@ Boshqa nginx saytlariga va Telegram botlariga tegmaydi.
 
 **Yangilash:** `cd /root/hushyor-src && git fetch && git checkout <yangi shox> && sudo bash deploy/install_vps.sh panel.dokon.uz admin@dokon.uz`
 (o'sha domen yoki IP va o'sha `--postgres` bilan). Bunda `.env` va baza saqlanadi.
+
+**Video sinovi (3.0.0):** panelda «Video sinovi» — video bulutga yuklanadi va filialning do'kon kompyuteri tahlil
+qiladi. `.env`: `CLOUD_VIDEO_MAX_MB` (bitta video, sukut 300), `CLOUD_VIDEO_QUOTA_MB` (bulutda tahlil kutayotganlar
+jami, 2000), `CLOUD_VIDEO_MIN_FREE_MB` (diskda qolishi shart, 1024). Videolar `cloud/data/video_tests/` da faqat
+tahlil tugaguncha turadi. nginx'da yuklash uchun alohida `location` bor (2 GB gacha tana, ilova o'zi cheklaydi).
 
 **Filiallar tayyorligi (2.5.0):** bulut panelida **Filiallar** sahifasida har do'kon kompyuterining tayyorlik ro'yxati
 (masalan, "9/11 tayyor · tuzatish kerak: Telegram bot") va pilot kuni ko'rinadi — do'konga bormasdan holatni bilish uchun.

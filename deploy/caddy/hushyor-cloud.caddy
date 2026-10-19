@@ -1,0 +1,10 @@
+# Hushyor AI bulut serveri (deploy/install_vps.sh qo'shgan) — panel, Sync API, sayt -> 127.0.0.1:9000
+__DOMAIN__ {
+    # Kirmagan mehmon "/" ni ochsa — sayt (/sayt/); panelga kirgan xodim (hc_session) — panel
+    @guest {
+        path /
+        not header Cookie *hc_session=*
+    }
+    redir @guest /sayt/ 302
+    reverse_proxy 127.0.0.1:9000
+}

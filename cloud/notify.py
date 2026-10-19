@@ -1044,6 +1044,12 @@ class Worker(threading.Thread):
                 leads.retry_async()         # 2.6.0: yuborilmay qolgan sayt so'rovlari (alohida oqimda)
             except Exception:
                 log.exception("Sayt so'rovlarini qayta yuborishda xato")
+            try:
+                from . import video_tests
+
+                video_tests.sweep_tick()    # 3.0.0: olinmagan/eskirgan Video sinovlari va qolgan fayllar (30 daqiqada)
+            except Exception:
+                log.exception("Video sinovlarini tozalashda xato")
             self.stop_evt.wait(self.MONITOR_SEC)
 
 

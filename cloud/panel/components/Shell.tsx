@@ -6,7 +6,8 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 
 import { api, isSafety, KIND_UZ, ROLE_UZ, type Me } from "@/lib/api";
 import { beep, emitLive, getPref, unlockAudio, type LiveMsg } from "@/lib/live";
-import { IconBell, IconCart, IconChart, IconDoor, IconExit, IconList, IconMap, IconPeople, IconScale, IconShield, IconStore, IconWall } from "./Icons";
+import { IconBell, IconCart, IconChart, IconDoor, IconExit, IconFilm, IconList, IconMap, IconPeople, IconScale, IconShield, IconStore, IconWall } from "./Icons";
+import ThemeToggle from "./ThemeToggle";
 
 interface Toast {
   id: number;
@@ -35,6 +36,7 @@ export function useSession(): SessionCtx {
 const NAV = [
   { href: "/", label: "Bosh sahifa", short: "Bosh", icon: IconWall },
   { href: "/events/", label: "Hodisalar", short: "Hodisalar", icon: IconList },
+  { href: "/videos/", label: "Video sinovi", short: "Video", icon: IconFilm, lead: true }, // 3.0.0
   { href: "/branches/", label: "Filiallar", short: "Filiallar", icon: IconStore },
   { href: "/visits/", label: "Tashriflar", short: "Tashrif", icon: IconDoor },
   { href: "/queues/", label: "Navbat", short: "Navbat", icon: IconCart },
@@ -245,6 +247,7 @@ export default function Shell({ children }: { children: ReactNode }) {
             <span className={live ? "live on" : "live"} title={live ? "Jonli ulanish bor" : "Jonli ulanish yo'q — qayta ulanmoqda"}>
               {live ? "Jonli" : "Uzilgan"}
             </span>
+            <ThemeToggle variant="rail" />
             <button className="rail-link" onClick={logout} title="Chiqish">
               <IconExit />
               <span>Chiqish</span>
@@ -257,6 +260,7 @@ export default function Shell({ children }: { children: ReactNode }) {
             <span className="who">
               {ctx.me.user.name && ctx.me.user.name !== ROLE_UZ[ctx.me.user.role] ? ctx.me.user.name : ctx.me.user.email}
               <span className="role">{ROLE_UZ[ctx.me.user.role]}</span>
+              <ThemeToggle className="top-theme" />
               <button className="btn small quiet top-exit" onClick={logout}>
                 Chiqish
               </button>

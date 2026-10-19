@@ -336,6 +336,55 @@ export interface SystemStatus {
   last_backup_age_h: number | null;
 }
 
+// 3.0.0: Video sinovi — panelda yuklanadi, filialning do'kon kompyuteri (edge) tahlil qiladi
+export type VideoTestStatus = "kutilmoqda" | "yuklanmoqda" | "navbatda" | "ishlanmoqda" | "tayyor" | "xato" | "bekor";
+export interface VideoTest {
+  id: number;
+  branch_id: number;
+  branch_name: string;
+  filename: string;
+  size: number;
+  status: VideoTestStatus;
+  status_uz: string;
+  progress: number;
+  events: number;
+  duration: number | null;
+  error: string | null;
+  created_at: number;
+  updated_at: number | null;
+  started_at: number | null;
+  done_at: number | null;
+  zone_source_id: number | null;
+  zone_source_name: string | null;
+  job_id: number | null;
+  active: boolean;
+}
+export interface VideoTestBranch {
+  id: number;
+  name: string;
+  version: string;
+  online: boolean;
+  ok: boolean;
+  cameras: { id: number; name: string }[];
+}
+export interface VideoTestsResp {
+  tests: VideoTest[];
+  branches: VideoTestBranch[];
+  limits: { max_mb: number; quota_mb: number; exts: string[]; active_max: number };
+  can_upload: boolean;
+}
+export interface VideoTestEvent {
+  uid: string;
+  kind: string;
+  score: number;
+  status: Status;
+  level: string | null;
+  reasons: string[];
+  video_time: number | null;
+  clip_file: string | null;
+  thumb_file: string | null;
+}
+
 export class ApiError extends Error {
   status: number;
   constructor(status: number, message: string) {

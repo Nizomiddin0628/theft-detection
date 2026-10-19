@@ -331,6 +331,32 @@ o'chmaydi, lekin yangi bazaga ko'chirilmaydi). Bulutdagi tekshirish `updated_at`
 * `GET /api/v1/auth/status` (demo serverda, `CLOUD_DEMO=1`): kirmagan bo'lsa `demo: true` va `demo_login`;
   `GET /api/v1/me` — `demo` belgisi (panel "DEMO" yozuvini ko'rsatadi).
 
+## 3.0.0 — Video sinovi (bulut paneli → edge tahlili)
+
+Bulut panelida yuklangan video filialning edge kompyuterida tahlil qilinadi (bulutda AI yo'q). Kod: `cloud/video_tests.py`,
+`app/cloud_tests.py`. Edge 3.0.0 dan eski bo'lsa bulut yuklashni rad etadi (409) — eski edge bu buyruqni tushunmaydi.
+
+* **Buyruq** (hello javobidagi `commands`, oddiy ack bilan):
+  `{"id": 17, "type": "video_test", "test_id": 5, "filename": "kassa.mp4", "size": 1048576, "sha256": "<64 hex>",
+  "zone_source_id": 3}` — edge jobs jadvaliga `cloud_test_id=5` bilan qator yozadi ("yuklanmoqda") va ack qiladi.
+  Bekor qilish: `{"type": "video_test_cancel", "test_id": 5}`.
+* `GET /api/v1/edge/video-tests/{test_id}/file` (edge tokeni bilan) — videoning o'zi. 410 — bekor qilingan/tugagan.
+  Edge `.part` faylga yozadi, hajm va sha256 mos kelmasa — 10 s / 60 s / 300 s dan keyin qayta, keyin "xato".
+* `GET /api/v1/edge/poll` → `{"ok": true, "pending": N}` — yetkazilmagan buyruqlar soni. Edge har ~15 s so'raydi
+  (bulut hello javobida `features` ichida `video_tests` bo'lsa); N > 0 — darhol hello.
+* **Holat** — hello so'rovida (har hello'da takror, idempotent; sinov ishlayotganda hello har 15 s):
+  `"video_tests": [{"id": 5, "job_id": 42, "status": "ishlanmoqda", "progress": 37.5, "events": 1,
+  "duration": null, "error": ""}]`. Edge holatlari: yuklanmoqda | navbatda | ishlanmoqda | tayyor | xato | toxtatildi
+  (bulutda — "bekor"). Tugagan holat bulutda qaytib "faol"ga o'tmaydi.
+* **Natija** — odatdagi `/edge/events` va `/edge/events/{uid}/clip` (hodisada `job_id`); bulut sinov hodisalarini
+  `branch_id` + `data.job_id` bo'yicha topadi. Video tahlili hodisalari uchun bildirishnoma yuborilmaydi.
+* Edge tahlil paytida qayta ishga tushsa — sinov yangi vazifa (yangi `job_id`) bilan qaytadan tahlil qilinadi.
+
+Panel API: `GET /api/v1/video-tests` (sinovlar, filiallar: onlayn/versiya/kameralar, cheklovlar),
+`POST /api/v1/video-tests?branch_id=&name=[&zone_source_id=]` (tana — videoning o'zi, `Content-Length` bilan;
+owner/manager), `GET /api/v1/video-tests/{id}` (sinov + hodisalari), `POST /api/v1/video-tests/{id}/cancel`,
+`DELETE /api/v1/video-tests/{id}` (faqat tugagan).
+
 ## Edge tomonidagi kafolatlar (qabul mezoni: internet 1 soat uzilsa ma'lumot yo'qolmaydi)
 
 * Hamma yozuv avval lokal `outbox` jadvaliga (SQLite, WAL) tushadi — jarayon o'lsa ham saqlanadi.

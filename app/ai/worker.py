@@ -718,6 +718,8 @@ class FileJob(threading.Thread):
                 self.manager.finish_clip(p, ring.slice(p.t_start, p.t_end))
             cap.release()
         status = "xato" if err else ("toxtatildi" if self.stop_evt.is_set() else "tayyor")
+        if status == "toxtatildi" and self.job.get("cloud_test_id") and getattr(self.manager, "shutting_down", False):
+            status = "ishlanmoqda"     # 3.0.0: dastur to'xtayapti — bulut sinovi keyingi ishga tushishda qaytadan (recover)
         db.execute("UPDATE jobs SET status=?, progress=?, events_count=?, finished_at=?, duration=?, "
                    "frames=?, error=? WHERE id=?",
                    (status, 100.0 if status == "tayyor" else round(self.progress * 100, 1), self.events,

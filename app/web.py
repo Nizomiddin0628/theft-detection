@@ -113,6 +113,13 @@ def _startup() -> None:
 
     queues.set_notifier(bot)                # 2.0.0: navbat qoidalari signallari
     bot.start()
+    # 3.0.0: tahlil paytida to'xtab qolgan bulut video sinovlari qaytadan navbatga (faqat shu yerda — asosiy dasturda)
+    try:
+        from . import cloud_tests
+
+        cloud_tests.recover()
+    except Exception:  # noqa: BLE001
+        log.exception("Bulut video sinovlarini tiklab bo'lmadi")
     # Edge agent: bulut navbati (CLOUD_URL berilgan bo'lsa) va daqiqalik ko'rsatkichlar
     sync.install_hooks()
     sync.start_worker(mgr)
@@ -1235,7 +1242,10 @@ def api_jobs():
 
 @app.post("/api/jobs/{job_id}/stop")
 def api_job_stop(job_id: int):
-    get_manager().stop_job(job_id)
+    from . import cloud_tests
+
+    if not cloud_tests.stop_local(job_id):      # 3.0.0: bulutdan yuklab olinayotgan sinov
+        get_manager().stop_job(job_id)
     return {"ok": True}
 
 
@@ -1243,8 +1253,13 @@ def api_job_stop(job_id: int):
 def api_job_delete(job_id: int):
     j = db.row("SELECT * FROM jobs WHERE id=?", (job_id,))
     if j:
-        get_manager().stop_job(job_id)
-        if j.get("path") and Path(j["path"]).parent == UPLOADS_DIR:
+        from . import cloud_tests
+
+        if not cloud_tests.stop_local(job_id):
+            get_manager().stop_job(job_id)
+        # 3.0.0: bitta videoni bir nechta vazifa ishlatishi mumkin (bulut sinovi qayta tahlili) — oxirgisi bilan o'chadi
+        shared = db.scalar("SELECT COUNT(*) FROM jobs WHERE path=? AND id != ?", (j.get("path"), job_id)) or 0
+        if j.get("path") and Path(j["path"]).parent == UPLOADS_DIR and not shared:
             Path(j["path"]).unlink(missing_ok=True)
         db.execute("DELETE FROM jobs WHERE id=?", (job_id,))
     return {"ok": True}

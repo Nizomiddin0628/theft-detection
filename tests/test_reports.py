@@ -397,6 +397,10 @@ def telegram_suite() -> None:
     clear()
     tg.CALLS.clear()
     today = reports.day_start()
+    if time.localtime(today + 43200).tm_wday == 0:
+        # 3.0.0: dushanba 09:00 da kunlik bilan birga haftalik ham keladi — bu bo'lak faqat kunlik uchun, shuning uchun
+        # dushanba kuni yurganda kechagi (yakshanba) kun olinadi (sinov hafta kuniga bog'liq bo'lmasin)
+        today = reports.day_start(today - 43200)
     db.set_settings({"report_daily": "1", "report_weekly": "1", "report_time": "09:00",
                      "report_since": str(today - 30 * 86400)})
     sch = reports.Scheduler(bot)

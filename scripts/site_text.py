@@ -20,6 +20,7 @@ T["uz"] = {
     "home_label": "Hushyor AI — bosh sahifa",
     "nav_label": "Sayt bo'limlari",
     "lang_label": "Sayt tili",
+    "theme_label": "Mavzu: tizim bo'yicha. Bosing — yorug'",   # skriptsiz/birinchi holat (app.js yangilaydi)
     "nav": ["Qanday ishlaydi", "Imkoniyatlar", "Ko'rinishi", "Pilot", "Savollar"],
     "cta_top": "So'rov qoldirish",
     # bosh qism
@@ -209,7 +210,10 @@ T["uz"] = {
            "fail": "Yuborib bo'lmadi — birozdan keyin qayta urinib ko'ring.", "busy": "",
            "expired": "", "phone_bad": "",
            "net": "Internet bilan muammo — qayta urinib ko'ring", "call": "yoki qo'ng'iroq qiling:",
-           "k_phone": "Telefon", "k_tg": "Telegram", "k_email": "Email", "k_addr": "Manzil", "version": "versiya"},
+           "k_phone": "Telefon", "k_tg": "Telegram", "k_email": "Email", "k_addr": "Manzil", "version": "versiya",
+           # 3.0.0: mavzu tugmasi ({cur} — hozirgi, {next} — bosilgandagi)
+           "theme_fmt": "Mavzu: {cur}. Bosing — {next}", "theme_system": "tizim bo'yicha", "theme_light": "yorug'",
+           "theme_dark": "tungi"},
 }
 
 # ============================================================================================ ruscha
@@ -223,6 +227,7 @@ T["ru"] = {
     "home_label": "Hushyor AI — главная",
     "nav_label": "Разделы сайта",
     "lang_label": "Язык сайта",
+    "theme_label": "Тема: как в системе. Нажмите — светлая",
     "nav": ["Как работает", "Возможности", "Интерфейс", "Пилот", "Вопросы"],
     "cta_top": "Оставить заявку",
     "h1": "Ваши камеры следят сами — вам остаётся только принять решение",
@@ -402,7 +407,9 @@ T["ru"] = {
            "expired": "Форма устарела — обновите страницу и отправьте заново.",
            "phone_bad": "Проверьте номер: +998 XX XXX XX XX",
            "net": "Проблема с интернетом — попробуйте ещё раз", "call": "или позвоните:",
-           "k_phone": "Телефон", "k_tg": "Telegram", "k_email": "Эл. почта", "k_addr": "Адрес", "version": "версия"},
+           "k_phone": "Телефон", "k_tg": "Telegram", "k_email": "Эл. почта", "k_addr": "Адрес", "version": "версия",
+           "theme_fmt": "Тема: {cur}. Нажмите — {next}", "theme_system": "как в системе", "theme_light": "светлая",
+           "theme_dark": "тёмная"},
 }
 
 # ============================================================================================ inglizcha
@@ -416,6 +423,7 @@ T["en"] = {
     "home_label": "Hushyor AI — home",
     "nav_label": "Site sections",
     "lang_label": "Site language",
+    "theme_label": "Theme: system. Click for light",
     "nav": ["How it works", "Features", "Screens", "Pilot", "FAQ"],
     "cta_top": "Get in touch",
     "h1": "Your cameras watch for you — you just make the call",
@@ -600,7 +608,9 @@ T["en"] = {
            "expired": "The form has expired — reload the page and send it again.",
            "phone_bad": "Check the number: +998 XX XXX XX XX",
            "net": "Connection problem — please try again", "call": "or call:",
-           "k_phone": "Phone", "k_tg": "Telegram", "k_email": "Email", "k_addr": "Address", "version": "version"},
+           "k_phone": "Phone", "k_tg": "Telegram", "k_email": "Email", "k_addr": "Address", "version": "version",
+           "theme_fmt": "Theme: {cur}. Click for {next}", "theme_system": "system", "theme_light": "light",
+           "theme_dark": "dark"},
 }
 
 # Forma "filiallar soni" qiymati serverga (va egasiga Telegram xabarida) har doim o'zbekcha boradi

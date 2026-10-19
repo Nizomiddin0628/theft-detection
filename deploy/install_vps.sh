@@ -15,6 +15,12 @@
 # kod /opt/hushyor-ai ga (faqat bulut qismi kerakli kutubxonalar bilan); .env (CLOUD_PUBLIC_URL, admin tokeni,
 # PostgreSQL paroli — tasodifiy); systemd xizmati (127.0.0.1:9000) va kundalik zaxira taymeri; nginx + Let's Encrypt
 # (HTTPS, HTTP→HTTPS). Boshqa nginx saytlari va Telegram botlaringizga tegmaydi.
+#
+# 3.0.0: serverda 80/443 portlarini Caddy egallagan bo'lsa (boshqa saytlar Caddy orqali) — nginx/certbot
+# O'RNATILMAYDI: Caddyfile'ga faqat shu domen uchun bitta blok qo'shiladi (zaxira, `caddy validate`, xato bo'lsa
+# eski holat), sertifikatni Caddy o'zi oladi. Majburlash: HUSHYOR_WEB=caddy yoki HUSHYOR_WEB=nginx.
+# 80/443 boshqa dasturda (apache, docker...) bo'lsa — hech narsa o'zgartirilmaydi, skript to'xtaydi.
+# Paket o'rnatilganda boshqa xizmatlar avtomatik qayta yoqilmaydi (NEEDRESTART_SUSPEND).
 set -euo pipefail
 
 DOMAIN="${1:-}"
@@ -32,6 +38,46 @@ if [[ $EUID -ne 0 ]]; then
     echo "root (sudo) bilan ishga tushiring"
     exit 1
 fi
+# 3.0.0: manba — shu skript turgan repo (deploy/ ning ota papkasi). Skript boshqa joyga ko'chirilgan bo'lsa (masalan
+# /root/install.sh) SRC "/" bo'lib qolib, butun server /opt/hushyor-ai ga ko'chirilardi — oldindan tekshiriladi
+if [[ "$SRC" == "/" || ! -f "$SRC/cloud/server.py" || ! -f "$SRC/deploy/install_vps.sh" || ! -f "$SRC/requirements-cloud.txt" ]]; then
+    echo "XATO: manba papka noto'g'ri ($SRC). Skriptni repo ichidan yurgizing: bash <repo>/deploy/install_vps.sh ..."
+    exit 1
+fi
+FREE_MB=$(df -Pm "$(dirname "$APP")" | awk 'NR==2 {print $4}')
+if [[ "${FREE_MB:-0}" -lt 1000 ]]; then
+    echo "XATO: diskda bo'sh joy kam (${FREE_MB:-?} MB, kamida 1000 MB kerak) — boshqa xizmatlar to'lib qolmasin"
+    exit 1
+fi
+export NEEDRESTART_SUSPEND=1
+
+# Veb-server: Caddy (bor bo'lsa) yoki nginx
+WEB="${HUSHYOR_WEB:-}"
+PORT_OWNERS=$( (ss -ltnpH 2>/dev/null || true) | awk '$4 ~ /:(80|443)$/' | grep -oE 'users:\(\("[^"]+' | sed 's/users:(("//' | sort -u | tr '\n' ' ' || true)
+if [[ -z "$WEB" ]]; then
+    # 80/443 kimda bo'lsa — o'sha (Caddy boshqa portda ishlayotgan bo'lsa ham, portlar nginx'da bo'lsa — nginx)
+    if [[ "$PORT_OWNERS" == *caddy* ]]; then
+        WEB=caddy
+    elif [[ "$PORT_OWNERS" == *nginx* ]]; then
+        WEB=nginx
+    elif systemctl is-active --quiet caddy 2>/dev/null; then
+        WEB=caddy
+    else
+        WEB=nginx
+    fi
+fi
+if [[ "$WEB" != "caddy" && "$WEB" != "nginx" ]]; then
+    echo "HUSHYOR_WEB faqat caddy yoki nginx bo'lishi mumkin"
+    exit 1
+fi
+for p in $PORT_OWNERS; do
+    if [[ "$p" != "$WEB" ]]; then
+        echo "XATO: 80/443 portini \"$p\" egallagan — u bilan ishlash qo'llab-quvvatlanmaydi, hech narsa o'zgartirilmadi."
+        echo "Bu domen uchun teskari proksini qo'lda sozlang: https://$DOMAIN → http://127.0.0.1:9000 (docs/DEPLOY.md)"
+        exit 1
+    fi
+done
+echo "Veb-server: $WEB"
 if [[ "$DOMAIN" =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}$ ]]; then
     IP="$DOMAIN"
     DOMAIN="${IP//./-}.sslip.io"
@@ -48,7 +94,11 @@ fi
 echo "== 1/7 Paketlar"
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
-apt-get install -y -qq python3 python3-venv python3-pip nginx certbot rsync curl >/dev/null
+if [[ "$WEB" == "nginx" ]]; then
+    apt-get install -y -qq python3 python3-venv python3-pip nginx certbot rsync curl >/dev/null
+else
+    apt-get install -y -qq python3 python3-venv python3-pip rsync curl >/dev/null
+fi
 if [[ "$MODE" == "--postgres" ]]; then
     apt-get install -y -qq postgresql postgresql-client >/dev/null
 fi
@@ -57,7 +107,7 @@ echo "== 2/7 Foydalanuvchi va kod ($APP)"
 id hushyor >/dev/null 2>&1 || useradd --system --home-dir "$APP" --shell /usr/sbin/nologin hushyor
 mkdir -p "$APP"
 rsync -a --delete \
-    --exclude .git --exclude .venv --exclude data --exclude cloud/data --exclude .env \
+    --exclude .git --exclude .venv --exclude /data --exclude /cloud/data --exclude .env \
     --exclude 'cloud/panel/node_modules' --exclude 'cloud/panel/.next' --exclude 'models/*.onnx' \
     --exclude 'samples' "$SRC"/ "$APP"/
 mkdir -p "$APP/cloud/data"
@@ -139,15 +189,50 @@ done
 curl -fsS http://127.0.0.1:9000/healthz >/dev/null || { journalctl -u "$SVC" -n 40 --no-pager; exit 1; }
 echo "   xizmat ishlayapti: 127.0.0.1:9000"
 
-echo "== 6/7 nginx + HTTPS (Let's Encrypt)"
-if command -v ufw >/dev/null && ufw status | grep -q "Status: active"; then
-    ufw allow 'Nginx Full' >/dev/null         # sertifikat tekshiruvi (80-port) uchun certbot'dan oldin
-fi
-SITE=/etc/nginx/sites-available/hushyor-cloud
-mkdir -p /var/www/html
-if [[ ! -f "/etc/letsencrypt/live/$DOMAIN/fullchain.pem" ]]; then
-    # Sertifikat olinguncha: faqat HTTP (ACME tekshiruvi uchun)
-    cat > "$SITE" <<NGINX
+if [[ "$WEB" == "caddy" ]]; then
+    echo "== 6/7 Caddy (HTTPS sertifikatini Caddy o'zi oladi)"
+    CF=$(systemctl cat caddy 2>/dev/null | grep -m1 -oP '(?<=--config )\S+' || true)
+    CF=${CF:-/etc/caddy/Caddyfile}
+    if [[ ! -f "$CF" ]]; then
+        echo "XATO: Caddyfile topilmadi ($CF)"
+        exit 1
+    fi
+    if ! command -v caddy >/dev/null; then
+        echo "XATO: caddy buyrug'i topilmadi (PATH) — Caddyfile'ga tegilmadi"
+        exit 1
+    fi
+    HOST_RE="${DOMAIN//./\\.}"
+    # Aniq shu nom bilan sayt manzili (http(s)://, :port, "a, b {" ro'yxati ham; boshqa saytning nomi ichida kelgani —
+    # masalan, xyz.<domen> — hisoblanmaydi). import qilingan fayllar uchun Caddyfile papkasi to'liq ko'riladi.
+    CFG_TEXT=$(grep -rhsv --exclude='*.bak-hushyor-*' '^[[:space:]]*#' "$(dirname "$CF")" || true)
+    if grep -qE "(^|[[:space:],])(https?://)?${HOST_RE}(:[0-9]+)?([[:space:],{]|$)" <<< "$CFG_TEXT"; then
+        echo "   Caddy sozlamasida $DOMAIN bor — o'zgartirilmadi"
+    else
+        BK="$CF.bak-hushyor-$(date +%Y%m%d-%H%M%S)"
+        CLOG=$(mktemp)
+        cp "$CF" "$BK"
+        { echo; sed "s/__DOMAIN__/$DOMAIN/g" "$APP/deploy/caddy/hushyor-cloud.caddy"; } >> "$CF"
+        if caddy validate --config "$CF" --adapter caddyfile > "$CLOG" 2>&1 && systemctl reload caddy >> "$CLOG" 2>&1; then
+            echo "   Caddy: $DOMAIN qo'shildi (zaxira: $BK)"
+        else
+            cp "$BK" "$CF"
+            systemctl reload caddy >/dev/null 2>&1 || true
+            echo "XATO: Caddy yangi sozlamani qabul qilmadi — Caddyfile eski holatiga qaytarildi:"
+            tail -5 "$CLOG"
+            exit 1
+        fi
+        rm -f "$CLOG"
+    fi
+else
+    echo "== 6/7 nginx + HTTPS (Let's Encrypt)"
+    if command -v ufw >/dev/null && ufw status | grep -q "Status: active"; then
+        ufw allow 'Nginx Full' >/dev/null         # sertifikat tekshiruvi (80-port) uchun certbot'dan oldin
+    fi
+    SITE=/etc/nginx/sites-available/hushyor-cloud
+    mkdir -p /var/www/html
+    if [[ ! -f "/etc/letsencrypt/live/$DOMAIN/fullchain.pem" ]]; then
+        # Sertifikat olinguncha: faqat HTTP (ACME tekshiruvi uchun)
+        cat > "$SITE" <<NGINX
 server {
     listen 80;
     listen [::]:80;
@@ -156,18 +241,23 @@ server {
     location / { return 503; }
 }
 NGINX
+        ln -sf "$SITE" /etc/nginx/sites-enabled/hushyor-cloud
+        nginx -t && systemctl reload nginx
+        certbot certonly --webroot -w /var/www/html -d "$DOMAIN" -m "$EMAIL" --agree-tos -n \
+            --deploy-hook "systemctl reload nginx"
+    fi
+    sed "s/__DOMAIN__/$DOMAIN/g" "$APP/deploy/nginx/hushyor-cloud.conf" > "$SITE"
     ln -sf "$SITE" /etc/nginx/sites-enabled/hushyor-cloud
-    nginx -t && systemctl reload nginx
-    certbot certonly --webroot -w /var/www/html -d "$DOMAIN" -m "$EMAIL" --agree-tos -n \
-        --deploy-hook "systemctl reload nginx"
+    nginx -t
+    systemctl reload nginx
 fi
-sed "s/__DOMAIN__/$DOMAIN/g" "$APP/deploy/nginx/hushyor-cloud.conf" > "$SITE"
-ln -sf "$SITE" /etc/nginx/sites-enabled/hushyor-cloud
-nginx -t
-systemctl reload nginx
 
 echo "== 7/7 Tekshiruv"
-curl -fsS "https://$DOMAIN/healthz" && echo
+for _ in $(seq 1 30); do
+    curl -fsS "https://$DOMAIN/healthz" 2>/dev/null && echo && break
+    sleep 2
+done
+curl -fsS "https://$DOMAIN/healthz" >/dev/null || { echo "XATO: https://$DOMAIN javob bermadi (sertifikat? 80/443 ochiqmi?)"; exit 1; }
 echo
 echo "Tayyor: https://$DOMAIN/"
 if ! sudo -u hushyor "$APP/.venv/bin/python" -c "import sys; sys.path.insert(0, '$APP'); from cloud import db; db.init_db(); sys.exit(0 if db.row('SELECT id FROM users LIMIT 1') else 1)" 2>/dev/null; then

@@ -38,6 +38,7 @@ class Manager:
         self._job_thread = threading.Thread(target=self._job_loop, daemon=True, name="jobs")
         self._job_thread.start()
         self._last_cleanup = 0.0
+        self.shutting_down = False    # 3.0.0: dastur to'xtayapti — bulut sinovi "bekor" emas, qaytadan tahlil qilinadi
         self.health: dict[int, dict] = {}   # kamera holati: {source_id: {"since", "alerted", "reason"}}
         self._started = time.time()
         self._load_health()
@@ -84,6 +85,7 @@ class Manager:
             log.info("Manba to'xtatildi: %s", w.src["name"])
 
     def stop_all(self) -> None:
+        self.shutting_down = True
         for sid in list(self.workers):
             self.stop_source(sid)
         for j in list(self.jobs.values()):
@@ -155,6 +157,15 @@ class Manager:
     def autostart(self) -> None:
         for s in db.rows("SELECT id FROM sources WHERE enabled=1"):
             self.start_source(s["id"])
+        self.requeue_cloud_jobs()
+
+    def requeue_cloud_jobs(self) -> int:
+        """3.0.0: bulut video sinovlari (yuklab olingan, tahlil kutayotgan) dastur qayta ishga tushganda navbatga."""
+        ids = [r["id"] for r in db.rows("SELECT id FROM jobs WHERE cloud_test_id IS NOT NULL AND status='navbatda' "
+                                        "ORDER BY id")]
+        for jid in ids:
+            self.job_queue.put(jid)
+        return len(ids)
 
     # ---------------- Video vazifalari ----------------
     def submit_job(self, path: Path, filename: str, zone_source_id: int | None = None) -> int:
@@ -162,6 +173,10 @@ class Manager:
                          "VALUES(?,?,?,?,?,?)", (filename, str(path), "navbatda", 0, time.time(), zone_source_id))
         self.job_queue.put(jid)
         return jid
+
+    def queue_job(self, jid: int) -> None:
+        """3.0.0: oldindan yozilgan (holati "navbatda") vazifani navbatga qo'yish — bulut video sinovi."""
+        self.job_queue.put(jid)
 
     def stop_job(self, jid: int) -> None:
         j = self.jobs.get(jid)
@@ -182,11 +197,16 @@ class Manager:
                 continue
             fj = FileJob(job, self)
             self.jobs[jid] = fj
+            cloud = bool(job.get("cloud_test_id"))
             try:
                 fj.start()
+                if cloud:
+                    _cloud_changed()
                 fj.join()
             finally:
                 self.jobs.pop(jid, None)
+                if cloud:
+                    _cloud_changed()
 
     # ---------------- Hodisalar ----------------
     def create_event(self, alert: dict, source: dict, job_id: int | None, video_time: float | None,
@@ -197,6 +217,8 @@ class Manager:
         va Telegram'ga birinchi bo'lib shu rasm ketadi. Klip keyin finish_clip'da qo'shiladi.
         """
         now = time.time()
+        # 3.0.0: bulut panelidan yuborilgan video sinovi — do'kon qo'riqchilariga Telegram/ovozli signal yuborilmaydi
+        cloud = _is_cloud_job(job_id)
         ev_id = db.insert_event({
             "source_id": source.get("id"),
             "source_name": source.get("name"),
@@ -237,9 +259,9 @@ class Manager:
         db.update_event(ev_id, pose_path=pose_path.name)
         log.info("Hodisa #%d: %s, ball %.0f (%s)", ev_id, alert["kind_label"], alert["score"],
                  source.get("name"))
-        # Klipni kutmasdan: web panelga va Telegram'ga darhol
-        self.emit("new", ev_id)
-        if self.notifier is not None:
+        # Klipni kutmasdan: web panelga va Telegram'ga darhol (bulut sinovi — faqat ro'yxat yangilanadi, ovozsiz)
+        self.emit("update" if cloud else "new", ev_id)
+        if self.notifier is not None and not cloud:
             try:
                 self.notifier.notify_alert(ev_id)
             except Exception:
@@ -286,7 +308,7 @@ class Manager:
                 (CLIPS_DIR / old["thumb_path"]).unlink(missing_ok=True)
         db.update_event(p.event_id, **upd)
         self.emit("clip", p.event_id)
-        if self.notifier is not None:
+        if self.notifier is not None and not _is_cloud_job(old.get("job_id")):
             try:
                 self.notifier.notify_clip(p.event_id)
             except Exception:
@@ -430,6 +452,26 @@ class Manager:
                     f.unlink()
             except OSError:
                 pass
+
+
+def _is_cloud_job(job_id) -> bool:
+    """3.0.0: vazifa bulut panelidagi Video sinovimi (jobs.cloud_test_id)."""
+    if job_id is None:
+        return False
+    try:
+        return bool(db.scalar("SELECT cloud_test_id FROM jobs WHERE id=?", (int(job_id),)))
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def _cloud_changed() -> None:
+    """3.0.0: bulut video sinovining holati o'zgardi — bulut paneli tezroq bilsin (navbatdan tashqari hello)."""
+    try:
+        from .. import sync
+
+        sync.hello_soon()
+    except Exception:  # noqa: BLE001
+        pass
 
 
 def archive_feedback(ev: dict) -> None:

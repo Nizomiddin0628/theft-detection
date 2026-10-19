@@ -20,6 +20,44 @@
     return e;
   }
 
+  // ---- 3.0.0: mavzu tugmasi — tizim bo'yicha → yorug' → tungi → tizim bo'yicha (theme.js boshida qo'llaydi)
+  var THEME_KEY = "hushyor-theme";
+  var THEMES = ["system", "light", "dark"];
+  var root = document.documentElement;
+  var themeBtn = document.getElementById("theme-btn");
+  var themeMeta = document.querySelector('meta[name="theme-color"]');
+  function curTheme() {
+    var t = root.getAttribute("data-theme");
+    return t === "light" || t === "dark" ? t : "system";
+  }
+  function paintTheme() {
+    var t = curTheme();
+    var next = THEMES[(THEMES.indexOf(t) + 1) % THEMES.length];
+    if (themeBtn) {
+      var label = tr("theme_fmt", "{cur} → {next}").replace("{cur}", tr("theme_" + t, t)).replace("{next}", tr("theme_" + next, next));
+      themeBtn.setAttribute("data-mode", t);
+      themeBtn.setAttribute("aria-label", label);
+      themeBtn.setAttribute("title", label);
+    }
+    if (themeMeta) {
+      var dark = t === "dark" || (t === "system" && window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches);
+      themeMeta.setAttribute("content", dark ? "#0b1520" : "#0f1b2a");
+    }
+  }
+  if (themeBtn) {
+    themeBtn.addEventListener("click", function () {
+      var next = THEMES[(THEMES.indexOf(curTheme()) + 1) % THEMES.length];
+      if (next === "system") root.removeAttribute("data-theme");
+      else root.setAttribute("data-theme", next);
+      try {
+        if (next === "system") window.localStorage.removeItem(THEME_KEY);
+        else window.localStorage.setItem(THEME_KEY, next);
+      } catch (e) { /* saqlab bo'lmadi — faqat shu sahifada amal qiladi */ }
+      paintTheme();
+    });
+    paintTheme();
+  }
+
   // ---- aloqa ma'lumotlari (.env: CLOUD_SITE_PHONE, CLOUD_SITE_TELEGRAM, CLOUD_SITE_EMAIL, CLOUD_SITE_ADDRESS)
   var list = document.getElementById("contacts");
   function contact(label, text, href) {

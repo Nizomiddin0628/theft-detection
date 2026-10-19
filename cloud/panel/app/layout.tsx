@@ -19,7 +19,12 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
-    <html lang="uz">
+    // suppressHydrationWarning: theme.js data-theme ni React'dan oldin qo'yadi (3.0.0, mavzu tugmasi)
+    <html lang="uz" suppressHydrationWarning>
+      <head>
+        {/* eslint-disable-next-line @next/next/no-sync-scripts -- ataylab sinxron: mavzu birinchi chizishdan oldin */}
+        <script src="/theme.js" />
+      </head>
       <body>{children}</body>
     </html>
   );

@@ -4,6 +4,7 @@ import { Suspense, useEffect, useState, type FormEvent } from "react";
 import { useSearchParams } from "next/navigation";
 
 import { IconShield } from "@/components/Icons";
+import ThemeToggle from "@/components/ThemeToggle";
 import { api } from "@/lib/api";
 
 function safeNext(v: string | null): string {
@@ -127,6 +128,7 @@ export default function LoginPage() {
         </div>
       </section>
       <section className="login-form-wrap">
+        <ThemeToggle className="login-theme" />
         <Suspense>
           <LoginForm />
         </Suspense>

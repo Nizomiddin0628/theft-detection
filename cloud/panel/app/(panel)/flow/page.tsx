@@ -122,10 +122,12 @@ export default function FlowPage() {
     return o;
   }, [plan]);
   const todayTotal = (data?.today_hours ?? []).reduce((a, h) => a + Object.values(h).reduce((x, y) => x + y, 0), 0);
-  const hours = data
-    ? data.today_hours.map((h, i) => ({ x: data.day0 + i * 3600 + 1800, y: Object.values(h).reduce((a, b) => a + b, 0) }))
-    : [];
-  const daily = data ? data.per_day.map((y, i) => ({ x: data.t0 + i * 86400 + 43200, y })) : [];
+  // 3.0.0: reja yoki filial hali yo'q bo'lsa server bu maydonlarni yubormaydi (eski server) — sahifa buzilmasin
+  const hours = (data?.today_hours ?? []).map((h, i) => ({
+    x: (data?.day0 ?? 0) + i * 3600 + 1800,
+    y: Object.values(h).reduce((a, b) => a + b, 0),
+  }));
+  const daily = (data?.per_day ?? []).map((y, i) => ({ x: (data?.t0 ?? 0) + i * 86400 + 43200, y }));
   const hourLabel = (x: number) => `${pad(Math.floor((x - (data?.day0 ?? 0)) / 3600))}:00`;
   const maxV = Math.max(1, ...(data?.sections ?? []).map((s) => s.visits));
 

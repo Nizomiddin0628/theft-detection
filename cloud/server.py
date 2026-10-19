@@ -17,6 +17,8 @@ Panel: cloud/panel_dist (Next.js statik build) — shu server `/` da beradi.
 CLOUD_LEADS_CHAT, CLOUD_LEADS_EMAIL), `python -m cloud.server --leads`. Demo: `python -m cloud.demo` (cloud/demo.py).
 2.8.0: saytning yangi bosh sahnasi (CSS animatsiya, site/fonts — IBM Plex Sans, OFL).
 2.9.0: sayt uch tilda — /sayt/ (o'zbekcha), /sayt/ru/, /sayt/en/ (scripts/build_site.py yasaydi); CLOUD_SITE_PRICE_RU/_EN.
+3.0.0: Video sinovi — panelda video yuklanadi, tahlilni filialning do'kon kompyuteri qiladi (cloud/video_tests.py);
+sayt va panelda yorug'/tungi mavzu almashtirgich.
 """
 from __future__ import annotations
 
@@ -43,14 +45,15 @@ from fastapi.staticfiles import StaticFiles
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from starlette.concurrency import run_in_threadpool
+from starlette.requests import ClientDisconnect
 
 from . import db as cdb
-from . import leads, maintenance, notify, service
+from . import leads, maintenance, notify, service, video_tests
 from .db import CLIPS_DIR, DATA_DIR
 from .live import hub
 
 log = logging.getLogger("hushyor.cloud")
-VERSION = "2.9.0"
+VERSION = "3.0.0"
 
 API_VERSION = 1
 ROOT = Path(__file__).resolve().parent
@@ -210,7 +213,12 @@ async def _guard(request: Request, call_next):
         if "transfer-encoding" in request.headers:
             return JSONResponse({"detail": "Content-Length talab qilinadi (chunked tana qabul qilinmaydi)"},
                                 status_code=411)
-        limit = CLIP_LIMIT + 6 * 1024 * 1024 if path.endswith("/clip") else JSON_LIMIT
+        if path.endswith("/clip"):
+            limit = CLIP_LIMIT + 6 * 1024 * 1024
+        elif path == f"/api/v{API_VERSION}/video-tests":
+            limit = video_tests.max_bytes()          # 3.0.0: Video sinovi (handler o'zi ham tekshiradi)
+        else:
+            limit = JSON_LIMIT
         try:
             if int(request.headers.get("content-length") or 0) > limit:
                 return JSONResponse({"detail": f"so'rov juda katta (> {limit // (1 << 20)} MB)"}, status_code=413)
@@ -264,7 +272,9 @@ def _auth_edge(request: Request, body_limit: int = JSON_LIMIT) -> dict:
             raise HTTPException(403, "muhit tokeni bilan yangi filial yaratish chegarasi — filialni panel orqali yarating")
         b = cdb.ensure_env_branch(dev, "")
     request.state.branch = b
-    if not request.url.path.endswith("/edge/hello"):
+    # hello o'zi yangilaydi; poll (har ~15 s, `--check` ham) — "aloqada" belgisiga tegmaydi (ortiqcha yozuv va
+    # o'chiq do'kon uchun yolg'on "aloqa tiklandi" xabari bo'lmasin)
+    if not request.url.path.endswith(("/edge/hello", "/edge/poll")):
         try:
             # Navbatni bo'shatayotgan (hello yubormayotgan) edge ham "aloqada" ko'rinsin
             notify.touch(b)
@@ -328,6 +338,7 @@ def _prune(conn) -> None:
     conn.execute(cdb.audit_log.delete().where(cdb.audit_log.c.t < now - AUDIT_KEEP_DAYS * 86400))
 
 
+
 # ----------------------------------------------------------------------------- Sync API v1 (edge)
 @app.post(f"/api/v{API_VERSION}/edge/hello")
 async def hello(request: Request):
@@ -356,6 +367,13 @@ def _hello(b: dict, body: dict, ip: str) -> dict:
     qs = _hello_queues(body.get("queues"))
     fp = _hello_flow_plans(body.get("flow_plans"))
     rd = _hello_readiness(body.get("readiness"))
+    vt = body.get("video_tests")
+    if vt is not None:
+        try:
+            with cdb.engine().begin() as c:              # alohida tranzaksiya — xato bo'lsa heartbeat buzilmasin
+                video_tests.apply_edge_report(c, b, vt)  # 3.0.0: Video sinovi holati
+        except Exception:  # noqa: BLE001
+            log.exception("Video sinovi holatini yozib bo'lmadi")
     with cdb.engine().begin() as c:
         vals = {"last_seen": now, "last_ip": ip[:64],
                 "version": str(body.get("version") or "")[:40], "cameras": cams,
@@ -384,7 +402,7 @@ def _hello(b: dict, body: dict, ip: str) -> dict:
             "features": list(FEATURES)}
 
 
-FEATURES = ("queues", "flow")
+FEATURES = ("queues", "flow", "video_tests")
 
 
 def _hello_readiness(raw) -> dict | None:
@@ -1171,7 +1189,10 @@ def flow(request: Request, days: int = 7, branch_id: int | None = None, plan_id:
     avail = [a for a in avail if (a["branch_id"], a["plan_id"]) in with_data] + \
             [a for a in avail if (a["branch_id"], a["plan_id"]) not in with_data]
     if not avail:
-        return {"ok": True, "plans": [], "plan": None, "days": days, "tz_offset": notify.cfg.tz_offset, "day0": today}
+        # 3.0.0: bo'sh holatda ham to'liq tuzilma (panel maydonlarni o'qiydi; filial yoki reja hali yo'q)
+        return {"ok": True, "plans": [], "plan": None, "days": days, "tz_offset": notify.cfg.tz_offset, "day0": today,
+                "t0": t0, "total": 0, "sections": [], "moves": [], "today_hours": [{} for _ in range(24)],
+                "per_day": [0] * days, "obs": 0, "heat": None}
     sel = next((a for a in avail if (branch_id is None or a["branch_id"] == branch_id) and
                 (plan_id is None or a["plan_id"] == plan_id)), avail[0])
     br = next(r for r in brows if r["id"] == sel["branch_id"])
@@ -1625,6 +1646,171 @@ def _audit_clip(request: Request, u: dict, clip: str) -> None:
             for k in [k for k, v in _clip_seen.items() if now - v > 600]:
                 _clip_seen.pop(k, None)
     cdb.audit("clip_view", u, clip, ip=_ip(request))
+
+
+# ----------------------------------------------------------------------------- 3.0.0: Video sinovi
+# Panelda video yuklanadi → filialning do'kon kompyuteri (edge) yuklab olib tahlil qiladi (cloud/video_tests.py)
+def _vt_branches(u: dict) -> list[dict]:
+    ids = set(_scope(u))
+    out = []
+    for b in cdb.rows("SELECT id, name, version, last_seen, cameras FROM branches WHERE company_id=:c ORDER BY id",
+                      {"c": u["company_id"]}):
+        if b["id"] not in ids:
+            continue
+        cams = cdb.json_load(b.get("cameras")) or []
+        out.append({"id": b["id"], "name": b["name"], "version": b.get("version") or "",
+                    "online": bool(b.get("last_seen") and time.time() - b["last_seen"] < 180),
+                    "ok": video_tests.edge_ok(b),
+                    "cameras": [{"id": int(_num(c.get("id"))), "name": str(c.get("name") or "")[:200]}
+                                for c in cams if isinstance(c, dict) and c.get("kind") not in ("file", "upload")
+                                and _num(c.get("id")) > 0][:64]})
+    return out
+
+
+@app.get(f"/api/v{API_VERSION}/video-tests")
+def video_tests_list(request: Request):
+    u = _user(request)
+    return {"ok": True, "tests": video_tests.list_for(u, _scope(u)), "branches": _vt_branches(u),
+            "limits": video_tests.limits(), "can_upload": u["role"] in ("owner", "manager")}
+
+
+@app.get(f"/api/v{API_VERSION}/video-tests/{{tid}}")
+def video_test_get(request: Request, tid: int):
+    u = _user(request)
+    t = video_tests.get(tid)
+    if not t or t["company_id"] != u["company_id"] or t["branch_id"] not in cdb.branch_ids_for(u):
+        raise HTTPException(404, "sinov topilmadi")
+    return {"ok": True, "test": video_tests.public(t), "events": video_tests.events_for(t)}
+
+
+@app.post(f"/api/v{API_VERSION}/video-tests")
+async def video_test_upload(request: Request, branch_id: str = "", name: str = "", zone_source_id: str = ""):
+    """Tana — videoning o'zi (application/octet-stream, Content-Length bilan; multipart emas — diskka bir marta yoziladi).
+    Parametrlar matn sifatida olinadi va kirish tekshirilgandan KEYIN tahlil qilinadi (sessiyasiz — 401, 422 emas)."""
+    u = await run_in_threadpool(_user, request)
+    _require(u, "owner", "manager")
+    if not branch_id.isdigit():
+        raise HTTPException(400, "filial tanlanmagan")
+    branch_id = int(branch_id)
+    zone_source_id = int(zone_source_id) if zone_source_id.isdigit() else None
+    await run_in_threadpool(_scope, u, branch_id)
+    br = await run_in_threadpool(cdb.row, "SELECT * FROM branches WHERE id=:b AND company_id=:c",
+                                 {"b": int(branch_id), "c": u["company_id"]})
+    if not br:
+        raise HTTPException(404, "filial topilmadi")
+    if not video_tests.edge_ok(br):
+        raise HTTPException(409, "Bu filialning do'kon kompyuteri eski versiyada — video sinovi uchun uni 3.0.0 ga "
+                                 "yangilang (yoki hali bulutga ulanmagan)")
+    fname = video_tests.clean_name(name)
+    if Path(fname).suffix.lower() not in video_tests.EXTS:
+        raise HTTPException(400, "Video fayl kerak: " + ", ".join(e[1:] for e in video_tests.EXTS))
+    try:
+        size = int(request.headers.get("content-length") or 0)
+    except ValueError:
+        raise HTTPException(400, "Content-Length noto'g'ri")
+    if size <= 0:
+        raise HTTPException(400, "fayl bo'sh")
+    zid = zname = None
+    if zone_source_id:
+        for c in cdb.json_load(br.get("cameras")) or []:
+            if isinstance(c, dict) and int(_num(c.get("id"))) == int(zone_source_id):
+                zid, zname = int(zone_source_id), str(c.get("name") or "")[:200]
+    # Faol sinovlar soni, kompaniya kvotasi va disk — zahira bilan (bir vaqtdagi yuklashlar chegarani aylanib o'tmasin)
+    problem = await run_in_threadpool(video_tests.reserve, u["company_id"], size)
+    if problem:
+        raise HTTPException(problem[0], problem[1])
+    try:
+        return await _vt_stream(request, u, br, fname, size, zid, zname)
+    finally:
+        await run_in_threadpool(video_tests.release, u["company_id"], size)
+
+
+async def _vt_stream(request: Request, u: dict, br: dict, fname: str, size: int, zid, zname) -> dict:
+    w = await run_in_threadpool(video_tests.Writer, video_tests.max_bytes())
+    buf = bytearray()
+    try:
+        async for chunk in request.stream():
+            buf += chunk
+            if len(buf) >= (1 << 20):
+                await run_in_threadpool(w.write, bytes(buf))
+                buf.clear()
+        if buf:
+            await run_in_threadpool(w.write, bytes(buf))
+        if w.size != size:
+            raise HTTPException(400, "fayl to'liq kelmadi — qayta yuklang")
+        if not video_tests.magic_ok(w.head):
+            raise HTTPException(400, "Bu video fayl emas (MP4, MOV, AVI, MKV yoki WebM kerak)")
+        sha = await run_in_threadpool(w.finish)
+    except ClientDisconnect:
+        await run_in_threadpool(w.abort)
+        raise HTTPException(400, "yuklash uzildi")
+    except ValueError:
+        await run_in_threadpool(w.abort)
+        raise HTTPException(413, f"video juda katta: ko'pi bilan {video_tests.max_bytes() // (1 << 20)} MB")
+    except video_tests.DiskFull:
+        await run_in_threadpool(w.abort)
+        raise HTTPException(507, "serverda bo'sh joy tugayapti — yuklash to'xtatildi")
+    except BaseException:
+        await run_in_threadpool(w.abort)
+        raise
+    try:
+        t = await run_in_threadpool(video_tests.create, u, br, fname, size, sha, zid, zname, w.place)
+    except BaseException:
+        await run_in_threadpool(w.abort)
+        raise
+    cdb.audit("video_test", u, f"#{t['id']} {fname}", {"branch": br["id"], "mb": round(size / 1e6, 1)}, ip=_ip(request))
+    log.info("Video sinovi #%s yuklandi: %s (%.1f MB), filial #%s", t["id"], fname, size / 1e6, br["id"])
+    return {"ok": True, "test": video_tests.public(t)}
+
+
+@app.post(f"/api/v{API_VERSION}/video-tests/{{tid}}/cancel")
+def video_test_cancel(request: Request, tid: int):
+    u = _user(request)
+    _require(u, "owner", "manager")
+    t = video_tests.get(tid)
+    if not t or t["company_id"] != u["company_id"] or t["branch_id"] not in cdb.branch_ids_for(u):
+        raise HTTPException(404, "sinov topilmadi")
+    st = video_tests.cancel(t)
+    cdb.audit("video_test_cancel", u, f"#{tid}", ip=_ip(request))
+    return {"ok": True, "status": st}
+
+
+@app.delete(f"/api/v{API_VERSION}/video-tests/{{tid}}")
+def video_test_delete(request: Request, tid: int):
+    u = _user(request)
+    _require(u, "owner", "manager")
+    t = video_tests.get(tid)
+    if not t or t["company_id"] != u["company_id"] or t["branch_id"] not in cdb.branch_ids_for(u):
+        raise HTTPException(404, "sinov topilmadi")
+    if t["status"] in video_tests.ACTIVE:
+        raise HTTPException(409, "sinov hali tugamagan — avval bekor qiling")
+    video_tests.remove(t)
+    return {"ok": True}
+
+
+@app.get(f"/api/v{API_VERSION}/edge/poll")
+async def edge_poll(request: Request):
+    """3.0.0: yengil so'rov (har ~15 s) — yetkazilmagan buyruq bormi. Bor bo'lsa edge darhol hello yuboradi va
+    buyruqlarni o'sha javobda oladi (panelda yuklangan video kutib qolmasin)."""
+    b = await _branch(request)
+    now = time.time()
+
+    def _count() -> int:
+        return int(cdb.scalar("SELECT COUNT(*) FROM commands WHERE branch_id=:b AND acked_at IS NULL AND "
+                              "(delivered_at IS NULL OR delivered_at < :t)", {"b": b["id"], "t": now - 120}) or 0)
+    return {"ok": True, "pending": await run_in_threadpool(_count)}
+
+
+@app.get(f"/api/v{API_VERSION}/edge/video-tests/{{tid}}/file")
+async def edge_video_test_file(request: Request, tid: int):
+    b = await _branch(request)
+    t = await run_in_threadpool(video_tests.get, tid)
+    if not t or t["branch_id"] != b["id"]:
+        raise HTTPException(404, "sinov topilmadi")
+    p = video_tests.file_path(t)
+    if t["status"] in video_tests.FINAL or not p.is_file():
+        raise HTTPException(410, "video bulutda yo'q (bekor qilingan yoki tugagan)")
+    return FileResponse(p, media_type="application/octet-stream", filename=f"video_test_{tid}{p.suffix}")
 
 
 # ----------------------------------------------------------------------------- bildirishnomalar (o'zi uchun)

@@ -501,6 +501,8 @@ EXTRA_COLUMNS = {
     },
     "jobs": {
         "zone_source_id": "INTEGER",          # yuklangan videoga qaysi kameraning zonalari qo'llanadi
+        "cloud_test_id": "INTEGER",           # 3.0.0: bulut panelidan yuborilgan video sinovi (app/cloud_tests.py)
+        "cloud_meta": "TEXT",                 # 3.0.0: {size, sha256, tries} — yuklab olishni tekshirish
     },
     "eval_runs": {
         "speed": "REAL",                      # tahlil vaqti / video vaqti (model og'irligi)
@@ -568,8 +570,9 @@ def init_db() -> None:
         # 2.4.0: hisobotlar shu vaqtdan (undan oldingi davr uchun avtomatik hisobot yuborilmaydi; darvoza oynasi)
         c.execute("INSERT OR IGNORE INTO settings(key, value) VALUES('report_since', ?)", (str(round(time.time())),))
         c.execute("UPDATE outbox SET sending=0 WHERE sending=1")   # dastur to'xtaganda yarim qolgan yuborishlar
-        # Ishlanmay qolgan vazifalarni yopish (dastur qayta ishga tushganda)
-        c.execute("UPDATE jobs SET status='toxtatildi' WHERE status IN ('navbatda','ishlanmoqda')")
+        # Ishlanmay qolgan vazifalarni yopish (dastur qayta ishga tushganda). 3.0.0: bulut video sinovlariga tegilmaydi —
+        # ularni faqat asosiy dastur ishga tushganda app/cloud_tests.recover() qaytadan navbatga qo'yadi
+        c.execute("UPDATE jobs SET status='toxtatildi' WHERE status IN ('navbatda','ishlanmoqda') AND cloud_test_id IS NULL")
 
 
 def rows(sql: str, params: Iterable[Any] = ()) -> list[dict]:
