@@ -1,65 +1,140 @@
-/* Hushyor AI — landing sayt (2.9.0): uch til (matnlar sahifada; skript xabarlari — <body data-i18n>), aloqa
-   ma'lumotlari (sozlama.js), bosh sahna, "Qanday ishlaydi" (tomir tizimi) sxemasi, mini-sahnalar, tablar, forma.
-   Animatsiyalarning o'zi — style.css da (CSS); bu yerda: ekranda ko'rinmaganda to'xtatish va bosilgandagi qism. */
+/* Hushyor AI — landing sayt (3.3.0). Uch til (matnlar sahifada; skript xabarlari — <body data-i18n>), aloqa
+   ma'lumotlari (sozlama.js), mavzu (yorug' ⇄ tungi), til va menyu oynalari, bosh sahna, "Qanday ishlaydi" sahnasi,
+   kuzatuv devori, tablar, forma. Animatsiyalarning o'zi — style.css da; bu yerda: ekranda ko'ringanda yoqish/to'xtatish
+   va bosilgandagi qism. Ichki style yo'q (CSP): faqat klasslar va CSS o'zgaruvchilari (CSSOM). */
 (function () {
   "use strict";
   var cfg = window.HUSHYOR_SITE || {};
-  var lang = (document.documentElement.getAttribute("lang") || "uz").slice(0, 2);
+  var doc = document;
+  var root = doc.documentElement;
+  var body = doc.body;
+  var lang = (root.getAttribute("lang") || "uz").slice(0, 2);
   var M = {};
-  try { M = JSON.parse(document.body.getAttribute("data-i18n") || "{}"); } catch (e) { M = {}; }
+  try { M = JSON.parse(body.getAttribute("data-i18n") || "{}"); } catch (e) { M = {}; }
   function tr(k, fallback) { return M[k] || fallback || ""; }
   var opened = Date.now();
-  var motion = !(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
+  function mq(q) { return window.matchMedia ? window.matchMedia(q) : { matches: false }; }
+  var motion = !mq("(prefers-reduced-motion: reduce)").matches;
   var hasIO = "IntersectionObserver" in window;
-  document.body.classList.remove("no-js");
+  body.classList.remove("no-js");
 
+  function $(s, r) { return (r || doc).querySelector(s); }
+  function $$(s, r) { return Array.prototype.slice.call((r || doc).querySelectorAll(s)); }
   function el(tag, attrs, text) {
-    var e = document.createElement(tag);
+    var e = doc.createElement(tag);
     Object.keys(attrs || {}).forEach(function (k) { e.setAttribute(k, attrs[k]); });
     if (text) e.textContent = text;
     return e;
   }
 
-  // ---- 3.0.0: mavzu tugmasi — tizim bo'yicha → yorug' → tungi → tizim bo'yicha (theme.js boshida qo'llaydi)
+  // ---- mavzu: bitta tugma (yorug' ⇄ tungi). Tanlov tizim sozlamasiga teng bo'lsa saqlanmaydi — sayt yana tizimga
+  // ergashadi (theme.js boshida qo'llaydi). O'tish — tugmadan yoyiladigan doira (View Transitions; bo'lmasa darhol)
   var THEME_KEY = "hushyor-theme";
-  var THEMES = ["system", "light", "dark"];
-  var root = document.documentElement;
-  var themeBtn = document.getElementById("theme-btn");
-  var themeMeta = document.querySelector('meta[name="theme-color"]');
-  function curTheme() {
+  var themeBtn = $("#theme-btn");
+  var sysDark = mq("(prefers-color-scheme: dark)");
+  function forced() {
     var t = root.getAttribute("data-theme");
-    return t === "light" || t === "dark" ? t : "system";
+    return t === "light" || t === "dark" ? t : null;
   }
+  function isDark() { var f = forced(); return f ? f === "dark" : !!sysDark.matches; }
+  var themeMetas = $$('meta[name="theme-color"]');
+  var THEME_COLOR = { light: "#f3f6f8", dark: "#0b1520" };
   function paintTheme() {
-    var t = curTheme();
-    var next = THEMES[(THEMES.indexOf(t) + 1) % THEMES.length];
-    if (themeBtn) {
-      var label = tr("theme_fmt", "{cur} → {next}").replace("{cur}", tr("theme_" + t, t)).replace("{next}", tr("theme_" + next, next));
-      themeBtn.setAttribute("data-mode", t);
-      themeBtn.setAttribute("aria-label", label);
-      themeBtn.setAttribute("title", label);
-    }
-    if (themeMeta) {
-      var dark = t === "dark" || (t === "system" && window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches);
-      themeMeta.setAttribute("content", dark ? "#0b1520" : "#0f1b2a");
-    }
+    // brauzer paneli rangi: tanlov bo'lsa — o'sha mavzu; bo'lmasa — har meta o'z media'si bo'yicha (tizim)
+    var f = forced();
+    themeMetas.forEach(function (m) {
+      var own = /dark/.test(m.getAttribute("media") || "") ? THEME_COLOR.dark : THEME_COLOR.light;
+      m.setAttribute("content", f ? THEME_COLOR[f] : own);
+    });
+    if (!themeBtn) return;
+    var dark = isDark();
+    var label = tr(dark ? "theme_to_light" : "theme_to_dark", dark ? "Light" : "Dark");
+    themeBtn.setAttribute("data-mode", forced() || "system");
+    themeBtn.setAttribute("aria-label", label);
+    themeBtn.setAttribute("title", label);
+  }
+  function setTheme(dark) {
+    var store = null;
+    if (dark === !!sysDark.matches) root.removeAttribute("data-theme");
+    else { store = dark ? "dark" : "light"; root.setAttribute("data-theme", store); }
+    try {
+      if (store) window.localStorage.setItem(THEME_KEY, store);
+      else window.localStorage.removeItem(THEME_KEY);
+    } catch (e) { /* saqlab bo'lmadi — faqat shu sahifada amal qiladi */ }
+    paintTheme();
   }
   if (themeBtn) {
+    var pendingDark = null;
     themeBtn.addEventListener("click", function () {
-      var next = THEMES[(THEMES.indexOf(curTheme()) + 1) % THEMES.length];
-      if (next === "system") root.removeAttribute("data-theme");
-      else root.setAttribute("data-theme", next);
-      try {
-        if (next === "system") window.localStorage.removeItem(THEME_KEY);
-        else window.localStorage.setItem(THEME_KEY, next);
-      } catch (e) { /* saqlab bo'lmadi — faqat shu sahifada amal qiladi */ }
-      paintTheme();
+      var next = pendingDark === null ? !isDark() : !pendingDark;
+      pendingDark = next;
+      if (motion && typeof doc.startViewTransition === "function") {
+        var r = themeBtn.getBoundingClientRect();
+        var x = r.left + r.width / 2, y = r.top + r.height / 2;
+        var w = window.innerWidth, h = window.innerHeight;
+        root.style.setProperty("--vt-x", x + "px");
+        root.style.setProperty("--vt-y", y + "px");
+        root.style.setProperty("--vt-r", Math.ceil(Math.sqrt(Math.pow(Math.max(x, w - x), 2) + Math.pow(Math.max(y, h - y), 2))) + "px");
+        root.classList.add("vt-theme");
+        var done = function () { root.classList.remove("vt-theme"); if (pendingDark === next) pendingDark = null; };
+        try {
+          var vt = doc.startViewTransition(function () { setTheme(next); });
+          vt.finished.then(done, done);
+        } catch (e) { setTheme(next); done(); }
+      } else {
+        setTheme(next);
+        pendingDark = null;
+      }
     });
+    if (sysDark.addEventListener) sysDark.addEventListener("change", paintTheme);
     paintTheme();
   }
 
+  // ---- til va menyu oynalari (<details>): bittasi ochiq; tashqariga bosilsa, Esc yoki havola — yopiladi
+  var pops = $$("details.lang, details.menu");
+  pops.forEach(function (d) {
+    d.addEventListener("toggle", function () {
+      if (d.open) pops.forEach(function (o) { if (o !== d) o.open = false; });
+    });
+    $$("a", d).forEach(function (a) { a.addEventListener("click", function () { d.open = false; }); });
+  });
+  doc.addEventListener("click", function (e) {
+    pops.forEach(function (d) { if (d.open && !d.contains(e.target)) d.open = false; });
+  });
+  doc.addEventListener("keydown", function (e) {
+    if (e.key !== "Escape") return;
+    pops.forEach(function (d) {
+      if (d.open) { d.open = false; var s = $("summary", d); if (s) s.focus(); }
+    });
+  });
+
+  // ---- sarlavha: aylantirilganda shisha fon; menyuda joriy bo'lim belgilanadi
+  var top = $("#top");
+  var ticking = false;
+  function onScroll() {
+    if (ticking || !top) return;
+    ticking = true;
+    window.requestAnimationFrame(function () {
+      ticking = false;
+      top.classList.toggle("scrolled", (window.scrollY || window.pageYOffset) > 8);
+    });
+  }
+  window.addEventListener("scroll", onScroll, { passive: true });
+  onScroll();
+  var navLinks = $$(".nav a");
+  if (hasIO && navLinks.length) {
+    var spy = new IntersectionObserver(function (ents) {
+      ents.forEach(function (e) {
+        if (!e.isIntersecting) return;
+        var id = e.target.id || "";
+        navLinks.forEach(function (a) { a.classList.toggle("on", !!id && a.getAttribute("href") === "#" + id); });
+      });
+    }, { rootMargin: "-45% 0px -50% 0px" });
+    $$("main > section").forEach(function (s) { spy.observe(s); });
+  }
+
   // ---- aloqa ma'lumotlari (.env: CLOUD_SITE_PHONE, CLOUD_SITE_TELEGRAM, CLOUD_SITE_EMAIL, CLOUD_SITE_ADDRESS)
-  var list = document.getElementById("contacts");
+  var list = $("#contacts");
   function contact(label, text, href) {
     var li = el("li");
     li.appendChild(el("span", { "class": "k" }, label));
@@ -74,36 +149,52 @@
     if (cfg.address) contact(tr("k_addr", "Manzil"), cfg.address, "");
   }
   // Narx: o'zbekcha — CLOUD_SITE_PRICE, ruscha/inglizcha — CLOUD_SITE_PRICE_RU / _EN (berilmasa — sahifadagi matn)
-  var price = document.getElementById("price");
+  var price = $("#price");
   var priceText = lang === "uz" ? cfg.price : cfg["price_" + lang];
   if (price && priceText) price.textContent = priceText;
-  var ver = document.getElementById("foot-ver");
-  if (ver && cfg.version) ver.textContent = tr("version", "versiya") + " " + cfg.version;
-  var demo = document.getElementById("demo-link");
+  var demo = $("#demo-link");
   if (demo && cfg.demo) demo.classList.remove("hidden");
 
-  // ---- ekranda ko'rinish: .live — animatsiyalar faqat shunda o'ynaydi (batareya va protsessor tejaladi).
-  // [kuzatiladigan, .live oladigan]: tomir sxemasida faqat rasm kuzatiladi (telefonda izohlar ro'yxati ko'rinib,
-  // sxema ekrandan chiqqanda impulslar va izohlar almashinuvi to'xtaydi)
-  function watchLive(pairs) {
-    if (!hasIO) { pairs.forEach(function (p) { p[1].classList.add("live"); }); return; }
+  // ---- bir martalik ko'rinish: bo'lim sarlavhalari (.in), ishga tushirish qadamlari (.seen)
+  function once(nodes, opts, fn) {
+    nodes = nodes.filter(Boolean);
+    if (!hasIO) { nodes.forEach(fn); return; }
     var io = new IntersectionObserver(function (ents) {
       ents.forEach(function (e) {
-        pairs.forEach(function (p) { if (p[0] === e.target) p[1].classList.toggle("live", e.isIntersecting); });
+        if (e.isIntersecting) { io.unobserve(e.target); fn(e.target); }
+      });
+    }, opts);
+    nodes.forEach(function (n) { io.observe(n); });
+  }
+  once($$(".sec-head, .contact-text"), { threshold: 0.2, rootMargin: "0px 0px -6% 0px" },
+       function (n) { n.classList.add("in"); });
+  once([$("#steps")], { threshold: 0.35 }, function (n) { n.classList.add("seen"); });
+
+  // ---- ekranda ko'rinish: .live — animatsiyalar faqat shunda o'ynaydi (batareya va protsessor tejaladi); kuzatuv
+  // devori kataklari birinchi ko'ringanda "yoqiladi" (.on). «Qanday ishlaydi»da faqat sahna kuzatiladi
+  function watchLive(pairs) {
+    if (!hasIO) { pairs.forEach(function (p) { p[1].classList.add("live", "on", "seen"); }); return; }
+    var io = new IntersectionObserver(function (ents) {
+      ents.forEach(function (e) {
+        pairs.forEach(function (p) {
+          if (p[0] !== e.target) return;
+          p[1].classList.toggle("live", e.isIntersecting);
+          if (e.isIntersecting) p[1].classList.add("on", "seen");
+        });
       });
     }, { threshold: 0.15 });
     pairs.forEach(function (p) { io.observe(p[0]); });
   }
-  var livePairs = Array.prototype.slice.call(document.querySelectorAll(".fv")).map(function (n) { return [n, n]; });
-  var vasEl = document.getElementById("vas");
-  var vasFig = vasEl && vasEl.querySelector(".vas-fig");
-  if (vasFig) livePairs.push([vasFig, vasEl]);
+  var livePairs = $$(".fv").map(function (n) { return [n, n]; });
+  var vas = $("#vas");
+  var vasFig = vas && $(".vas-fig", vas);
+  if (vasFig) livePairs.push([vasFig, vas]);
   watchLive(livePairs);
 
   // ---- bosh sahna. Animatsiya CSS da (skriptsiz ham o'ynaydi). Skript bo'lsa: sahna ekranga chiqqanda boshidan
   // boshlanadi (telefonda u birinchi ekrandan pastda) va "Yana ko'rish" bilan qaytariladi (Web Animations API)
-  var stage = document.getElementById("stage");
-  var replay = document.getElementById("replay");
+  var stage = $("#stage");
+  var replay = $("#replay");
   if (stage && replay && motion && typeof stage.getAnimations === "function") {
     var restart = function (run) {
       stage.getAnimations({ subtree: true }).forEach(function (a) {
@@ -119,78 +210,117 @@
       // Birinchi javob: sahna allaqachon ko'rinib turgan bo'lsa (kompyuter) — o'ynayotgan animatsiyaga tegilmaydi
       // (sekin yuklanganda ham orqaga sakramaydi); ko'rinmasa (telefon) — to'xtatiladi va ko'ringanda boshidan
       var first = true;
-      var io = new IntersectionObserver(function (ents) {
+      var sio = new IntersectionObserver(function (ents) {
         var vis = ents.some(function (e) { return e.isIntersecting; });
         if (first) {
           first = false;
-          if (vis) io.disconnect(); else restart(false);
+          if (vis) sio.disconnect(); else restart(false);
           return;
         }
-        if (vis) { io.disconnect(); restart(true); }
+        if (vis) { sio.disconnect(); restart(true); }
       }, { threshold: 0.35 });
-      io.observe(stage.querySelector(".monitor") || stage);
+      sio.observe($(".monitor", stage) || stage);
     }
   }
 
-  // ---- "Qanday ishlaydi": tugun yoki izoh bosilsa — sxemada o'sha yo'l yonadi (aria-pressed). Foydalanuvchi
-  // bosmaguncha (va harakat kamaytirilmagan bo'lsa) izohlar navbat bilan o'zi almashadi — bu faqat ko'rinish
-  // (.tour klassi, aria-pressed emas). Sichqoncha yoki fokus ro'yxatda bo'lsa — almashinuv to'xtab turadi
-  // (chiqqanda davom etadi); bosilsa — butunlay to'xtaydi. Sxema ekranda ko'rinmasa — kutadi
-  var vas = vasEl;
+  // ---- "Qanday ishlaydi": qadam bosilsa — sahnada o'sha qadamning ko'rinishi (aria-pressed) va o'sha qadam qoladi.
+  // Bosilmaguncha (va harakat kamaytirilmagan bo'lsa) qadamlar navbat bilan o'zi almashadi — bu faqat ko'rinish
+  // (.tour klassi, aria-pressed emas). Navbat vaqti — qadam yonidagi chiziq (CSS animatsiya, 6–7,5 s): u tugaganda
+  // keyingisi. Sichqoncha yoki fokus ro'yxatda bo'lsa, pauza bosilgan yoki sahna ekranda bo'lmasa — chiziq to'xtab
+  // turadi. Sahna: .vas[data-step] va .vas-sc.cur (Telegram sahnasi ikki qadamga xizmat qiladi: tg va back);
+  // data-zone — video qayerda (do'kon ichida / tashqariga faqat hodisa). Telefonda qadamlar tugmachalar qatori,
+  // faol qadam izohi ostida (.vas-desc)
   if (vas) {
-    var items = Array.prototype.slice.call(vas.querySelectorAll(".vas-it"));
-    var parts = Array.prototype.slice.call(vas.querySelectorAll(".vx[data-n]"));
-    var vlist = vas.querySelector(".vas-list");
-    var cur = -1, timer = null, touched = false, hover = false, focused = false;
+    var items = $$(".vas-it", vas);
+    var scenes = $$(".vas-sc", vas);
+    var scTg = $(".sc-tg", vas);
+    var vlist = $(".vas-list", vas);
+    var descs = $$("#vas-desc p");
+    var pauseBtn = $("#vas-pause");
+    var cur = -1, touched = false, rowTouched = false;
+    var held = function () {
+      return vas.classList.contains("hold") || (vlist && (vlist.matches(":hover") || vlist.contains(doc.activeElement)));
+    };
+    // tugma: avto-ko'rsatuv ketayotgan bo'lsa — "to'xtatish", to'xtagan yoki qadam tanlangan bo'lsa — "davom ettirish"
+    // (holat yozuv bilan aytiladi — aria-pressed emas)
+    var paintPause = function () {
+      if (!pauseBtn) return;
+      var stopped = touched || vas.classList.contains("hold");
+      var label = pauseBtn.getAttribute(stopped ? "data-l-play" : "data-l-pause") || "";
+      pauseBtn.setAttribute("data-state", stopped ? "play" : "pause");
+      pauseBtn.setAttribute("aria-label", label);
+      pauseBtn.title = label;
+    };
     var select = function (i, user) {
       cur = i;
       var key = items[i].getAttribute("data-k");
       items.forEach(function (b, j) {
         b.classList.toggle("tour", !user && j === i);
-        if (user) b.setAttribute("aria-pressed", j === i ? "true" : "false");
+        b.setAttribute("aria-pressed", user && j === i ? "true" : "false");
       });
-      parts.forEach(function (p) {
-        var on = (" " + p.getAttribute("data-n") + " ").indexOf(" " + key + " ") >= 0;
-        p.classList.toggle("on", on);
+      vas.setAttribute("data-step", key);
+      vas.setAttribute("data-zone", items[i].getAttribute("data-zone") || "in");
+      // Telegram sahnasining ichki holati sahnaning o'zida: boshqa qadamga o'tib xiralashayotganda ham o'zgarmaydi
+      if (scTg && (key === "tg" || key === "back")) scTg.classList.toggle("is-back", key === "back");
+      scenes.forEach(function (sc) {
+        sc.classList.toggle("cur", (" " + sc.getAttribute("data-k") + " ").indexOf(" " + key + " ") >= 0);
       });
-      vas.classList.add("focus");
+      descs.forEach(function (p) { p.classList.toggle("on", p.getAttribute("data-k") === key); });
+      // telefonda tugmachalar qatori surilib, faol tugmacha ko'rinadi (sahifa emas — faqat qator)
+      if (vlist && !rowTouched && vlist.scrollWidth > vlist.clientWidth + 4 && vas.classList.contains("live")) {
+        var li = items[i].parentNode;
+        var left = Math.max(0, li.offsetLeft - 16);
+        if (typeof vlist.scrollTo === "function") vlist.scrollTo({ left: left, behavior: motion ? "smooth" : "auto" });
+        else vlist.scrollLeft = left;
+      }
+      paintPause();
     };
-    var stop = function () {
-      touched = true;
-      if (timer) { clearInterval(timer); timer = null; }
-    };
-    var tick = function () {
-      if (!touched && !hover && !focused && vas.classList.contains("live")) select((cur + 1) % items.length, false);
-    };
-    items.forEach(function (b, i) {
-      b.addEventListener("click", function () { stop(); select(i, true); });
-    });
     if (vlist) {
-      vlist.addEventListener("mouseenter", function () { hover = true; });
-      vlist.addEventListener("mouseleave", function () { hover = false; });
-      vlist.addEventListener("focusin", function () { focused = true; });
-      vlist.addEventListener("focusout", function () { focused = false; });
+      ["pointerdown", "touchstart", "wheel"].forEach(function (ev) {
+        vlist.addEventListener(ev, function () { rowTouched = true; }, { passive: true });
+      });
     }
-    Array.prototype.slice.call(vas.querySelectorAll("[data-k].node, [data-k].heart")).forEach(function (n) {
-      n.addEventListener("click", function () {
-        var k = n.getAttribute("data-k");
-        for (var i = 0; i < items.length; i++) {
-          if (items[i].getAttribute("data-k") === k) { stop(); select(i, true); break; }
+    items.forEach(function (b, i) {
+      b.addEventListener("click", function () { touched = true; vas.classList.remove("hold"); select(i, true); });
+      b.addEventListener("animationend", function (e) {
+        if (e.animationName.indexOf("vas-rail") !== 0 || touched || i !== cur) return;
+        if (!vas.classList.contains("live") || held()) {
+          // (chiziq to'xtatilgan bo'lishi kerak edi — ehtiyot uchun: shu qadamda qolib, keyinroq qayta urinadi)
+          b.classList.remove("tour"); void b.offsetWidth; b.classList.add("tour");
+          return;
         }
+        select((i + 1) % items.length, false);
       });
     });
+    // Avto-ko'rsatuv tugmasi (faqat harakat kamaytirilmagan bo'lsa): to'xtatadi / davom ettiradi; qadam bosilgandan
+    // keyin — avto-ko'rsatuvni shu qadamdan qayta yoqadi
+    if (pauseBtn && motion) {
+      pauseBtn.hidden = false;
+      pauseBtn.addEventListener("click", function () {
+        if (touched) {
+          touched = false;
+          rowTouched = false;
+          vas.classList.remove("hold");
+          var b = items[cur];
+          select(cur, false);
+          b.classList.remove("tour"); void b.offsetWidth; b.classList.add("tour");
+        } else {
+          vas.classList.toggle("hold");
+        }
+        paintPause();
+      });
+    }
     select(0, false);
-    if (motion) timer = setInterval(tick, 3800);
   }
 
   // ---- ekranlar: tablar (klaviatura: ← → Home End)
-  var tabs = Array.prototype.slice.call(document.querySelectorAll('.tabs [role="tab"]'));
+  var tabs = $$('.tabs [role="tab"]');
   function show(i, focus, animate) {
     tabs.forEach(function (t, j) {
       var on = i === j;
       t.setAttribute("aria-selected", on ? "true" : "false");
       t.tabIndex = on ? 0 : -1;
-      var p = document.getElementById(t.getAttribute("aria-controls"));
+      var p = doc.getElementById(t.getAttribute("aria-controls"));
       if (!p) return;
       p.hidden = !on;
       p.classList.remove("in");
@@ -200,6 +330,11 @@
       }
     });
     if (focus) tabs[i].focus();
+    var bar = tabs[i] && tabs[i].parentNode;
+    if (bar && bar.scrollWidth > bar.clientWidth + 4) {
+      var left = Math.max(0, tabs[i].offsetLeft - 24);
+      if (typeof bar.scrollTo === "function") bar.scrollTo({ left: left, behavior: motion ? "smooth" : "auto" });
+    }
   }
   tabs.forEach(function (t, i) {
     t.addEventListener("click", function () { show(i, false, true); });
@@ -215,9 +350,9 @@
   if (tabs.length) show(0, false, false);
 
   // ---- so'rov formasi → POST /api/v1/leads
-  var form = document.getElementById("lead-form");
+  var form = $("#lead-form");
   if (!form) return;
-  var msg = document.getElementById("form-msg");
+  var msg = $("#form-msg");
   var btn = form.querySelector('button[type="submit"]');
   function say(text, ok) {
     msg.textContent = text;
@@ -239,7 +374,11 @@
     if (/eskirgan/i.test(detail || "")) return tr("expired", detail);
     return tr("fail", detail);
   }
-  form.addEventListener("input", function () { form.classList.remove("sent"); });
+  form.addEventListener("input", function (e) {
+    form.classList.remove("sent");
+    var f = e.target && e.target.parentNode;
+    if (f && f.classList && f.classList.contains("bad")) f.classList.remove("bad");
+  });
   form.addEventListener("submit", function (e) {
     e.preventDefault();
     form.classList.remove("sent");
@@ -251,7 +390,7 @@
     f.phone.parentNode.classList.toggle("bad", digits.length < 9);
     if (name.length < 2) { say(tr("name", "Ismingizni yozing"), false); f.name.focus(); return; }
     if (digits.length < 9) { say(tr("phone", "Telefon raqamini to'liq yozing"), false); f.phone.focus(); return; }
-    var body = {
+    var payload = {
       name: name, phone: phone, store: f.store.value.trim(), city: f.city.value.trim(),
       branches: f.branches.value, message: f.message.value.trim(), hp_extra: f.hp_extra.value,
       elapsed: (Date.now() - opened) / 1000, source: source()
@@ -259,7 +398,7 @@
     btn.disabled = true;
     say(tr("sending", "…"), true);
     fetch(cfg.api || "/api/v1/leads", {
-      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body), credentials: "omit"
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload), credentials: "omit"
     })
       .then(function (r) {
         return r.json().catch(function () { return {}; }).then(function (d) { return { ok: r.ok, status: r.status, d: d }; });

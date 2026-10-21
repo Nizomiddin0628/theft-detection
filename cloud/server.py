@@ -25,6 +25,8 @@ tasdiqlanganda taxminiy zarar (so'm, qo'lda) — "oldini olingan zarar" (`/api/v
 3.2.0: to'liq ko'rib chiqish tuzatishlari — buzuq edge yozuvlari partiyani yiqitmaydi, video sinovi hodisalari
 hisoblagichlarga kirmaydi (events.job_id), bitta manzilga takror xabar yo'q, superguruhga ko'chish, siqilgan zaxira,
 kamera daqiqalari 90 kun, filial bo'yicha klip chegarasi, panel so'rovlari 256 KB, ikki xodim bir vaqtda qaror qilsa 409.
+3.3.0: saytning yangi dizayni (site/, scripts/site_*.py) — shriftlar (Onest, Unbounded), til ro'yxati,
+yorug'/tungi mavzu bitta tugma bilan, yangi animatsiyalar; server kodi o'zgarmagan (faqat VERSION — ?v= kesh kaliti).
 """
 from __future__ import annotations
 
@@ -60,7 +62,7 @@ from .db import CLIPS_DIR, DATA_DIR
 from .live import hub
 
 log = logging.getLogger("hushyor.cloud")
-VERSION = "3.2.0"
+VERSION = "3.3.0"
 
 API_VERSION = 1
 ROOT = Path(__file__).resolve().parent

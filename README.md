@@ -8,6 +8,42 @@ klipini avtomatik kesib, **Telegram botga** sabablari bilan yuboradi. Qo'riqchi 
 
 ---
 
+## 3.3.0 — Saytning yangi dizayni (`/sayt/`, uch tilda)
+
+* **Ko'rinish:** ikki shrift (Onest — hamma matn va raqamlar, Unbounded — faqat sarlavhalar; o'zimizda, OFL), yangi
+  ranglar tizimi. Bosh qism — kamera kadri "ko'zlagich" burchaklari bilan; imkoniyatlar — mini-panellar (xavf balli,
+  soatlar bo'yicha tashriflar, kassalar navbati, heatmap, yiqilish va SMS, haftalik ustunlar); pilot va narx bitta
+  bo'limda, savollar ikki ustunda, aloqa paneli, yangi pastki qism.
+  Panel rasmlari 3.2.0 dan qayta olindi.
+* **«Qanday ishlaydi» — qadamlar va sahna:** eski sxema (bloklar va chiziqlar) o'rniga chapda 7 qadam (vaqt chizig'i),
+  o'ngda har qadamning o'z jonli ko'rinishi: 4 kamera devori (odamlar yuradi) → do'kon kompyuterida bitta kadr tahlili
+  (17 nuqta, qo'l polkaga, buyum qidiriladi, cho'ntakka; ro'yxat belgilanadi, xavf bali 82 gacha) → telefonda Telegram
+  (rasm va sabab, keyin 20 soniyalik klip; kim nima oladi) → qo'riqchi ✅ bosadi, javob kompyuterga qaytadi va xato
+  signal ulushi kamayadi → do'kon paneli (internetsiz) → bulut: filiallardan faqat hodisa va raqamlar ko'tariladi,
+  internet yo'q filial navbatda kutib keyin yuboradi → kunlik hisobot (PDF) va kechasi kelgan SMS. Sahna tepasida — video
+  qayerdaligi ("Do'kon ichida — video shu yerda qoladi" / "Tashqariga faqat hodisa chiqadi"). Qadamlar o'zi almashadi
+  (6–7,5 s), sichqoncha ro'yxatda bo'lsa yoki pauza bosilsa to'xtaydi; qadam bosilsa — o'sha qoladi, "davom ettirish"
+  tugmasi avto-ko'rsatuvni shu joydan qaytaradi. Telefonda — sahna, tugmachalar qatori va izoh.
+* **Matnlar:** sarlavhalar — oddiy nomlar (bosh qismda "Hushyor AI — doʻkon kameralari uchun sunʼiy intellekt",
+  bo'limlarda "Qanday ishlaydi", "Imkoniyatlar", "Panel koʻrinishi", "Ishga tushirish", "Pilot", "Savollar"); shiorlar va
+  o'xshatishlar olib tashlandi, o'zbekcha matnlar qayta yozildi va rasmiy imlo bilan (oʻ, gʻ — U+02BB, tutuq — U+02BC;
+  "Telegram'ga" emas, "Telegramga"). Ruscha va inglizcha sarlavhalar ham shunga moslandi.
+* **Til tanlash:** UZ/RU/EN tugmachalari o'rniga ochiladigan ro'yxat (O'zbekcha / Русский / English); skriptsiz ham ishlaydi.
+  1120 px dan tor ekranda menyu tugmasi (avval planshet va telefonda bo'limlar menyusi umuman yo'q edi).
+* **Yorug'/tungi mavzu:** bitta tugma (quyosh ⇄ oy). Hamma narsa mavzuga qarab o'zgaradi — kamera kadri (kunduzgi/kechki
+  do'kon), kataklar, «Qanday ishlaydi» sahnasi, aloqa paneli ham (avval bosh qism, sxema va aloqa har doim to'q edi). Tanlov tizim sozlamasiga
+  teng bo'lsa saqlanmaydi. Almashganda yangi mavzu tugmadan doira bo'lib yoyiladi; telefon brauzeri paneli rangi ham.
+* **Animatsiyalar (bir marta, ko'ringanda, silliq):** sarlavha so'zlari ko'tariladi; kamerada skaner chizig'i, burchaklar
+  odamga "qulflanadi", xavf shkalasi (12 → 47 → 82); bo'lim sarlavhalari ochiladi; kataklarda raqamlar sanaladi (82, 127),
+  ustunlar o'sadi, heatmap paydo bo'lib yo'l chiziladi; «Qanday ishlaydi» sahnalari har qadamda o'z ketma-ketligi bilan
+  jonlanadi (ekrandan chiqsa — to'xtaydi); ishga tushirish qadamlari ketma-ket yonadi.
+  "Harakatni kamaytirish" yoqilgan bo'lsa, skriptsiz va chop etishda — hammasi oxirgi holatda.
+* **Tuzatishlar:** ruscha sahifa shrifti (avval faqat lotin harflari bor edi — kirill tizim shriftida chiqardi), narx kichik
+  harf bilan chiqardi, pastki qismda versiya raqami, aloqa ma'lumoti berilmaganda bo'sh joy, telefonda sxema izohlari
+  sahifani juda uzaytirardi (endi tugmachalar + bitta matn).
+* Server kodi o'zgarmagan (faqat `VERSION` — `style.css?v=` / `app.js?v=` keshi yangilanadi). Bulut serverida saytni
+  yangilash — `hushyor_3.3.0_server.sh`.
+
 ## 3.2.0 — To'liq ko'rib chiqish: ~90 kamchilik tuzatildi (yangi imkoniyat yo'q)
 
 * **Telegram xabari yo'qolmaydi:** har signal har chat uchun avval bazaga (yetkazish navbati) yoziladi, keyin yuboriladi.

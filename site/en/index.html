@@ -7,53 +7,82 @@
 <meta name="description" content="Hushyor AI connects to your existing cameras: it sends suspicious moments to Telegram with video, counts visitors, measures checkout queues and sends a short report every day.">
 <meta property="og:title" content="Hushyor AI — AI for store cameras">
 <meta property="og:description" content="Theft alerts, visitor counts, checkout queues, in-store flow and a daily report — on the cameras you already have.">
-<meta name="theme-color" content="#0f1b2a">
+<meta name="theme-color" content="#f3f6f8" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0b1520" media="(prefers-color-scheme: dark)">
 <meta name="color-scheme" content="light dark">
 <link rel="alternate" hreflang="uz" href="../">
 <link rel="alternate" hreflang="ru" href="../ru/">
 <link rel="alternate" hreflang="en" href="./">
 <link rel="icon" href="../img/belgi.svg" type="image/svg+xml">
-<link rel="preload" href="../fonts/ibm-plex-sans-latin.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="../fonts/onest-latin.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="../fonts/unbounded-latin.woff2" as="font" type="font/woff2" crossorigin>
 <!-- 3.0.0: tanlangan mavzu (yorug'/tungi) birinchi chizishdan oldin qo'yiladi — oq "chaqnash" bo'lmasin -->
-<script src="../theme.js?v=3.2.0"></script>
-<link rel="stylesheet" href="../style.css?v=3.2.0">
+<script src="../theme.js?v=3.3.0"></script>
+<link rel="stylesheet" href="../style.css?v=3.3.0">
 <script src="../sozlama.js" defer></script>
-<script src="../app.js?v=3.2.0" defer></script>
+<script src="../app.js?v=3.3.0" defer></script>
 </head>
 <!-- Bu fayl yasaladi: scripts/build_site.py (shablon scripts/site_template.html, matnlar scripts/site_text.py) -->
-<body class="no-js" data-i18n="{&#34;busy&#34;: &#34;Too many requests right now \u2014 please call or try again later.&#34;, &#34;call&#34;: &#34;or call:&#34;, &#34;expired&#34;: &#34;The form has expired \u2014 reload the page and send it again.&#34;, &#34;fail&#34;: &#34;Couldn\u0027t send \u2014 please try again a little later.&#34;, &#34;k_addr&#34;: &#34;Address&#34;, &#34;k_email&#34;: &#34;Email&#34;, &#34;k_phone&#34;: &#34;Phone&#34;, &#34;k_tg&#34;: &#34;Telegram&#34;, &#34;name&#34;: &#34;Enter your name&#34;, &#34;net&#34;: &#34;Connection problem \u2014 please try again&#34;, &#34;phone&#34;: &#34;Enter the full phone number: +998 90 123 45 67&#34;, &#34;phone_bad&#34;: &#34;Check the number: +998 XX XXX XX XX&#34;, &#34;sending&#34;: &#34;Sending\u2026&#34;, &#34;thanks&#34;: &#34;Thank you! Your request has been received \u2014 we\u0027ll be in touch soon.&#34;, &#34;theme_dark&#34;: &#34;dark&#34;, &#34;theme_fmt&#34;: &#34;Theme: {cur}. Click for {next}&#34;, &#34;theme_light&#34;: &#34;light&#34;, &#34;theme_system&#34;: &#34;system&#34;, &#34;version&#34;: &#34;version&#34;}">
+<body class="no-js" data-i18n="{&#34;busy&#34;: &#34;Too many requests right now \u2014 please call or try again later.&#34;, &#34;call&#34;: &#34;or call:&#34;, &#34;expired&#34;: &#34;The form has expired \u2014 reload the page and send it again.&#34;, &#34;fail&#34;: &#34;Couldn\u0027t send \u2014 please try again a little later.&#34;, &#34;k_addr&#34;: &#34;Address&#34;, &#34;k_email&#34;: &#34;Email&#34;, &#34;k_phone&#34;: &#34;Phone&#34;, &#34;k_tg&#34;: &#34;Telegram&#34;, &#34;name&#34;: &#34;Enter your name&#34;, &#34;net&#34;: &#34;Connection problem \u2014 please try again&#34;, &#34;phone&#34;: &#34;Enter the full phone number: +998 90 123 45 67&#34;, &#34;phone_bad&#34;: &#34;Check the number: +998 XX XXX XX XX&#34;, &#34;sending&#34;: &#34;Sending\u2026&#34;, &#34;thanks&#34;: &#34;Thank you! Your request has been received \u2014 we\u0027ll be in touch soon.&#34;, &#34;theme_to_dark&#34;: &#34;Switch to dark theme&#34;, &#34;theme_to_light&#34;: &#34;Switch to light theme&#34;}">
 <a class="skip" href="#asosiy">Skip to content</a>
-<header class="top">
+<header class="top" id="top">
   <div class="wrap top-in">
-    <a class="brand" href="./" aria-label="Hushyor AI — home"><img src="../img/belgi.svg" alt="" width="32" height="32"> Hushyor AI</a>
+    <a class="brand" href="./" aria-label="Hushyor AI — home"><img src="../img/belgi.svg" alt="" width="30" height="30"><span>Hushyor AI</span></a>
     <nav class="nav" aria-label="Site sections">
       <a href="#qanday">How it works</a>
       <a href="#imkoniyatlar">Features</a>
-      <a href="#ekranlar">Screens</a>
+      <a href="#ekranlar">Dashboard</a>
       <a href="#pilot">Pilot</a>
       <a href="#savollar">FAQ</a>
     </nav>
-    <nav class="langs" aria-label="Site language">
-      <a href="../" hreflang="uz" lang="uz" title="O&#39;zbekcha">UZ</a>
-      <a href="../ru/" hreflang="ru" lang="ru" title="Русский">RU</a>
-      <a href="./" hreflang="en" lang="en" title="English" aria-current="page">EN</a>
-    </nav>
-    <button class="theme-btn" type="button" id="theme-btn" data-mode="system" aria-label="Theme: system. Click for light" title="Theme: system. Click for light">
-      <svg class="ti ti-system" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><circle cx="12" cy="12" r="8"/><path class="fill" d="M12 4a8 8 0 0 1 0 16z"/></svg>
-      <svg class="ti ti-light" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2.5v2.2M12 19.3v2.2M2.5 12h2.2M19.3 12h2.2M5.3 5.3l1.6 1.6M17.1 17.1l1.6 1.6M5.3 18.7l1.6-1.6M17.1 6.9l1.6-1.6"/></svg>
-      <svg class="ti ti-dark" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M20 14.6A8.2 8.2 0 1 1 9.4 4a6.6 6.6 0 0 0 10.6 10.6z"/></svg>
-    </button>
-    <a class="btn small top-cta" href="#aloqa">Get in touch</a>
+    <div class="tools">
+      <!-- 3.3.0: til tanlash — ochiladigan ro'yxat (skriptsiz ham ishlaydi: <details>) -->
+      <details class="lang" id="lang">
+        <summary class="tool" title="Site language">
+          <svg class="i" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.6 2.7 3.9 5.7 3.9 9s-1.3 6.3-3.9 9c-2.6-2.7-3.9-5.7-3.9-9S9.4 5.7 12 3z"/></svg>
+          <span class="lang-cur">EN</span><span class="vh"> — Site language: English</span>
+          <svg class="i chev" viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>
+        </summary>
+        <ul class="pop lang-menu">
+          <li><a href="../" hreflang="uz" lang="uz"><span>Oʻzbekcha</span><small>UZ</small></a></li>
+          <li><a href="../ru/" hreflang="ru" lang="ru"><span>Русский</span><small>RU</small></a></li>
+          <li><a href="./" hreflang="en" lang="en" aria-current="page"><span>English</span><small>EN</small></a></li>
+        </ul>
+      </details>
+      <!-- 3.3.0: mavzu — bitta tugma (yorug' ⇄ tungi); tanlanmagan bo'lsa tizim sozlamasi -->
+      <button class="tool theme-btn" type="button" id="theme-btn" data-mode="system" aria-label="Switch theme" title="Switch theme">
+        <svg class="i sunmoon" viewBox="0 0 24 24" width="19" height="19" aria-hidden="true">
+          <mask id="moon-cut"><rect width="24" height="24" fill="#fff"/><circle class="moon-bite" cx="24" cy="4" r="7" fill="#000"/></mask>
+          <circle class="sun-core" cx="12" cy="12" r="8" mask="url(#moon-cut)"/>
+          <g class="rays"><path d="M12 1.8v2.4M12 19.8v2.4M1.8 12h2.4M19.8 12h2.4M4.8 4.8l1.7 1.7M17.5 17.5l1.7 1.7M4.8 19.2l1.7-1.7M17.5 6.5l1.7-1.7"/></g>
+        </svg>
+      </button>
+      <a class="btn btn-sm top-cta" href="#aloqa">Get in touch</a>
+      <details class="menu" id="menu">
+        <summary class="tool" aria-label="Menu" title="Menu">
+          <svg class="i burger" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path class="b1" d="M4 8h16"/><path class="b2" d="M4 16h16"/></svg>
+        </summary>
+        <nav class="pop menu-panel" aria-label="Site sections">
+          <a href="#qanday">How it works</a>
+          <a href="#imkoniyatlar">Features</a>
+          <a href="#ekranlar">Dashboard</a>
+          <a href="#pilot">Pilot</a>
+          <a href="#savollar">FAQ</a>
+          <a class="btn" href="#aloqa">Get in touch</a>
+        </nav>
+      </details>
+    </div>
   </div>
 </header>
 
 <main id="asosiy">
   <!-- ======================================================================== bosh qism -->
   <section class="hero">
+    <div class="glow" aria-hidden="true"></div>
     <div class="wrap hero-in">
       <div class="hero-text">
-        <h1>Your cameras watch for you — you just make the call</h1>
-        <p class="lead">For shops and supermarkets. Hushyor AI connects to the cameras you already have: it sends suspicious moments to Telegram with a short clip, counts visitors, measures checkout queues and sends a short report every morning.</p>
+        <h1 class="hero-title"><span class="w"><span>Hushyor AI —</span></span> <span class="w"><span>artificial</span></span> <span class="w"><span>intelligence</span></span> <span class="w"><span>for</span></span> <span class="w"><span>store</span></span> <span class="w"><span>cameras</span></span></h1>
+        <p class="lead">Hushyor AI connects to the cameras already in your store and analyses the video on site. It sends suspicious moments to Telegram with a photo and a short clip, counts visitors, measures checkout queues and sends a report every morning.</p>
         <div class="cta">
           <a class="btn" href="#aloqa">Request a pilot</a>
           <a class="btn ghost" href="#qanday">See how it works</a>
@@ -68,116 +97,121 @@
 
       <figure class="stage" id="stage" aria-labelledby="stage-cap">
         <div class="screen">
-        <div class="monitor">
+          <div class="monitor">
           <svg class="scene" viewBox="0 0 640 400" role="img" aria-labelledby="scene-t">
             <title id="scene-t">Camera view: a shopper takes an item from the shelf and puts it in a pocket; the system draws their pose and marks the action with a red box</title>
             <defs>
               <linearGradient id="g-floor" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0" stop-color="#2b3a47"/>
-                <stop offset="1" stop-color="#1f2b36"/>
+                <stop class="st-f1" offset="0"/>
+                <stop class="st-f2" offset="1"/>
               </linearGradient>
-              <radialGradient id="g-light" cx=".5" cy="0" r=".75">
-                <stop offset="0" stop-color="#dfe9f2" stop-opacity=".16"/>
-                <stop offset="1" stop-color="#dfe9f2" stop-opacity="0"/>
+              <radialGradient id="g-light" cx=".5" cy="0" r=".8">
+                <stop offset="0" stop-color="#e3eef6" stop-opacity=".18"/>
+                <stop offset="1" stop-color="#e3eef6" stop-opacity="0"/>
               </radialGradient>
               <linearGradient id="g-vign" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0" stop-color="#0f1b2a" stop-opacity=".35"/>
-                <stop offset=".35" stop-color="#0f1b2a" stop-opacity="0"/>
-                <stop offset=".8" stop-color="#0f1b2a" stop-opacity="0"/>
-                <stop offset="1" stop-color="#0f1b2a" stop-opacity=".45"/>
+                <stop class="st-v" offset="0" stop-opacity=".45"/>
+                <stop class="st-v" offset=".3" stop-opacity="0"/>
+                <stop class="st-v" offset=".78" stop-opacity="0"/>
+                <stop class="st-v" offset="1" stop-opacity=".6"/>
+              </linearGradient>
+              <linearGradient id="g-beam" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0" stop-color="#5fd3bd" stop-opacity="0"/>
+                <stop offset=".85" stop-color="#5fd3bd" stop-opacity=".16"/>
+                <stop offset="1" stop-color="#5fd3bd" stop-opacity=".55"/>
               </linearGradient>
             </defs>
             <!-- devor va pol -->
-            <rect width="640" height="400" fill="#1e2c39"/>
+            <rect class="c-wall" width="640" height="400"/>
             <polygon points="0,300 640,300 640,400 0,400" fill="url(#g-floor)"/>
-            <path d="M120 300 L40 400 M240 300 L210 400 M400 300 L430 400 M520 300 L600 400" stroke="#33434f" stroke-width="2"/>
+            <path class="c-fline" d="M120 300 L40 400 M240 300 L210 400 M400 300 L430 400 M520 300 L600 400" stroke-width="2"/>
             <!-- chap va o'ng polkalar (perspektiva) -->
-            <polygon points="0,40 104,72 104,300 0,352" fill="#223140"/>
-            <g fill="#3a4a58">
+            <polygon class="c-side" points="0,40 104,72 104,300 0,352"/>
+            <g class="c-edge">
               <polygon points="0,118 104,132 104,137 0,124"/>
               <polygon points="0,196 104,194 104,199 0,202"/>
               <polygon points="0,274 104,256 104,261 0,280"/>
             </g>
-            <g opacity=".85">
-              <polygon points="10,88 30,93 30,120 10,117" fill="#6b7b6a"/>
-              <polygon points="36,95 56,99 56,123 36,121" fill="#7d6a5c"/>
-              <polygon points="62,101 82,104 82,126 62,124" fill="#5f7183"/>
-              <polygon points="8,166 30,167 30,195 8,196" fill="#8b7c5d"/>
-              <polygon points="38,168 60,168 60,195 38,195" fill="#5d7a70"/>
-              <polygon points="68,169 92,169 92,194 68,194" fill="#73677d"/>
+            <g opacity=".8">
+              <polygon class="c-p1" points="10,88 30,93 30,120 10,117"/>
+              <polygon class="c-p2" points="36,95 56,99 56,123 36,121"/>
+              <polygon class="c-p3" points="62,101 82,104 82,126 62,124"/>
+              <polygon class="c-p4" points="8,166 30,167 30,195 8,196"/>
+              <polygon class="c-p5" points="38,168 60,168 60,195 38,195"/>
+              <polygon class="c-p6" points="68,169 92,169 92,194 68,194"/>
             </g>
-            <polygon points="640,40 536,72 536,300 640,352" fill="#223140"/>
-            <g fill="#3a4a58">
+            <polygon class="c-side" points="640,40 536,72 536,300 640,352"/>
+            <g class="c-edge">
               <polygon points="640,118 536,132 536,137 640,124"/>
               <polygon points="640,196 536,194 536,199 640,202"/>
               <polygon points="640,274 536,256 536,261 640,280"/>
             </g>
-            <g opacity=".85">
-              <polygon points="630,88 610,93 610,120 630,117" fill="#5f7183"/>
-              <polygon points="604,95 584,99 584,123 604,121" fill="#8b7c5d"/>
-              <polygon points="578,101 558,104 558,126 578,124" fill="#6b7b6a"/>
-              <polygon points="632,166 610,167 610,195 632,196" fill="#7d6a5c"/>
-              <polygon points="602,168 580,168 580,195 602,195" fill="#73677d"/>
-              <polygon points="572,169 548,169 548,194 572,194" fill="#5d7a70"/>
+            <g opacity=".8">
+              <polygon class="c-p3" points="630,88 610,93 610,120 630,117"/>
+              <polygon class="c-p4" points="604,95 584,99 584,123 604,121"/>
+              <polygon class="c-p1" points="578,101 558,104 558,126 578,124"/>
+              <polygon class="c-p2" points="632,166 610,167 610,195 632,196"/>
+              <polygon class="c-p6" points="602,168 580,168 580,195 602,195"/>
+              <polygon class="c-p5" points="572,169 548,169 548,194 572,194"/>
             </g>
             <!-- orqa polka -->
-            <rect x="150" y="62" width="340" height="238" fill="#2a3a47"/>
-            <g fill="#3b4b59">
+            <rect class="c-back" x="150" y="62" width="340" height="238"/>
+            <g class="c-edge">
               <rect x="150" y="110" width="340" height="5"/>
               <rect x="150" y="158" width="340" height="5"/>
               <rect x="150" y="206" width="340" height="5"/>
               <rect x="150" y="254" width="340" height="5"/>
             </g>
-            <g opacity=".9">
-              <rect x="160" y="80" width="18" height="30" rx="2" fill="#6b7b6a"/>
-              <rect x="182" y="84" width="18" height="26" rx="2" fill="#6b7b6a"/>
-              <rect x="208" y="78" width="26" height="32" rx="2" fill="#7d6a5c"/>
-              <rect x="240" y="86" width="14" height="24" rx="2" fill="#5f7183"/>
-              <rect x="258" y="86" width="14" height="24" rx="2" fill="#5f7183"/>
-              <rect x="280" y="80" width="30" height="30" rx="2" fill="#8b7c5d"/>
-              <rect x="318" y="82" width="22" height="28" rx="2" fill="#73677d"/>
-              <rect x="346" y="78" width="28" height="32" rx="2" fill="#5d7a70"/>
-              <rect x="380" y="84" width="16" height="26" rx="2" fill="#7d6a5c"/>
-              <rect x="400" y="84" width="16" height="26" rx="2" fill="#7d6a5c"/>
-              <rect x="424" y="80" width="26" height="30" rx="2" fill="#6b7b6a"/>
-              <rect x="456" y="86" width="24" height="24" rx="2" fill="#5f7183"/>
-              <rect x="158" y="132" width="24" height="26" rx="2" fill="#8b7c5d"/>
-              <rect x="188" y="128" width="20" height="30" rx="2" fill="#5d7a70"/>
-              <rect x="214" y="134" width="30" height="24" rx="2" fill="#73677d"/>
-              <rect x="250" y="130" width="18" height="28" rx="2" fill="#6b7b6a"/>
-              <rect x="272" y="130" width="18" height="28" rx="2" fill="#6b7b6a"/>
-              <rect x="296" y="134" width="26" height="24" rx="2" fill="#5f7183"/>
-              <rect x="372" y="132" width="22" height="26" rx="2" fill="#7d6a5c"/>
-              <rect x="398" y="134" width="14" height="24" rx="2" fill="#8b7c5d"/>
-              <rect x="436" y="130" width="22" height="28" rx="2" fill="#5d7a70"/>
-              <rect x="462" y="134" width="20" height="24" rx="2" fill="#73677d"/>
-              <rect x="160" y="178" width="30" height="28" rx="2" fill="#5f7183"/>
-              <rect x="196" y="182" width="22" height="24" rx="2" fill="#7d6a5c"/>
-              <rect x="226" y="176" width="26" height="30" rx="2" fill="#6b7b6a"/>
-              <rect x="420" y="180" width="26" height="26" rx="2" fill="#8b7c5d"/>
-              <rect x="452" y="176" width="28" height="30" rx="2" fill="#5d7a70"/>
-              <rect x="160" y="228" width="40" height="26" rx="2" fill="#73677d"/>
-              <rect x="206" y="226" width="34" height="28" rx="2" fill="#6b7b6a"/>
-              <rect x="420" y="228" width="30" height="26" rx="2" fill="#5f7183"/>
-              <rect x="454" y="224" width="28" height="30" rx="2" fill="#7d6a5c"/>
+            <g opacity=".88">
+              <rect class="c-p1" x="160" y="80" width="18" height="30" rx="2"/>
+              <rect class="c-p1" x="182" y="84" width="18" height="26" rx="2"/>
+              <rect class="c-p2" x="208" y="78" width="26" height="32" rx="2"/>
+              <rect class="c-p3" x="240" y="86" width="14" height="24" rx="2"/>
+              <rect class="c-p3" x="258" y="86" width="14" height="24" rx="2"/>
+              <rect class="c-p4" x="280" y="80" width="30" height="30" rx="2"/>
+              <rect class="c-p6" x="318" y="82" width="22" height="28" rx="2"/>
+              <rect class="c-p5" x="346" y="78" width="28" height="32" rx="2"/>
+              <rect class="c-p2" x="380" y="84" width="16" height="26" rx="2"/>
+              <rect class="c-p2" x="400" y="84" width="16" height="26" rx="2"/>
+              <rect class="c-p1" x="424" y="80" width="26" height="30" rx="2"/>
+              <rect class="c-p3" x="456" y="86" width="24" height="24" rx="2"/>
+              <rect class="c-p4" x="158" y="132" width="24" height="26" rx="2"/>
+              <rect class="c-p5" x="188" y="128" width="20" height="30" rx="2"/>
+              <rect class="c-p6" x="214" y="134" width="30" height="24" rx="2"/>
+              <rect class="c-p1" x="250" y="130" width="18" height="28" rx="2"/>
+              <rect class="c-p1" x="272" y="130" width="18" height="28" rx="2"/>
+              <rect class="c-p3" x="296" y="134" width="26" height="24" rx="2"/>
+              <rect class="c-p2" x="372" y="132" width="22" height="26" rx="2"/>
+              <rect class="c-p4" x="398" y="134" width="14" height="24" rx="2"/>
+              <rect class="c-p5" x="436" y="130" width="22" height="28" rx="2"/>
+              <rect class="c-p6" x="462" y="134" width="20" height="24" rx="2"/>
+              <rect class="c-p3" x="160" y="178" width="30" height="28" rx="2"/>
+              <rect class="c-p2" x="196" y="182" width="22" height="24" rx="2"/>
+              <rect class="c-p1" x="226" y="176" width="26" height="30" rx="2"/>
+              <rect class="c-p4" x="420" y="180" width="26" height="26" rx="2"/>
+              <rect class="c-p5" x="452" y="176" width="28" height="30" rx="2"/>
+              <rect class="c-p6" x="160" y="228" width="40" height="26" rx="2"/>
+              <rect class="c-p1" x="206" y="226" width="34" height="28" rx="2"/>
+              <rect class="c-p3" x="420" y="228" width="30" height="26" rx="2"/>
+              <rect class="c-p2" x="454" y="224" width="28" height="30" rx="2"/>
             </g>
-            <g transform="translate(-70 0)">
+            <g transform="translate(-100 0)">
             <!-- olinadigan mahsulot (polkada) -->
-            <rect class="item-shelf" x="417" y="138" width="13" height="20" rx="2" fill="#d9a441"/>
+            <rect class="item-shelf" x="417" y="138" width="13" height="20" rx="2" fill="#e0a93f"/>
 
             <!-- xaridor -->
             <g class="person">
-              <rect x="317" y="258" width="12" height="100" rx="5" fill="#2f3d4a"/>
-              <rect x="333" y="258" width="12" height="100" rx="5" fill="#2f3d4a"/>
-              <path d="M308 182 Q330 172 352 182 L348 266 Q331 272 314 266 Z" fill="#5a6b7b"/>
-              <line x1="312" y1="182" x2="300" y2="222" stroke="#5a6b7b" stroke-width="12" stroke-linecap="round"/>
-              <line x1="300" y1="222" x2="304" y2="258" stroke="#5a6b7b" stroke-width="11" stroke-linecap="round"/>
+              <rect class="c-legs" x="317" y="258" width="12" height="100" rx="5"/>
+              <rect class="c-legs" x="333" y="258" width="12" height="100" rx="5"/>
+              <path class="c-torso" d="M308 182 Q330 172 352 182 L348 266 Q331 272 314 266 Z"/>
+              <line class="c-limb" x1="312" y1="182" x2="300" y2="222" stroke-width="12" stroke-linecap="round"/>
+              <line class="c-limb" x1="300" y1="222" x2="304" y2="258" stroke-width="11" stroke-linecap="round"/>
               <circle cx="330" cy="152" r="17" fill="#b39b86"/>
               <path d="M313 148 Q316 132 330 132 Q345 132 347 147 Q338 140 330 141 Q320 141 313 148 Z" fill="#3a3330"/>
             </g>
 
             <!-- skelet (tana) -->
-            <g class="sk" fill="none" stroke-width="3" stroke-linecap="round">
+            <g class="sk" fill="none" stroke-width="2.6" stroke-linecap="round">
               <line class="sk-l" pathLength="1" x1="330" y1="168" x2="330" y2="180"/>
               <line class="sk-l" pathLength="1" x1="312" y1="182" x2="348" y2="180"/>
               <line class="sk-l" pathLength="1" x1="312" y1="182" x2="318" y2="262"/>
@@ -199,13 +233,13 @@
 
             <!-- harakatdagi qo'l: yelka (348,180) atrofida, bilak tirsak (361.6,221.8) atrofida aylanadi -->
             <g class="arm-u">
-              <line x1="348" y1="180" x2="361.6" y2="221.8" stroke="#5a6b7b" stroke-width="12" stroke-linecap="round"/>
-              <line class="sk-l sk-arm" pathLength="1" x1="348" y1="180" x2="361.6" y2="221.8" fill="none" stroke-width="3" stroke-linecap="round"/>
+              <line class="c-limb" x1="348" y1="180" x2="361.6" y2="221.8" stroke-width="12" stroke-linecap="round"/>
+              <line class="sk-l sk-arm" pathLength="1" x1="348" y1="180" x2="361.6" y2="221.8" fill="none" stroke-width="2.6" stroke-linecap="round"/>
               <g class="arm-f">
-                <line x1="361.6" y1="221.8" x2="357.6" y2="259.6" stroke="#5a6b7b" stroke-width="11" stroke-linecap="round"/>
+                <line class="c-limb" x1="361.6" y1="221.8" x2="357.6" y2="259.6" stroke-width="11" stroke-linecap="round"/>
                 <circle cx="357.6" cy="261" r="6" fill="#b39b86"/>
-                <rect class="item-hand" x="352" y="250" width="13" height="20" rx="2" fill="#d9a441"/>
-                <line class="sk-l sk-arm" pathLength="1" x1="361.6" y1="221.8" x2="357.6" y2="259.6" fill="none" stroke-width="3" stroke-linecap="round"/>
+                <rect class="item-hand" x="352" y="250" width="13" height="20" rx="2" fill="#e0a93f"/>
+                <line class="sk-l sk-arm" pathLength="1" x1="361.6" y1="221.8" x2="357.6" y2="259.6" fill="none" stroke-width="2.6" stroke-linecap="round"/>
                 <circle class="sk-dot-arm" cx="361.6" cy="221.8" r="3.5"/>
                 <circle class="wrist" cx="357.6" cy="259.6" r="4.5"/>
               </g>
@@ -213,34 +247,45 @@
 
             <!-- aniqlash ramkasi -->
             <g class="det">
-              <path class="det-c" d="M292 146 v-14 h14 M424 132 h14 v14 M438 348 v14 h-14 M306 362 h-14 v-14" fill="none" stroke-width="3"/>
-              <rect class="det-r" x="292" y="132" width="146" height="230" fill="none" stroke-width="1.5"/>
+              <path class="det-c" pathLength="8" d="M292 150 v-18 h18 M420 132 h18 v18 M438 344 v18 h-18 M310 362 h-18 v-18" fill="none" stroke-width="3" stroke-linecap="square"/>
+              <rect class="det-r" x="292" y="132" width="146" height="230" fill="none" stroke-width="1"/>
               <g class="tag tag-a">
-                <rect x="292" y="108" width="34" height="22" rx="3"/>
-                <text x="300" y="123">#7</text>
+                <rect x="292" y="106" width="36" height="22" rx="3"/>
+                <text x="300" y="122">#7</text>
               </g>
               <g class="tag tag-b">
-                <rect x="292" y="108" width="94" height="22" rx="3"/>
-                <text x="300" y="123">#7 risk 82</text>
+                <rect x="292" y="106" width="104" height="22" rx="3"/>
+                <text x="300" y="122">#7 risk 82</text>
               </g>
             </g>
             </g>
 
-            <!-- kamera yozuvlari -->
+            <!-- yorug'lik, vinyetka va skaner chizig'i -->
             <rect width="640" height="400" fill="url(#g-light)"/>
             <rect width="640" height="400" fill="url(#g-vign)"/>
+            <g class="beam"><rect y="-70" width="640" height="70" fill="url(#g-beam)"/></g>
+
+            <!-- kamera yozuvlari (OSD) -->
             <g class="osd">
-              <text x="18" y="30">Camera 2: Sales floor</text>
-              <circle class="rec" cx="520" cy="25" r="5"/>
-              <text x="532" y="30">14:32:07</text>
+              <text x="20" y="31">Camera 2 · Sales floor</text>
+              <circle class="rec" cx="514" cy="26" r="4.5"/>
+              <text x="526" y="31">14:32:07</text>
+            </g>
+            <g class="meter">
+              <text class="m-lbl" x="20" y="366">RISK</text>
+              <rect class="m-track" x="20" y="374" width="132" height="5" rx="2.5"/>
+              <rect class="m-fill" x="20" y="374" width="132" height="5" rx="2.5"/>
+              <text class="m-n m1" x="164" y="380">12</text>
+              <text class="m-n m2" x="164" y="380">47</text>
+              <text class="m-n m3" x="164" y="380">82</text>
             </g>
           </svg>
-        </div>
+          </div>
           <div class="tg" aria-hidden="true">
-            <div class="tg-head"><img src="../img/belgi.svg" alt="" width="22" height="22"><b>Hushyor AI</b><span>bot</span></div>
+            <div class="tg-head"><img src="../img/belgi.svg" alt="" width="26" height="26"><b>Hushyor AI</b><span>bot</span></div>
             <div class="tg-msg">
               <div class="tg-thumb"><span></span></div>
-              <p><b>⚠️ Suspicious activity</b><br>Sales floor, 14:32<br>Hand into pocket, item in hand</p>
+              <p><b>⚠️ Suspicious activity</b><br>Sales floor, 14:32<br>Item put into a pocket</p>
               <div class="tg-btns">
                 <span class="tg-b tg-ok"><i class="tap"></i><em class="s1">✅ Confirm</em><em class="s2">✅ Confirmed</em></span>
                 <span class="tg-b tg-no">❌ False alarm</span>
@@ -251,297 +296,514 @@
         </div>
         <figcaption id="stage-cap" class="flow-wrap">
           <ol class="flow">
-            <li><b>The camera sees</b><span>Your existing camera, no new hardware</span></li>
-            <li><b>AI scores the risk</b><span>From pose, hands and items — no face recognition</span></li>
-            <li><b>A clip lands in Telegram</b><span>With the reason, a photo and a short video</span></li>
-            <li><b>The guard decides</b><span>✅ or ❌ — the system learns from each answer</span></li>
+            <li><b>Connects to your cameras</b><span>The cameras you already have are enough</span></li>
+            <li><b>Analyses movement</b><span>Hands, items and bags; no face recognition</span></li>
+            <li><b>Alerts you in Telegram</b><span>With the reason, a photo and a short clip</span></li>
+            <li><b>The guard checks it</b><span>Taps ✅ or ❌, and the system learns from it</span></li>
           </ol>
         </figcaption>
-        <button class="replay" type="button" id="replay" hidden>Watch again</button>
+        <button class="replay" type="button" id="replay" hidden>
+          <svg class="i" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M4 12a8 8 0 1 0 2.4-5.7M4 4v4.5h4.5"/></svg>Play again
+        </button>
       </figure>
     </div>
   </section>
 
-  <!-- ======================================================================== tomir tizimi -->
-  <section id="qanday" class="sec night vas-sec">
+  <!-- ======================================================================== qanday ishlaydi (qadamlar + sahna) -->
+  <section id="qanday" class="sec how">
     <div class="wrap">
-      <h2>How it works: from camera to decision</h2>
-      <p class="sub">Cameras are the vessels, the in-store computer is the heart. Video is analysed on site; only the message that matters leaves the building.</p>
-      <div class="vas" id="vas">
-        <div class="vas-fig" role="img" aria-label="System diagram: four cameras feed the in-store computer; paths lead from it to Telegram, the store dashboard, the cloud dashboard, the daily report and SMS; the guard&#39;s answer flows back from Telegram to the computer">
-          <svg class="vas-svg vas-h" viewBox="0 0 1120 520" aria-hidden="true" focusable="false">
-            <defs>
-              <radialGradient id="heart-g-h" cx=".5" cy=".45" r=".6">
-                <stop offset="0" stop-color="#1f3a4c"/>
-                <stop offset="1" stop-color="#132333"/>
-              </radialGradient>
-              <path id="orbit-h" d="M560,162 a98,98 0 1,1 -0.1,0"/>
-<path id="vein-lbl-h" d="M590,204 C650,34 800,-6 906,52"/>            </defs>
-            <!-- tomirlar: asos (xira) va oqim (impulslar) -->
-            <g class="vx" data-n="cams heart">
-              <path class="vb" d="M214,80 C340,80 380,202.4 492,202.4"/>
-              <path class="vf vf-c0" pathLength="100" d="M214,80 C340,80 380,202.4 492,202.4"/>
-            </g>
-            <g class="vx" data-n="cams heart">
-              <path class="vb" d="M214,200 C340,200 380,240.8 492,240.8"/>
-              <path class="vf vf-c1" pathLength="100" d="M214,200 C340,200 380,240.8 492,240.8"/>
-            </g>
-            <g class="vx" data-n="cams heart">
-              <path class="vb" d="M214,320 C340,320 380,279.2 492,279.2"/>
-              <path class="vf vf-c2" pathLength="100" d="M214,320 C340,320 380,279.2 492,279.2"/>
-            </g>
-            <g class="vx" data-n="cams heart">
-              <path class="vb" d="M214,440 C340,440 380,317.6 492,317.6"/>
-              <path class="vf vf-c3" pathLength="100" d="M214,440 C340,440 380,317.6 492,317.6"/>
-            </g>
-            <g class="vx" data-n="tg heart">
-              <path class="vb" id="art-h-tg" d="M628,199.2 C740,199.2 800,70 906,70"/>
-              <path class="vf vf-1" pathLength="100" d="M628,199.2 C740,199.2 800,70 906,70"/>
-            </g>
-            <g class="vx" data-n="panel heart">
-              <path class="vb" id="art-h-panel" d="M628,229.6 C740,229.6 800,165 906,165"/>
-              <path class="vf vf-2" pathLength="100" d="M628,229.6 C740,229.6 800,165 906,165"/>
-            </g>
-            <g class="vx thin" data-n="cloud heart">
-              <path class="vb" id="art-h-cloud" d="M628,260 C740,260 800,260 906,260"/>
-              <path class="vf vf-3" pathLength="100" d="M628,260 C740,260 800,260 906,260"/>
-            </g>
-            <g class="vx" data-n="report heart">
-              <path class="vb" id="art-h-report" d="M628,290.4 C740,290.4 800,355 906,355"/>
-              <path class="vf vf-4" pathLength="100" d="M628,290.4 C740,290.4 800,355 906,355"/>
-            </g>
-            <g class="vx" data-n="report heart">
-              <path class="vb" id="art-h-sms" d="M628,320.8 C740,320.8 800,450 906,450"/>
-              <path class="vf vf-5" pathLength="100" d="M628,320.8 C740,320.8 800,450 906,450"/>
-            </g>
-            <g class="vx vein" data-n="back">
-              <path class="vb" d="M906,52 C800,-6 650,34 590,204"/>
-              <path class="vf" pathLength="100" d="M906,52 C800,-6 650,34 590,204"/>
-<text class="vlabel" dy="-9"><textPath href="#vein-lbl-h" startOffset="60%" text-anchor="middle">answers flow back — the system learns</textPath></text>            </g>
-            <g class="vx" data-n="cloud"><text class="vlabel cap" dy="-10"><textPath href="#art-h-cloud" startOffset="52%" text-anchor="middle">events and numbers only</textPath></text></g>
-            <!-- kameralar -->
-            <g class="vx node cam" data-n="cams" data-k="cams">
-              <circle class="nd-halo" cx="190" cy="80" r="30"/>
-              <circle class="nd" cx="190" cy="80" r="24"/>
-              <path class="ic" d="M3 7h12v10H3z M15 10.5l6-3v9l-6-3z" transform="translate(178 68)"/>
-              <text class="lbl" x="152" y="85" text-anchor="end">Entrance</text>
-            </g>
-            <g class="vx node cam" data-n="cams" data-k="cams">
-              <circle class="nd-halo" cx="190" cy="200" r="30"/>
-              <circle class="nd" cx="190" cy="200" r="24"/>
-              <path class="ic" d="M3 7h12v10H3z M15 10.5l6-3v9l-6-3z" transform="translate(178 188)"/>
-              <text class="lbl" x="152" y="205" text-anchor="end">Sales floor</text>
-            </g>
-            <g class="vx node cam" data-n="cams" data-k="cams">
-              <circle class="nd-halo" cx="190" cy="320" r="30"/>
-              <circle class="nd" cx="190" cy="320" r="24"/>
-              <path class="ic" d="M3 7h12v10H3z M15 10.5l6-3v9l-6-3z" transform="translate(178 308)"/>
-              <text class="lbl" x="152" y="325" text-anchor="end">Checkout</text>
-            </g>
-            <g class="vx node cam" data-n="cams" data-k="cams">
-              <circle class="nd-halo" cx="190" cy="440" r="30"/>
-              <circle class="nd" cx="190" cy="440" r="24"/>
-              <path class="ic" d="M3 7h12v10H3z M15 10.5l6-3v9l-6-3z" transform="translate(178 428)"/>
-              <text class="lbl" x="152" y="445" text-anchor="end">Stockroom</text>
-            </g>
-            <!-- yurak -->
-            <g class="vx heart" data-n="cams heart tg back panel cloud report" data-k="heart">
-              <circle class="beat b2" cx="560" cy="260" r="84"/>
-              <circle class="beat" cx="560" cy="260" r="73"/>
-              <circle class="core" cx="560" cy="260" r="62" fill="url(#heart-g-h)"/>
-              <g class="orbit"><text class="orb"><textPath href="#orbit-h" textLength="611.8" lengthAdjust="spacing">finds people • tracks pose • follows hands • spots items • checks rules • scores risk • </textPath></text></g>
-              <text class="hlbl" x="560" y="257" text-anchor="middle">In-store</text>
-              <text class="hlbl" x="560" y="277" text-anchor="middle">computer</text>
-            </g>
-            <!-- chiqishlar -->
-            <g class="vx node out out-1" data-n="tg back" data-k="tg">
-              <circle class="nd-halo" cx="930" cy="70" r="30"/>
-              <circle class="nd" cx="930" cy="70" r="24"/>
-              <path class="ic" d="M3 11.5 21 4l-3.2 16-5.6-4.6-3 3.1v-5.4L17.4 7 7.6 13.2z" transform="translate(918 58)"/>
-              <text class="lbl" x="968" y="75">Telegram</text>
-            </g>
-            <g class="vx node out out-2" data-n="panel" data-k="panel">
-              <circle class="nd-halo" cx="930" cy="165" r="30"/>
-              <circle class="nd" cx="930" cy="165" r="24"/>
-              <path class="ic" d="M3 5h18v11H3z M9 20h6 M12 16v4" transform="translate(918 153)"/>
-              <text class="lbl" x="968" y="170">Store dashboard</text>
-            </g>
-            <g class="vx node out out-3" data-n="cloud" data-k="cloud">
-              <circle class="nd-halo" cx="930" cy="260" r="30"/>
-              <circle class="nd" cx="930" cy="260" r="24"/>
-              <path class="ic" d="M7 18h10.5a4 4 0 0 0 .4-8A6 6 0 0 0 6.3 11.3 3.4 3.4 0 0 0 7 18z" transform="translate(918 248)"/>
-              <text class="lbl" x="968" y="265">Cloud dashboard</text>
-            </g>
-            <g class="vx node out out-4" data-n="report" data-k="report">
-              <circle class="nd-halo" cx="930" cy="355" r="30"/>
-              <circle class="nd" cx="930" cy="355" r="24"/>
-              <path class="ic" d="M6 3h9l4 4v14H6z M15 3v4h4 M9.5 17v-3 M12.5 17v-6 M15.5 17v-4" transform="translate(918 343)"/>
-              <text class="lbl" x="968" y="360">Daily report</text>
-            </g>
-            <g class="vx node out out-5" data-n="report" data-k="report">
-              <circle class="nd-halo" cx="930" cy="450" r="30"/>
-              <circle class="nd" cx="930" cy="450" r="24"/>
-              <path class="ic" d="M4 5h16v11H9.5L4 20z M8 9.5h8 M8 12.5h5" transform="translate(918 438)"/>
-              <text class="lbl" x="968" y="455">SMS</text>
-            </g>
-          </svg>
-          <svg class="vas-svg vas-v" viewBox="0 0 360 720" aria-hidden="true" focusable="false">
-            <defs>
-              <radialGradient id="heart-g-v" cx=".5" cy=".45" r=".6">
-                <stop offset="0" stop-color="#1f3a4c"/>
-                <stop offset="1" stop-color="#132333"/>
-              </radialGradient>
-              <path id="orbit-v" d="M180,204 a86,86 0 1,1 -0.1,0"/>
-            </defs>
-            <!-- tomirlar: asos (xira) va oqim (impulslar) -->
-            <g class="vx" data-n="cams heart">
-              <path class="vb" d="M54,78 C54,160 142.2,160 142.2,232"/>
-              <path class="vf vf-c0" pathLength="100" d="M54,78 C54,160 142.2,160 142.2,232"/>
-            </g>
-            <g class="vx" data-n="cams heart">
-              <path class="vb" d="M138,78 C138,160 167.4,160 167.4,232"/>
-              <path class="vf vf-c1" pathLength="100" d="M138,78 C138,160 167.4,160 167.4,232"/>
-            </g>
-            <g class="vx" data-n="cams heart">
-              <path class="vb" d="M222,78 C222,160 192.6,160 192.6,232"/>
-              <path class="vf vf-c2" pathLength="100" d="M222,78 C222,160 192.6,160 192.6,232"/>
-            </g>
-            <g class="vx" data-n="cams heart">
-              <path class="vb" d="M306,78 C306,160 217.8,160 217.8,232"/>
-              <path class="vf vf-c3" pathLength="100" d="M306,78 C306,160 217.8,160 217.8,232"/>
-            </g>
-            <g class="vx" data-n="tg heart">
-              <path class="vb" id="art-v-tg" d="M144,350 C144,420 60,420 60,478"/>
-              <path class="vf vf-1" pathLength="100" d="M144,350 C144,420 60,420 60,478"/>
-            </g>
-            <g class="vx" data-n="panel heart">
-              <path class="vb" id="art-v-panel" d="M180,350 C180,420 180,420 180,478"/>
-              <path class="vf vf-2" pathLength="100" d="M180,350 C180,420 180,420 180,478"/>
-            </g>
-            <g class="vx thin" data-n="cloud heart">
-              <path class="vb" id="art-v-cloud" d="M216,350 C216,420 300,420 300,478"/>
-              <path class="vf vf-3" pathLength="100" d="M216,350 C216,420 300,420 300,478"/>
-            </g>
-            <g class="vx" data-n="report heart">
-              <path class="vb" id="art-v-report" d="M159,350 C159,470 110,520 110,598"/>
-              <path class="vf vf-4" pathLength="100" d="M159,350 C159,470 110,520 110,598"/>
-            </g>
-            <g class="vx" data-n="report heart">
-              <path class="vb" id="art-v-sms" d="M201,350 C201,470 250,520 250,598"/>
-              <path class="vf vf-5" pathLength="100" d="M201,350 C201,470 250,520 250,598"/>
-            </g>
-            <g class="vx vein" data-n="back">
-              <path class="vb" d="M40,486 C6,420 18,330 122,304"/>
-              <path class="vf" pathLength="100" d="M40,486 C6,420 18,330 122,304"/>
-            </g>
-            <!-- kameralar -->
-            <g class="vx node cam" data-n="cams" data-k="cams">
-              <circle class="nd-halo" cx="54" cy="56" r="25"/>
-              <circle class="nd" cx="54" cy="56" r="20"/>
-              <path class="ic" d="M3 7h12v10H3z M15 10.5l6-3v9l-6-3z" transform="translate(42 44)"/>
-              <text class="lbl sm" x="54" y="25" text-anchor="middle">Entrance</text>
-            </g>
-            <g class="vx node cam" data-n="cams" data-k="cams">
-              <circle class="nd-halo" cx="138" cy="56" r="25"/>
-              <circle class="nd" cx="138" cy="56" r="20"/>
-              <path class="ic" d="M3 7h12v10H3z M15 10.5l6-3v9l-6-3z" transform="translate(126 44)"/>
-              <text class="lbl sm" x="138" y="25" text-anchor="middle">Floor</text>
-            </g>
-            <g class="vx node cam" data-n="cams" data-k="cams">
-              <circle class="nd-halo" cx="222" cy="56" r="25"/>
-              <circle class="nd" cx="222" cy="56" r="20"/>
-              <path class="ic" d="M3 7h12v10H3z M15 10.5l6-3v9l-6-3z" transform="translate(210 44)"/>
-              <text class="lbl sm" x="222" y="25" text-anchor="middle">Till</text>
-            </g>
-            <g class="vx node cam" data-n="cams" data-k="cams">
-              <circle class="nd-halo" cx="306" cy="56" r="25"/>
-              <circle class="nd" cx="306" cy="56" r="20"/>
-              <path class="ic" d="M3 7h12v10H3z M15 10.5l6-3v9l-6-3z" transform="translate(294 44)"/>
-              <text class="lbl sm" x="306" y="25" text-anchor="middle">Stock</text>
-            </g>
-            <!-- yurak -->
-            <g class="vx heart" data-n="cams heart tg back panel cloud report" data-k="heart">
-              <circle class="beat b2" cx="180" cy="290" r="78"/>
-              <circle class="beat" cx="180" cy="290" r="67"/>
-              <circle class="core" cx="180" cy="290" r="56" fill="url(#heart-g-v)"/>
-              <g class="orbit"><text class="orb"><textPath href="#orbit-v" textLength="536.4" lengthAdjust="spacing">finds people • tracks pose • follows hands • spots items • checks rules • scores risk • </textPath></text></g>
-              <text class="hlbl" x="180" y="287" text-anchor="middle">In-store</text>
-              <text class="hlbl" x="180" y="307" text-anchor="middle">computer</text>
-            </g>
-            <!-- chiqishlar -->
-            <g class="vx node out out-1" data-n="tg back" data-k="tg">
-              <circle class="nd-halo" cx="60" cy="500" r="27"/>
-              <circle class="nd" cx="60" cy="500" r="22"/>
-              <path class="ic" d="M3 11.5 21 4l-3.2 16-5.6-4.6-3 3.1v-5.4L17.4 7 7.6 13.2z" transform="translate(48 488)"/>
-              <text class="lbl sm" x="60" y="542" text-anchor="middle">Telegram</text>
-            </g>
-            <g class="vx node out out-2" data-n="panel" data-k="panel">
-              <circle class="nd-halo" cx="180" cy="500" r="27"/>
-              <circle class="nd" cx="180" cy="500" r="22"/>
-              <path class="ic" d="M3 5h18v11H3z M9 20h6 M12 16v4" transform="translate(168 488)"/>
-              <text class="lbl sm" x="180" y="542" text-anchor="middle">Dashboard</text>
-            </g>
-            <g class="vx node out out-3" data-n="cloud" data-k="cloud">
-              <circle class="nd-halo" cx="300" cy="500" r="27"/>
-              <circle class="nd" cx="300" cy="500" r="22"/>
-              <path class="ic" d="M7 18h10.5a4 4 0 0 0 .4-8A6 6 0 0 0 6.3 11.3 3.4 3.4 0 0 0 7 18z" transform="translate(288 488)"/>
-              <text class="lbl sm" x="300" y="542" text-anchor="middle">Cloud</text>
-            </g>
-            <g class="vx node out out-4" data-n="report" data-k="report">
-              <circle class="nd-halo" cx="110" cy="620" r="27"/>
-              <circle class="nd" cx="110" cy="620" r="22"/>
-              <path class="ic" d="M6 3h9l4 4v14H6z M15 3v4h4 M9.5 17v-3 M12.5 17v-6 M15.5 17v-4" transform="translate(98 608)"/>
-              <text class="lbl sm" x="110" y="662" text-anchor="middle">Report</text>
-            </g>
-            <g class="vx node out out-5" data-n="report" data-k="report">
-              <circle class="nd-halo" cx="250" cy="620" r="27"/>
-              <circle class="nd" cx="250" cy="620" r="22"/>
-              <path class="ic" d="M4 5h16v11H9.5L4 20z M8 9.5h8 M8 12.5h5" transform="translate(238 608)"/>
-              <text class="lbl sm" x="250" y="662" text-anchor="middle">SMS</text>
-            </g>
-          </svg>
-        </div>
+      <div class="sec-head">
+        <h2 class="rh">How it works</h2>
+        <p class="sub">Video is analysed on the computer in your store and never leaves it. Only a photo, a short clip of each event and totals go to Telegram and the cloud dashboard.</p>
+      </div>
+      <div class="vas" id="vas" data-step="cams" data-zone="in">
         <ol class="vas-list" id="vas-list">
-          <li><button type="button" class="vas-it" data-k="cams" aria-pressed="false"><b>Cameras</b><span>Your existing IP cameras or DVR/NVR are connected. The video stream never leaves the store network.</span></button></li>
-          <li><button type="button" class="vas-it" data-k="heart" aria-pressed="false"><b>In-store computer — the heart</b><span>In every frame it finds people and maps a 17-point skeleton; when a hand reaches for something, it also looks for items around it. By default 4 frames a second when things are calm, 8 when something looks suspicious.</span></button></li>
-          <li><button type="button" class="vas-it" data-k="tg" aria-pressed="false"><b>Telegram</b><span>A photo and the reason arrive first, then a clip covering 10 seconds before and after the moment. You choose who gets what.</span></button></li>
-          <li><button type="button" class="vas-it" data-k="back" aria-pressed="false"><b>The answer flows back</b><span>The guard&#39;s ✅ or ❌ is stored: the false-alarm rate is shown openly in reports and the behaviour model is retrained on these answers.</span></button></li>
-          <li><button type="button" class="vas-it" data-k="panel" aria-pressed="false"><b>Store dashboard</b><span>In the browser: live cameras, events, visitors, queues, flow and settings. Works without the internet too.</span></button></li>
-          <li><button type="button" class="vas-it" data-k="cloud" aria-pressed="false"><b>Cloud dashboard</b><span>All branches in one place, with roles. Only events, clips and totals go to the cloud; if the internet drops, they wait in a queue.</span></button></li>
-          <li><button type="button" class="vas-it" data-k="report" aria-pressed="false"><b>Reports and SMS</b><span>Every morning: yesterday&#39;s numbers and recommendations (PDF too). For critical events such as a fall or a night-time entry — an SMS.</span></button></li>
+          <li><button type="button" class="vas-it" data-k="cams" data-zone="in" aria-pressed="false" aria-describedby="vas-d1"><b>Cameras</b></button>
+            <div class="vas-d" id="vas-d1"><p>Your existing IP cameras or DVR/NVR are connected. The video stream never leaves the store network.</p></div></li>
+          <li><button type="button" class="vas-it" data-k="heart" data-zone="in" aria-pressed="false" aria-describedby="vas-d2"><b>In-store computer</b></button>
+            <div class="vas-d" id="vas-d2"><p>In every frame it finds people and maps a 17-point skeleton; when a hand reaches for something, it also looks for items around it. By default 4 frames a second when things are calm, 8 when something looks suspicious.</p></div></li>
+          <li><button type="button" class="vas-it" data-k="tg" data-zone="out" aria-pressed="false" aria-describedby="vas-d3"><b>Telegram</b></button>
+            <div class="vas-d" id="vas-d3"><p>A photo and the reason arrive first, then a clip covering 10 seconds before and after the moment. You choose who gets what.</p></div></li>
+          <li><button type="button" class="vas-it" data-k="back" data-zone="out" aria-pressed="false" aria-describedby="vas-d4"><b>The guard&#39;s answer</b></button>
+            <div class="vas-d" id="vas-d4"><p>The guard&#39;s ✅ or ❌ is stored: the false-alarm rate is shown openly in reports and the behaviour model is retrained on these answers.</p></div></li>
+          <li><button type="button" class="vas-it" data-k="panel" data-zone="in" aria-pressed="false" aria-describedby="vas-d5"><b>Store dashboard</b></button>
+            <div class="vas-d" id="vas-d5"><p>In the browser: live cameras, events, visitors, queues, flow and settings. Works without the internet too.</p></div></li>
+          <li><button type="button" class="vas-it" data-k="cloud" data-zone="out" aria-pressed="false" aria-describedby="vas-d6"><b>Cloud dashboard</b></button>
+            <div class="vas-d" id="vas-d6"><p>All branches in one place, with roles. Only events, clips and totals go to the cloud; if the internet drops, they wait in a queue.</p></div></li>
+          <li><button type="button" class="vas-it" data-k="report" data-zone="out" aria-pressed="false" aria-describedby="vas-d7"><b>Reports and SMS</b></button>
+            <div class="vas-d" id="vas-d7"><p>Every morning: yesterday&#39;s numbers and recommendations (PDF too). For critical events such as a fall or a night-time entry — an SMS.</p></div></li>
         </ol>
+        <!-- telefonda: faol qadam izohi qator ostida (hammasi bir katakda — balandlik eng uzun izohga teng, sakramaydi) -->
+        <div class="vas-desc" id="vas-desc" aria-hidden="true">
+          <p data-k="cams">Your existing IP cameras or DVR/NVR are connected. The video stream never leaves the store network.</p>
+          <p data-k="heart">In every frame it finds people and maps a 17-point skeleton; when a hand reaches for something, it also looks for items around it. By default 4 frames a second when things are calm, 8 when something looks suspicious.</p>
+          <p data-k="tg">A photo and the reason arrive first, then a clip covering 10 seconds before and after the moment. You choose who gets what.</p>
+          <p data-k="back">The guard&#39;s ✅ or ❌ is stored: the false-alarm rate is shown openly in reports and the behaviour model is retrained on these answers.</p>
+          <p data-k="panel">In the browser: live cameras, events, visitors, queues, flow and settings. Works without the internet too.</p>
+          <p data-k="cloud">All branches in one place, with roles. Only events, clips and totals go to the cloud; if the internet drops, they wait in a queue.</p>
+          <p data-k="report">Every morning: yesterday&#39;s numbers and recommendations (PDF too). For critical events such as a fall or a night-time entry — an SMS.</p>
+        </div>
+        <div class="vas-stage">
+        <div class="vas-fig" role="img" aria-label="What it looks like: cameras, analysis on the in-store computer, the Telegram alert and the guard&#39;s answer, the store dashboard, the cloud dashboard, the daily report and SMS. The step selected in the list is shown">
+          <div class="hw-zone" aria-hidden="true">
+            <span class="hw-z hw-z-in"><svg class="i " viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M6 11h12v9H6z M8.5 11V8a3.5 3.5 0 0 1 7 0v3"/></svg><span class="zl">Inside the store — video stays here</span><span class="zs">Video stays in the store</span></span>
+            <span class="hw-z hw-z-out"><svg class="i " viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M7 17 17 7 M9 7h8v8"/></svg><span class="zl">Only events and totals leave the store</span><span class="zs">Only events and totals</span></span>
+          </div>
+
+          <!-- 1. kameralar: do'kondagi to'rt kamera (kunduz yoki kechki do'kon — mavzuga qarab) -->
+          <div class="vas-sc sc-cams" data-k="cams">
+            <div class="hw-wall">
+              <div class="hw-feed f1">
+                <svg viewBox="0 0 160 100" aria-hidden="true">
+                  <rect class="c-wall" width="160" height="100"/>
+                  <rect class="hw-floor" y="72" width="160" height="28"/>
+                  <path class="c-fline" d="M40 72 22 100 M120 72 138 100" stroke-width="1" fill="none"/>
+                  <rect class="c-back" x="56" y="16" width="50" height="57"/>
+                  <path class="hw-frame" d="M56 73V16h50v57 M81 16v57"/>
+                  <rect class="c-edge" x="51" y="73" width="60" height="3.5" rx="1"/>
+                  <rect class="c-side" x="8" y="30" width="30" height="37" rx="1.5"/>
+<rect class="c-edge" x="8" y="45" width="30" height="2.4"/>
+<rect class="c-p2" x="11" y="34" width="8" height="11" rx="1"/>
+<rect class="c-p3" x="22" y="34" width="8" height="11" rx="1"/>
+<rect class="c-edge" x="8" y="62" width="30" height="2.4"/>
+<rect class="c-p4" x="11" y="51" width="8" height="11" rx="1"/>
+<rect class="c-p5" x="22" y="51" width="8" height="11" rx="1"/>
+
+                  <rect class="c-side" x="126" y="30" width="30" height="37" rx="1.5"/>
+<rect class="c-edge" x="126" y="45" width="30" height="2.4"/>
+<rect class="c-p5" x="129" y="34" width="8" height="11" rx="1"/>
+<rect class="c-p6" x="140" y="34" width="8" height="11" rx="1"/>
+<rect class="c-edge" x="126" y="62" width="30" height="2.4"/>
+<rect class="c-p1" x="129" y="51" width="8" height="11" rx="1"/>
+<rect class="c-p2" x="140" y="51" width="8" height="11" rx="1"/>
+
+                  <g transform="translate(81 90) scale(0.92)"><g class="hw-walk w-a">
+  <rect class="c-legs hw-lg hw-lg1" x="-5" y="-22" width="4.4" height="22" rx="2"/>
+  <rect class="c-legs hw-lg hw-lg2" x="0.6" y="-22" width="4.4" height="22" rx="2"/>
+  <path class="c-torso" d="M-7 -40 Q0 -43 7 -40 L6 -20 Q0 -18 -6 -20 Z"/>
+  <path class="c-limb" d="M-6.5 -39 L-8 -24 M6.5 -39 L8 -24" stroke-width="3.2" stroke-linecap="round" fill="none"/>
+  <circle cx="0" cy="-46.5" r="5.2" fill="#b39b86"/>
+  <path d="M-5.2 -47.5 Q-5 -52.6 0 -52.6 Q5 -52.6 5.2 -47.8 Q2.5 -49.8 0 -49.6 Q-2.8 -49.6 -5.2 -47.5 Z" fill="#3a3330"/>
+</g></g>
+                </svg>
+                <span class="hw-osd"><b>1</b>Entrance</span>
+                <i class="hw-rec"></i>
+              </div>
+              <div class="hw-feed f2">
+                <svg viewBox="0 0 160 100" aria-hidden="true">
+                  <rect class="c-wall" width="160" height="100"/>
+                  <rect class="hw-floor" y="72" width="160" height="28"/>
+                  <path class="c-fline" d="M40 72 22 100 M120 72 138 100" stroke-width="1" fill="none"/>
+                  <rect class="c-side" x="8" y="18" width="60" height="54" rx="1.5"/>
+<rect class="c-edge" x="8" y="33" width="60" height="2.4"/>
+<rect class="c-p1" x="11" y="22" width="8" height="11" rx="1"/>
+<rect class="c-p2" x="22" y="22" width="8" height="11" rx="1"/>
+<rect class="c-p3" x="33" y="22" width="8" height="11" rx="1"/>
+<rect class="c-p4" x="44" y="22" width="8" height="11" rx="1"/>
+<rect class="c-p5" x="55" y="22" width="8" height="11" rx="1"/>
+<rect class="c-edge" x="8" y="50" width="60" height="2.4"/>
+<rect class="c-p3" x="11" y="39" width="8" height="11" rx="1"/>
+<rect class="c-p4" x="22" y="39" width="8" height="11" rx="1"/>
+<rect class="c-p5" x="33" y="39" width="8" height="11" rx="1"/>
+<rect class="c-p6" x="44" y="39" width="8" height="11" rx="1"/>
+<rect class="c-p1" x="55" y="39" width="8" height="11" rx="1"/>
+<rect class="c-edge" x="8" y="67" width="60" height="2.4"/>
+<rect class="c-p5" x="11" y="56" width="8" height="11" rx="1"/>
+<rect class="c-p6" x="22" y="56" width="8" height="11" rx="1"/>
+<rect class="c-p1" x="33" y="56" width="8" height="11" rx="1"/>
+<rect class="c-p2" x="44" y="56" width="8" height="11" rx="1"/>
+<rect class="c-p3" x="55" y="56" width="8" height="11" rx="1"/>
+
+                  <rect class="c-side" x="92" y="18" width="60" height="54" rx="1.5"/>
+<rect class="c-edge" x="92" y="33" width="60" height="2.4"/>
+<rect class="c-p4" x="95" y="22" width="8" height="11" rx="1"/>
+<rect class="c-p5" x="106" y="22" width="8" height="11" rx="1"/>
+<rect class="c-p6" x="117" y="22" width="8" height="11" rx="1"/>
+<rect class="c-p1" x="128" y="22" width="8" height="11" rx="1"/>
+<rect class="c-p2" x="139" y="22" width="8" height="11" rx="1"/>
+<rect class="c-edge" x="92" y="50" width="60" height="2.4"/>
+<rect class="c-p6" x="95" y="39" width="8" height="11" rx="1"/>
+<rect class="c-p1" x="106" y="39" width="8" height="11" rx="1"/>
+<rect class="c-p2" x="117" y="39" width="8" height="11" rx="1"/>
+<rect class="c-p3" x="128" y="39" width="8" height="11" rx="1"/>
+<rect class="c-p4" x="139" y="39" width="8" height="11" rx="1"/>
+<rect class="c-edge" x="92" y="67" width="60" height="2.4"/>
+<rect class="c-p2" x="95" y="56" width="8" height="11" rx="1"/>
+<rect class="c-p3" x="106" y="56" width="8" height="11" rx="1"/>
+<rect class="c-p4" x="117" y="56" width="8" height="11" rx="1"/>
+<rect class="c-p5" x="128" y="56" width="8" height="11" rx="1"/>
+<rect class="c-p6" x="139" y="56" width="8" height="11" rx="1"/>
+
+                  <g transform="translate(110 88) scale(0.78)"><g class="hw-walk w-c">
+  <rect class="c-legs hw-lg hw-lg1" x="-5" y="-22" width="4.4" height="22" rx="2"/>
+  <rect class="c-legs hw-lg hw-lg2" x="0.6" y="-22" width="4.4" height="22" rx="2"/>
+  <path class="c-torso" d="M-7 -40 Q0 -43 7 -40 L6 -20 Q0 -18 -6 -20 Z"/>
+  <path class="c-limb" d="M-6.5 -39 L-8 -24 M6.5 -39 L8 -24" stroke-width="3.2" stroke-linecap="round" fill="none"/>
+  <circle cx="0" cy="-46.5" r="5.2" fill="#b39b86"/>
+  <path d="M-5.2 -47.5 Q-5 -52.6 0 -52.6 Q5 -52.6 5.2 -47.8 Q2.5 -49.8 0 -49.6 Q-2.8 -49.6 -5.2 -47.5 Z" fill="#3a3330"/>
+</g></g>
+                  <g transform="translate(78 94) scale(0.92)"><g class="hw-walk w-b">
+  <rect class="c-legs hw-lg hw-lg1" x="-5" y="-22" width="4.4" height="22" rx="2"/>
+  <rect class="c-legs hw-lg hw-lg2" x="0.6" y="-22" width="4.4" height="22" rx="2"/>
+  <path class="c-torso" d="M-7 -40 Q0 -43 7 -40 L6 -20 Q0 -18 -6 -20 Z"/>
+  <path class="c-limb" d="M-6.5 -39 L-8 -24 M6.5 -39 L8 -24" stroke-width="3.2" stroke-linecap="round" fill="none"/>
+  <circle cx="0" cy="-46.5" r="5.2" fill="#b39b86"/>
+  <path d="M-5.2 -47.5 Q-5 -52.6 0 -52.6 Q5 -52.6 5.2 -47.8 Q2.5 -49.8 0 -49.6 Q-2.8 -49.6 -5.2 -47.5 Z" fill="#3a3330"/>
+</g></g>
+                </svg>
+                <span class="hw-osd"><b>2</b>Sales floor</span>
+                <i class="hw-rec"></i>
+              </div>
+              <div class="hw-feed f3">
+                <svg viewBox="0 0 160 100" aria-hidden="true">
+                  <rect class="c-wall" width="160" height="100"/>
+                  <rect class="hw-floor" y="72" width="160" height="28"/>
+                  <path class="c-fline" d="M40 72 22 100 M120 72 138 100" stroke-width="1" fill="none"/>
+                  <rect class="c-side" x="6" y="22" width="36" height="54" rx="1.5"/>
+<rect class="c-edge" x="6" y="37" width="36" height="2.4"/>
+<rect class="c-p3" x="9" y="26" width="8" height="11" rx="1"/>
+<rect class="c-p4" x="20" y="26" width="8" height="11" rx="1"/>
+<rect class="c-edge" x="6" y="54" width="36" height="2.4"/>
+<rect class="c-p5" x="9" y="43" width="8" height="11" rx="1"/>
+<rect class="c-p6" x="20" y="43" width="8" height="11" rx="1"/>
+<rect class="c-edge" x="6" y="71" width="36" height="2.4"/>
+<rect class="c-p1" x="9" y="60" width="8" height="11" rx="1"/>
+<rect class="c-p2" x="20" y="60" width="8" height="11" rx="1"/>
+
+                  <g transform="translate(134 76) scale(0.8)"><g class="hw-walk w-0">
+  <rect class="c-legs hw-lg hw-lg1" x="-5" y="-22" width="4.4" height="22" rx="2"/>
+  <rect class="c-legs hw-lg hw-lg2" x="0.6" y="-22" width="4.4" height="22" rx="2"/>
+  <path class="c-torso" d="M-7 -40 Q0 -43 7 -40 L6 -20 Q0 -18 -6 -20 Z"/>
+  <path class="c-limb" d="M-6.5 -39 L-8 -24 M6.5 -39 L8 -24" stroke-width="3.2" stroke-linecap="round" fill="none"/>
+  <circle cx="0" cy="-46.5" r="5.2" fill="#b39b86"/>
+  <path d="M-5.2 -47.5 Q-5 -52.6 0 -52.6 Q5 -52.6 5.2 -47.8 Q2.5 -49.8 0 -49.6 Q-2.8 -49.6 -5.2 -47.5 Z" fill="#3a3330"/>
+</g></g>
+                  <rect class="c-side" x="64" y="57" width="92" height="19" rx="1.5"/>
+                  <rect class="c-edge" x="64" y="55" width="92" height="3" rx="1"/>
+                  <rect class="c-edge" x="104" y="41" width="17" height="11" rx="1.5"/>
+                  <rect class="c-edge" x="111" y="52" width="3" height="4"/>
+                  <rect class="c-p3" x="74" y="50" width="7" height="5" rx="1"/><rect class="c-p4" x="84" y="51" width="6" height="4" rx="1"/>
+                  <g transform="translate(90 92) scale(0.92)"><g class="hw-walk w-0">
+  <rect class="c-legs hw-lg hw-lg1" x="-5" y="-22" width="4.4" height="22" rx="2"/>
+  <rect class="c-legs hw-lg hw-lg2" x="0.6" y="-22" width="4.4" height="22" rx="2"/>
+  <path class="c-torso" d="M-7 -40 Q0 -43 7 -40 L6 -20 Q0 -18 -6 -20 Z"/>
+  <path class="c-limb" d="M-6.5 -39 L-8 -24 M6.5 -39 L8 -24" stroke-width="3.2" stroke-linecap="round" fill="none"/>
+  <circle cx="0" cy="-46.5" r="5.2" fill="#b39b86"/>
+  <path d="M-5.2 -47.5 Q-5 -52.6 0 -52.6 Q5 -52.6 5.2 -47.8 Q2.5 -49.8 0 -49.6 Q-2.8 -49.6 -5.2 -47.5 Z" fill="#3a3330"/>
+</g></g>
+                  <g transform="translate(58 94) scale(0.94)"><g class="hw-walk w-d">
+  <rect class="c-legs hw-lg hw-lg1" x="-5" y="-22" width="4.4" height="22" rx="2"/>
+  <rect class="c-legs hw-lg hw-lg2" x="0.6" y="-22" width="4.4" height="22" rx="2"/>
+  <path class="c-torso" d="M-7 -40 Q0 -43 7 -40 L6 -20 Q0 -18 -6 -20 Z"/>
+  <path class="c-limb" d="M-6.5 -39 L-8 -24 M6.5 -39 L8 -24" stroke-width="3.2" stroke-linecap="round" fill="none"/>
+  <circle cx="0" cy="-46.5" r="5.2" fill="#b39b86"/>
+  <path d="M-5.2 -47.5 Q-5 -52.6 0 -52.6 Q5 -52.6 5.2 -47.8 Q2.5 -49.8 0 -49.6 Q-2.8 -49.6 -5.2 -47.5 Z" fill="#3a3330"/>
+</g></g>
+                </svg>
+                <span class="hw-osd"><b>3</b>Checkout</span>
+                <i class="hw-rec"></i>
+              </div>
+              <div class="hw-feed f4">
+                <svg viewBox="0 0 160 100" aria-hidden="true">
+                  <rect class="c-wall" width="160" height="100"/>
+                  <rect class="hw-floor" y="72" width="160" height="28"/>
+                  <path class="c-fline" d="M40 72 22 100 M120 72 138 100" stroke-width="1" fill="none"/>
+                  <rect class="c-edge" x="10" y="14" width="3" height="60"/><rect class="c-edge" x="80" y="14" width="3" height="60"/>
+                  <rect class="c-edge" x="10" y="34" width="73" height="2.6"/><rect class="c-edge" x="10" y="55" width="73" height="2.6"/>
+                  <g class="hw-box"><rect x="15" y="20" width="22" height="14" rx="1"/><rect x="40" y="23" width="17" height="11" rx="1"/>
+                  <rect x="60" y="18" width="18" height="16" rx="1"/><rect x="15" y="41" width="18" height="14" rx="1"/>
+                  <rect x="36" y="39" width="24" height="16" rx="1"/><rect x="63" y="44" width="15" height="11" rx="1"/>
+                  <rect x="112" y="56" width="24" height="18" rx="1"/><rect x="116" y="40" width="18" height="16" rx="1"/>
+                  <rect x="138" y="60" width="16" height="14" rx="1"/></g>
+                  <g transform="translate(98 92) scale(0.9)"><g class="hw-walk w-e">
+  <rect class="c-legs hw-lg hw-lg1" x="-5" y="-22" width="4.4" height="22" rx="2"/>
+  <rect class="c-legs hw-lg hw-lg2" x="0.6" y="-22" width="4.4" height="22" rx="2"/>
+  <path class="c-torso" d="M-7 -40 Q0 -43 7 -40 L6 -20 Q0 -18 -6 -20 Z"/>
+  <path class="c-limb" d="M-6.5 -39 L-8 -24 M6.5 -39 L8 -24" stroke-width="3.2" stroke-linecap="round" fill="none"/>
+  <circle cx="0" cy="-46.5" r="5.2" fill="#b39b86"/>
+  <path d="M-5.2 -47.5 Q-5 -52.6 0 -52.6 Q5 -52.6 5.2 -47.8 Q2.5 -49.8 0 -49.6 Q-2.8 -49.6 -5.2 -47.5 Z" fill="#3a3330"/>
+</g></g>
+                </svg>
+                <span class="hw-osd"><b>4</b>Stockroom</span>
+                <i class="hw-rec"></i>
+              </div>
+            </div>
+            <p class="hw-pill hw-c-ok"><svg class="i " viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M5 12.5l4.2 4.2L19 7"/></svg><b>4 cameras connected</b><span>IP cameras or DVR/NVR</span></p>
+          </div>
+
+          <!-- 2. do'kon kompyuteri: bitta kadr tahlili (odam, 17 nuqta, qo'l, buyum, ball) -->
+          <div class="vas-sc sc-heart" data-k="heart">
+            <div class="hw-an-feed">
+              <div class="hw-feed hw-big">
+                <svg viewBox="0 0 320 200" aria-hidden="true">
+                  <rect class="c-wall" width="320" height="200"/>
+                  <rect class="hw-floor" y="150" width="320" height="50"/>
+                  <path class="c-fline" d="M70 150 40 200 M250 150 280 200" stroke-width="1.4" fill="none"/>
+                  <rect class="c-side" x="200" y="24" width="108" height="128" rx="2"/>
+                  <rect class="c-edge" x="200" y="52" width="108" height="4"/>
+<rect class="c-p1" x="205" y="32" width="13" height="20" rx="1.5"/><rect class="c-p2" x="222" y="32" width="13" height="20" rx="1.5"/><rect class="c-p3" x="239" y="32" width="13" height="20" rx="1.5"/><rect class="c-p4" x="256" y="32" width="13" height="20" rx="1.5"/><rect class="c-p5" x="273" y="32" width="13" height="20" rx="1.5"/><rect class="c-p6" x="290" y="32" width="13" height="20" rx="1.5"/>                  <rect class="c-edge" x="200" y="84" width="108" height="4"/>
+<rect class="c-p4" x="222" y="64" width="13" height="20" rx="1.5"/><rect class="c-p5" x="239" y="64" width="13" height="20" rx="1.5"/><rect class="c-p6" x="256" y="64" width="13" height="20" rx="1.5"/><rect class="c-p1" x="273" y="64" width="13" height="20" rx="1.5"/><rect class="c-p2" x="290" y="64" width="13" height="20" rx="1.5"/>                  <rect class="c-edge" x="200" y="116" width="108" height="4"/>
+<rect class="c-p5" x="205" y="96" width="13" height="20" rx="1.5"/><rect class="c-p6" x="222" y="96" width="13" height="20" rx="1.5"/><rect class="c-p1" x="239" y="96" width="13" height="20" rx="1.5"/><rect class="c-p2" x="256" y="96" width="13" height="20" rx="1.5"/><rect class="c-p3" x="273" y="96" width="13" height="20" rx="1.5"/><rect class="c-p4" x="290" y="96" width="13" height="20" rx="1.5"/>                  <rect class="c-edge" x="200" y="148" width="108" height="4"/>
+<rect class="c-p1" x="205" y="128" width="13" height="20" rx="1.5"/><rect class="c-p2" x="222" y="128" width="13" height="20" rx="1.5"/><rect class="c-p3" x="239" y="128" width="13" height="20" rx="1.5"/><rect class="c-p4" x="256" y="128" width="13" height="20" rx="1.5"/><rect class="c-p5" x="273" y="128" width="13" height="20" rx="1.5"/><rect class="c-p6" x="290" y="128" width="13" height="20" rx="1.5"/>                  <rect class="hw-item hw-it-shelf" x="205" y="64" width="13" height="20" rx="1.5"/>
+                  <!-- xaridor (yon tomondan) -->
+                  <rect class="c-legs" x="138" y="118" width="10" height="50" rx="4"/>
+                  <rect class="c-legs" x="152" y="118" width="10" height="50" rx="4"/>
+                  <path class="c-torso" d="M132 70 Q150 62 168 70 L165 124 Q150 128 135 124 Z"/>
+                  <path class="c-limb" d="M136 72 L132 98 L134 120" stroke-width="8" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+                  <circle cx="150" cy="52" r="12" fill="#b39b86"/>
+                  <path d="M138 50 Q139 38 150 38 Q161 38 162 49 Q156 44 150 44 Q143 44 138 50 Z" fill="#3a3330"/>
+                  <!-- skelet: 17 nuqta (o'ng qo'l alohida — u harakatlanadi) -->
+                  <g class="hw-sk">
+                    <path class="hw-bone" pathLength="1" d="M150 64 V72 M136 72 H164 M136 72 L141 120 M164 72 L159 120 M141 120 H159 M141 120 L142 144 L143 166 M159 120 L158 144 L157 166 M136 72 L132 98 L134 120"/>
+                  </g>
+                  <g class="hw-kp">
+                    <circle cx="154" cy="55" r="2"/><circle cx="151" cy="50.5" r="1.6"/><circle cx="157" cy="50.5" r="1.6"/>
+                    <circle cx="146" cy="52" r="1.6"/><circle cx="160" cy="52.5" r="1.6"/>
+                    <circle cx="136" cy="72" r="3"/><circle cx="164" cy="72" r="3"/><circle cx="132" cy="98" r="3"/>
+                    <circle cx="134" cy="120" r="3"/><circle cx="141" cy="120" r="3"/><circle cx="159" cy="120" r="3"/>
+                    <circle cx="142" cy="144" r="3"/><circle cx="158" cy="144" r="3"/><circle cx="143" cy="166" r="3"/>
+                    <circle cx="157" cy="166" r="3"/>
+                  </g>
+                  <!-- o'ng qo'l: yelka (164,72) va tirsak (186,82) atrofida aylanadi; chizilgan holat — polkaga uzatilgan -->
+                  <g class="hw-au">
+                    <line class="c-limb" x1="164" y1="72" x2="186" y2="82" stroke-width="8" stroke-linecap="round"/>
+                    <line class="hw-bone" pathLength="1" x1="164" y1="72" x2="186" y2="82"/>
+                    <g class="hw-af">
+                      <line class="c-limb" x1="186" y1="82" x2="205" y2="84" stroke-width="7" stroke-linecap="round"/>
+                      <circle cx="206" cy="84" r="4.5" fill="#b39b86"/>
+                      <rect class="hw-item hw-it-hand" x="200" y="76" width="13" height="20" rx="1.5"/>
+                      <line class="hw-bone" pathLength="1" x1="186" y1="82" x2="205" y2="84"/>
+                      <circle class="hw-kpd" cx="186" cy="82" r="3"/>
+                      <circle class="hw-kpd hw-wr" cx="205" cy="84" r="3.6"/>
+                    </g>
+                  </g>
+                  <circle class="hw-seek" cx="207" cy="80" r="24"/>
+                  <rect class="hw-ibox" x="201" y="60" width="21" height="28" rx="2"/>
+                  <circle class="hw-pocket" cx="160" cy="118" r="11"/>
+                  <path class="hw-pbox" pathLength="8" d="M122 50 v-16 h16 M162 34 h16 v16 M178 156 v16 h-16 M138 172 h-16 v-16"/>
+                </svg>
+                <span class="hw-osd"><b>2</b>Sales floor</span>
+                <span class="hw-fps"><em class="fa">4 fps</em><em class="fb">8 fps</em></span>
+              </div>
+              <p class="hw-noface"><svg class="i " viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M3 3l18 18 M9.9 4.6A8 8 0 0 1 19.4 14 M17.7 17.7A8 8 0 0 1 6.3 6.3 M9 15c1.7 1.3 4.3 1.3 6 0"/></svg>No face recognition — movement only</p>
+            </div>
+            <div class="hw-card hw-an">
+              <h4>Every frame, analysed</h4>
+              <ol class="hw-steps">
+                <li class="r1"><i class="hw-st"></i><span>Person found</span></li>
+                <li class="r2"><i class="hw-st"></i><span>17-point skeleton</span></li>
+                <li class="r3"><i class="hw-st"></i><span>Hand at shelf — item search</span></li>
+                <li class="r4 bad"><i class="hw-st"></i><span>Item into pocket</span></li>
+              </ol>
+              <div class="hw-risk">
+                <span>Risk score</span><b class="hw-c v82"></b>
+                <i class="hw-rb"><i></i></i>
+              </div>
+            </div>
+          </div>
+
+          <!-- 3–4. Telegram: xabar keladi (rasm, sabab, klip); javob qaytadi va tizim o'rganadi -->
+          <div class="vas-sc sc-tg" data-k="tg back">
+            <div class="hw-side">
+              <div class="hw-card hw-route">
+                <h4>Who gets what</h4>
+                <ul>
+                  <li class="p1"><i class="hw-av"><svg class="i " viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M12 3 5 6v5c0 4.4 2.9 8.2 7 9.5 4.1-1.3 7-5.1 7-9.5V6z"/></svg></i><span><b>Guard</b>every alert</span><i class="hw-sw"></i></li>
+                  <li class="p2"><i class="hw-av"><svg class="i " viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M4 9.5 5.5 4h13L20 9.5 M4 9.5h16 M5 9.5V20h14V9.5 M9.5 20v-5h5v5"/></svg></i><span><b>Owner</b>high risk only</span><i class="hw-sw"></i></li>
+                  <li class="p3"><i class="hw-av"><svg class="i " viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M5 20V11 M10.5 20V5 M16 20v-6 M3 20h18"/></svg></i><span><b>Manager</b>daily report</span><i class="hw-sw"></i></li>
+                </ul>
+              </div>
+              <div class="hw-card hw-learn">
+                <h4>Learns from answers</h4>
+                <p class="hw-tally"><span class="ok">✅ <b>26</b></span><span class="no">❌ <b>2</b></span><small>this week</small></p>
+                <p class="hw-lk"><span>False-alarm rate</span><b class="hw-c v7 pct"></b></p>
+                <svg class="hw-spark" viewBox="0 0 220 92" aria-hidden="true">
+                  <path class="hw-grid" d="M0 84.5H220 M0 46.5H220 M0 8.5H220"/>
+                  <path class="hw-area" d="M12 14.4 C16.7 15.9 30.7 19.7 40 23.1 C49.3 26.5 58.7 31.8 68 34.7 C77.3 37.6 86.7 38.1 96 40.5 C105.3 42.9 114.7 46.8 124 49.2 C133.3 51.6 142.7 53.1 152 55 C161.3 56.9 170.7 59.3 180 60.8 C189.3 62.2 203.3 63.2 208 63.7 L208 84 L12 84 Z"/>
+                  <path class="hw-line" pathLength="1" d="M12 14.4 C16.7 15.9 30.7 19.7 40 23.1 C49.3 26.5 58.7 31.8 68 34.7 C77.3 37.6 86.7 38.1 96 40.5 C105.3 42.9 114.7 46.8 124 49.2 C133.3 51.6 142.7 53.1 152 55 C161.3 56.9 170.7 59.3 180 60.8 C189.3 62.2 203.3 63.2 208 63.7"/>
+                  <circle class="hw-end" cx="208" cy="63.7" r="4"/>
+                  <text class="hw-sv" x="19" y="8.4">24%</text>
+                </svg>
+                <p class="hw-axis"><span>Week 1</span><span>Week 8</span></p>
+                <p class="hw-note">The system is retrained on these answers</p>
+              </div>
+            </div>
+            <svg class="hw-ret" viewBox="0 0 64 440" aria-hidden="true">
+              <path class="hw-ret-l" pathLength="1" d="M60 382 C30 382 34 222 6 222"/>
+              <path class="hw-ret-h" d="M13 215.5 6 222l7 6.5"/>
+            </svg>
+            <div class="hw-phone">
+              <div class="hw-ph-bar"><span>14:32</span><i></i><span class="hw-sig"><i></i><i></i><i></i></span></div>
+              <div class="hw-ph-head"><img src="../img/belgi.svg" alt="" width="30" height="30"><span><b>Hushyor AI</b><small>bot</small></span></div>
+              <div class="hw-chat">
+                <div class="hw-typing"><i></i><i></i><i></i></div>
+                <div class="hw-msg hw-m1">
+                  <div class="hw-snap">
+                    <svg viewBox="0 0 160 60" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
+                      <rect class="c-wall" width="160" height="60"/>
+                      <rect class="hw-floor" y="47" width="160" height="13"/>
+                      <rect class="c-side" x="100" y="6" width="56" height="42" rx="1"/>
+                      <rect class="c-edge" x="100" y="20" width="56" height="2"/><rect class="c-edge" x="100" y="34" width="56" height="2"/>
+                      <rect class="c-p1" x="104" y="10" width="7" height="10"/><rect class="c-p3" x="114" y="10" width="7" height="10"/>
+                      <rect class="c-p5" x="124" y="10" width="7" height="10"/><rect class="c-p2" x="134" y="10" width="7" height="10"/>
+                      <rect class="c-p6" x="114" y="24" width="7" height="10"/><rect class="c-p4" x="124" y="24" width="7" height="10"/>
+                      <g transform="translate(72 52) scale(0.76)"><g class="hw-walk w-0">
+  <rect class="c-legs hw-lg hw-lg1" x="-5" y="-22" width="4.4" height="22" rx="2"/>
+  <rect class="c-legs hw-lg hw-lg2" x="0.6" y="-22" width="4.4" height="22" rx="2"/>
+  <path class="c-torso" d="M-7 -40 Q0 -43 7 -40 L6 -20 Q0 -18 -6 -20 Z"/>
+  <path class="c-limb" d="M-6.5 -39 L-8 -24 M6.5 -39 L8 -24" stroke-width="3.2" stroke-linecap="round" fill="none"/>
+  <circle cx="0" cy="-46.5" r="5.2" fill="#b39b86"/>
+  <path d="M-5.2 -47.5 Q-5 -52.6 0 -52.6 Q5 -52.6 5.2 -47.8 Q2.5 -49.8 0 -49.6 Q-2.8 -49.6 -5.2 -47.5 Z" fill="#3a3330"/>
+</g></g>
+                      <rect class="hw-snapbox" x="60" y="9" width="24" height="46" rx="1.5"/>
+                    </svg>
+                    <b class="hw-snaptag">82</b>
+                  </div>
+                  <p><b>⚠️ Suspicious activity</b><br>Sales floor, 14:32<br><span>Item put into a pocket</span></p>
+                </div>
+                <div class="hw-msg hw-m2">
+                  <div class="hw-clip"><i class="hw-play"></i><span>Clip · 0:20</span></div>
+                  <div class="hw-scrub"><i></i><b></b></div>
+                  <p class="hw-span"><span>10 s before</span><span>10 s after</span></p>
+                </div>
+                <div class="hw-kb">
+                  <span class="hw-k ok"><i class="hw-tap"></i><em class="s1">✅ Confirm</em><em class="s2">✅ Confirmed</em></span>
+                  <span class="hw-k no">❌ False alarm</span>
+                </div>
+                <p class="hw-done">The guard replied in 40 seconds</p>
+              </div>
+            </div>
+            <p class="hw-mini">False-alarm rate: <b>24% → 7%</b></p>
+          </div>
+
+          <!-- 5. do'kon paneli (brauzerda, internetsiz ham) -->
+          <div class="vas-sc sc-panel" data-k="panel">
+            <div class="hw-win">
+              <div class="hw-wbar"><i></i><i></i><i></i><b>Store dashboard</b><span>store network</span></div>
+              <div class="hw-wbody">
+                <div class="hw-wside" aria-hidden="true"><i class="on"></i><i></i><i></i><i></i><i></i></div>
+                <div class="hw-wmain">
+                  <ul class="hw-kpis">
+                    <li class="k1"><span>In today</span><b class="hw-c v127"></b></li>
+                    <li class="k2"><span>Inside now</span><b class="hw-c v18"></b></li>
+                    <li class="k3"><span>Events</span><b class="hw-c v3"></b></li>
+                    <li class="k4"><span>Queue</span><b>2:10</b></li>
+                  </ul>
+                  <div class="hw-wrow">
+                    <div class="hw-chart">
+                      <span class="hw-ck">Visitors by hour</span>
+                      <svg viewBox="0 0 300 112" aria-hidden="true">
+                        <path class="hw-grid" d="M0 104.5H300 M0 60.5H300 M0 16.5H300"/>
+                        <path class="hw-area" d="M6 92 C10 88.7 22 79.3 30 72 C38 64.7 46 56.7 54 48 C62 39.3 70 22 78 20 C86 18 94 30.7 102 36 C110 41.3 120 51.3 126 52 C132 52.7 136 42 138 40 L138 104 L6 104 Z"/>
+                        <path class="hw-line" pathLength="1" d="M6 92 C10 88.7 22 79.3 30 72 C38 64.7 46 56.7 54 48 C62 39.3 70 22 78 20 C86 18 94 30.7 102 36 C110 41.3 120 51.3 126 52 C132 52.7 136 42 138 40"/>
+                        <circle class="hw-live" cx="138.0" cy="40" r="9"/>
+                        <circle class="hw-end" cx="138.0" cy="40" r="4"/>
+                      </svg>
+                      <p class="hw-axis"><span>09</span><span>13</span><span>17</span><span>21</span></p>
+                    </div>
+                    <div class="hw-evs">
+                      <span class="hw-ck">Latest events</span>
+                      <ul>
+                        <li class="e1"><time>14:32</time><span>Sales floor — suspicious activity</span></li>
+                        <li class="e2"><time>13:47</time><span>Till 1 — queue growing</span></li>
+                      </ul>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <p class="hw-pill hw-off"><svg class="i " viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M3 3l18 18 M8.5 16.4a5 5 0 0 1 6.2-.6 M5.2 12.6a10 10 0 0 1 3.9-2.4 M13.6 10a10 10 0 0 1 5.2 2.6 M2.2 8.9a15 15 0 0 1 3.9-2.5 M10.4 5.1A15 15 0 0 1 21.8 8.9 M12 19.6h.01"/></svg><b>Works without the internet</b></p>
+          </div>
+
+          <!-- 6. bulut: filiallar → bitta panel (faqat hodisa va raqamlar; internet uzilsa — navbatda kutadi) -->
+          <div class="vas-sc sc-cloud" data-k="cloud">
+            <div class="hw-card hw-cl">
+              <div class="hw-cl-h"><svg class="i " viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M7 18h10.5a4 4 0 0 0 .4-8A6 6 0 0 0 6.3 11.3 3.4 3.4 0 0 0 7 18z"/></svg><b>Cloud dashboard</b><span>3 branches — visitors today</span></div>
+              <ul class="hw-cl-rows">
+                <li class="b1"><span>Chilanzar</span><i class="hw-bar"><i></i></i><b class="hw-c v127"></b></li>
+                <li class="b2"><span>Yunusabad</span><i class="hw-bar"><i></i></i><b class="hw-c v98"></b></li>
+                <li class="b3"><span>Sergeli</span><i class="hw-bar"><i></i></i><b class="hw-c v64"></b></li>
+              </ul>
+            </div>
+            <div class="hw-links" aria-hidden="true">
+              <div class="hw-link l1"><i class="hw-pk p1">event</i><i class="hw-pk p2">totals</i></div>
+              <div class="hw-link l2"><i class="hw-pk p1">event</i><i class="hw-pk p2">totals</i></div>
+              <div class="hw-link l3"><i class="hw-pk p1">event</i><i class="hw-pk p2">totals</i></div>
+            </div>
+            <ul class="hw-brs">
+              <li class="b1"><svg class="i " viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M4 9.5 5.5 4h13L20 9.5 M4 9.5h16 M5 9.5V20h14V9.5 M9.5 20v-5h5v5"/></svg><b>Chilanzar</b>
+<span class="sts"><span class="st on">online</span></span></li>
+              <li class="b2"><svg class="i " viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M4 9.5 5.5 4h13L20 9.5 M4 9.5h16 M5 9.5V20h14V9.5 M9.5 20v-5h5v5"/></svg><b>Yunusabad</b>
+<span class="sts"><span class="st on">online</span></span></li>
+              <li class="b3"><svg class="i " viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M4 9.5 5.5 4h13L20 9.5 M4 9.5h16 M5 9.5V20h14V9.5 M9.5 20v-5h5v5"/></svg><b>Sergeli</b>
+<span class="sts"><span class="st qd"><svg class="i " viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M3 3l18 18 M8.5 16.4a5 5 0 0 1 6.2-.6 M5.2 12.6a10 10 0 0 1 3.9-2.4 M13.6 10a10 10 0 0 1 5.2 2.6 M2.2 8.9a15 15 0 0 1 3.9-2.5 M10.4 5.1A15 15 0 0 1 21.8 8.9 M12 19.6h.01"/></svg>3 events queued</span><span class="st on s2">sent</span></span>
+</li>
+            </ul>
+            <p class="hw-pill hw-nov"><svg class="i " viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M3 3l18 18 M15 10.5l6-3v9l-6-3 M15 17H4a1 1 0 0 1-1-1V8a1 1 0 0 1 1-1h2.5 M10 7h4a1 1 0 0 1 1 1v3.5"/></svg><b>Live video never goes to the cloud</b></p>
+          </div>
+
+          <!-- 7. kunlik hisobot (Telegram/PDF) va kritik holatda SMS -->
+          <div class="vas-sc sc-report" data-k="report">
+            <div class="hw-card hw-doc">
+              <div class="hw-doc-h"><img src="../img/belgi.svg" alt="" width="28" height="28"><span><b>Daily report</b><small>For yesterday — today at 08:00</small></span><i class="hw-pdf">PDF</i></div>
+              <dl class="hw-rows">
+                <div class="r1"><dt>Visitors</dt><dd><b>412</b><span>+6%</span></dd></div>
+                <div class="r2"><dt>Events</dt><dd><b>3</b><span>2 confirmed</span></dd></div>
+                <div class="r3"><dt>Average queue</dt><dd><b>2:10</b><span>−18 s</span></dd></div>
+                <div class="r4"><dt>Busiest hour</dt><dd><b>18:00</b></dd></div>
+              </dl>
+              <p class="hw-tip">Saturday 17:00 — open till 2</p>
+            </div>
+            <div class="hw-sms">
+              <p class="hw-sms-h"><svg class="i " viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M4 5h16v11H9.5L4 20z M8 9.5h8 M8 12.5h5"/></svg><b>SMS — Hushyor AI</b><time>02:14</time></p>
+              <p class="hw-sms-t">Stockroom: entry outside opening hours</p>
+            </div>
+          </div>
+        </div>
+        <button class="hw-pause" type="button" id="vas-pause" data-state="pause" data-l-pause="Pause the walkthrough" data-l-play="Resume the walkthrough" aria-label="Pause the walkthrough" title="Pause the walkthrough" hidden>
+          <svg class="i" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path class="hw-pp" d="M9 6v12 M15 6v12"/><path class="hw-pl" d="M8 5.5v13l10.5-6.5z"/></svg>
+        </button>
+        </div>
       </div>
     </div>
   </section>
 
-  <!-- ======================================================================== imkoniyatlar -->
-  <section id="imkoniyatlar" class="sec">
+  <!-- ======================================================================== imkoniyatlar: kuzatuv devori -->
+  <section id="imkoniyatlar" class="sec feats-sec">
     <div class="wrap">
-      <h2>One system for six store problems</h2>
-      <p class="sub">Everything runs on the computer in your store. Only what matters reaches Telegram; the rest lives in the dashboard and the daily report.</p>
-      <ul class="feats">
-        <li class="feat feat-theft">
+      <div class="sec-head">
+        <h2 class="rh">Features</h2>
+        <p class="sub">Everything runs on the computer in your store. Only what matters reaches Telegram; the rest lives in the dashboard and the daily report.</p>
+      </div>
+      <ul class="wall">
+        <li class="tile feat-theft">
           <div class="fv fv-theft" aria-hidden="true">
-            <svg viewBox="0 0 320 180">
-              <rect class="fv-bg" width="320" height="180" rx="10"/>
-              <rect x="22" y="38" width="76" height="118" rx="3" fill="#22374a"/>
-              <g fill="#3a4f63"><rect x="22" y="78" width="76" height="4"/><rect x="22" y="116" width="76" height="4"/></g>
-              <g opacity=".85"><rect x="30" y="56" width="12" height="22" rx="2" fill="#6b7b6a"/><rect x="46" y="60" width="12" height="18" rx="2" fill="#7d6a5c"/>
-                <rect x="30" y="94" width="16" height="22" rx="2" fill="#5f7183"/><rect x="52" y="96" width="14" height="20" rx="2" fill="#8b7c5d"/><rect x="72" y="92" width="18" height="24" rx="2" fill="#5d7a70"/></g>
-              <rect class="fv-item-shelf" x="84" y="60" width="11" height="18" rx="2" fill="#d9a441"/>
-              <g class="fv-sk" fill="none" stroke-width="3" stroke-linecap="round">
-                <circle cx="140" cy="52" r="11"/>
-                <path d="M140 63 V112 M126 112 H154 M130 112 L127 158 M150 112 L153 158 M140 72 L124 104"/>
-                <g class="fv-arm"><path d="M140 72 L140 128"/><rect class="fv-item-hand" x="134.5" y="124" width="11" height="18" rx="2" fill="#d9a441" stroke="none"/></g>
-              </g>
-              <text class="fv-t" x="214" y="56">risk</text>
-              <text class="fv-num" x="300" y="56" text-anchor="end">82</text>
-              <rect x="214" y="66" width="86" height="10" rx="5" fill="#25394c"/>
-              <rect class="fv-bar" x="214" y="66" width="86" height="10" rx="5"/>
-              <path class="fv-pocket" d="M150 122 q8 2 12 -4" fill="none" stroke-width="2"/>
-            </svg>
+            <div class="osd-bar"><span>Camera 2 · Sales floor</span><span class="osd-rec">09:14</span></div>
+            <div class="viz viz-theft">
+              <svg class="cam" viewBox="0 0 240 170">
+                <rect class="v-shelf" x="14" y="22" width="78" height="130" rx="4"/>
+                <rect class="v-edge" x="14" y="62" width="78" height="3"/><rect class="v-edge" x="14" y="104" width="78" height="3"/>
+                <rect class="v-p1" x="22" y="40" width="12" height="22" rx="2"/><rect class="v-p2" x="38" y="44" width="12" height="18" rx="2"/><rect class="v-p3" x="54" y="42" width="11" height="20" rx="2"/>
+                <rect class="v-p4" x="22" y="84" width="15" height="20" rx="2"/><rect class="v-p5" x="41" y="82" width="13" height="22" rx="2"/><rect class="v-p6" x="58" y="86" width="16" height="18" rx="2"/>
+                <rect class="fv-item-shelf" x="74" y="44" width="11" height="18" rx="2"/>
+                <g class="fig">
+                  <circle class="fig-b" cx="152" cy="46" r="13"/>
+                  <path class="fig-b" d="M134 70 q18 -8 36 0 l-4 58 q-14 5 -28 0 z"/>
+                  <rect class="fig-l" x="139" y="126" width="9" height="36" rx="4"/><rect class="fig-l" x="156" y="126" width="9" height="36" rx="4"/>
+                </g>
+                <g class="fv-arm"><path class="fig-arm" d="M168 72 L174 102 L168 124"/><rect class="fv-item-hand" x="162" y="118" width="11" height="18" rx="2"/></g>
+                <g class="kp"><circle cx="152" cy="46" r="2.6"/><circle cx="137" cy="72" r="2.6"/><circle cx="167" cy="72" r="2.6"/><circle cx="141" cy="126" r="2.6"/><circle cx="163" cy="126" r="2.6"/><circle cx="144" cy="160" r="2.6"/><circle cx="160" cy="160" r="2.6"/><circle class="kp-w" cx="168" cy="124" r="3.4"/></g>
+                <path class="fv-box" pathLength="8" d="M118 40 v-14 h14 M174 26 h14 v14 M188 150 v14 h-14 M132 164 h-14 v-14"/>
+              </svg>
+              <div class="risk">
+                <span class="k">risk</span>
+                <b class="num n-risk"></b>
+                <i class="rbar"><i></i></i>
+                <span class="chip">hand in pocket</span>
+              </div>
+            </div>
           </div>
-          <div class="feat-text">
+          <div class="tile-text">
             <h3>Theft alerts</h3>
             <p>A hand goes into a pocket, under clothing or into a bag — sent to Telegram with the reason and a clip.</p>
             <ul class="ticks">
@@ -551,19 +813,16 @@
             </ul>
           </div>
         </li>
-        <li class="feat feat-visits">
+        <li class="tile feat-visits">
           <div class="fv fv-visits" aria-hidden="true">
-            <svg viewBox="0 0 320 180">
-              <rect class="fv-bg" width="320" height="180" rx="10"/>
-              <path d="M128 160 V36 H192 V160" fill="none" stroke="#3a4f63" stroke-width="4"/>
-              <line class="fv-line" x1="160" y1="30" x2="160" y2="166"/>
-              <g class="fv-walk"><circle class="w1" cx="40" cy="112" r="8"/><circle class="w2" cx="40" cy="112" r="8"/><circle class="w3" cx="40" cy="112" r="8"/></g>
-              <text class="fv-plus p1" x="174" y="88">+1</text><text class="fv-plus p2" x="174" y="88">+1</text><text class="fv-plus p3" x="174" y="88">+1</text>
-              <text class="fv-big" x="22" y="52">127</text>
-              <text class="fv-t" x="22" y="72">in today</text>
-            </svg>
+            <div class="osd-bar"><span>Camera 1 · Entrance</span><span class="osd-rec">10:02</span></div>
+            <div class="viz viz-visits">
+              <div class="big"><b class="num n-visits"></b><span>in today</span></div>
+              <div class="hours"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+              <div class="axis"><span>09:00</span><span>15:00</span><span>21:00</span></div>
+            </div>
           </div>
-          <div class="feat-text">
+          <div class="tile-text">
             <h3>Visitors</h3>
             <p>Using a counting line at the entrance: how many shoppers came in today and how many are inside now.</p>
             <ul class="ticks">
@@ -573,23 +832,32 @@
             </ul>
           </div>
         </li>
-        <li class="feat feat-queue">
+        <li class="tile feat-queue">
           <div class="fv fv-queue" aria-hidden="true">
-            <svg viewBox="0 0 320 180">
-              <rect class="fv-bg" width="320" height="180" rx="10"/>
-              <rect x="24" y="78" width="54" height="56" rx="4" fill="#22374a" stroke="#3a4f63" stroke-width="2"/>
-              <circle cx="51" cy="62" r="9" fill="#5fd3bd"/>
-              <text class="fv-t" x="51" y="154" text-anchor="middle">Till 1</text>
-              <g class="fv-q">
-                <circle class="q0" cx="104" cy="106" r="10"/><circle cx="136" cy="106" r="10"/><circle cx="168" cy="106" r="10"/>
-                <circle cx="200" cy="106" r="10"/><circle cx="232" cy="106" r="10"/><circle class="q5" cx="264" cy="106" r="10"/>
-              </g>
-              <text class="fv-t" x="104" y="46">wait</text>
-              <rect x="104" y="56" width="180" height="8" rx="4" fill="#25394c"/>
-              <rect class="fv-wait" x="104" y="56" width="180" height="8" rx="4"/>
-            </svg>
+            <div class="osd-bar"><span>Camera 3 · Checkout</span><span class="osd-rec">17:46</span></div>
+            <div class="viz viz-queue">
+              <div class="q q1">
+                <span class="q-name">Till 1</span>
+                <span class="q-dots"><i></i><i></i><i></i><i></i></span>
+                <i class="q-bar"><i></i></i>
+                <b>2:10</b>
+              </div>
+              <div class="q q2">
+                <span class="q-name">Till 2</span>
+                <span class="q-dots"><i></i><i></i></span>
+                <i class="q-bar"><i></i></i>
+                <b>0:55</b>
+              </div>
+              <div class="q q3">
+                <span class="q-name">Till 3</span>
+                <span class="q-dots"><i></i></span>
+                <i class="q-bar"><i></i></i>
+                <b>0:20</b>
+              </div>
+              <span class="q-k">wait</span>
+            </div>
           </div>
-          <div class="feat-text">
+          <div class="tile-text">
             <h3>Checkout queues</h3>
             <p>Queue length and waiting time at every till, and when a cashier is missing.</p>
             <ul class="ticks">
@@ -599,20 +867,23 @@
             </ul>
           </div>
         </li>
-        <li class="feat feat-flow">
+        <li class="tile feat-flow">
           <div class="fv fv-flow" aria-hidden="true">
-            <svg viewBox="0 0 320 180">
-              <defs>
-                <radialGradient id="heat-en"><stop offset="0" stop-color="#e5484d" stop-opacity=".9"/><stop offset=".45" stop-color="#f0b429" stop-opacity=".55"/><stop offset="1" stop-color="#f0b429" stop-opacity="0"/></radialGradient>
-              </defs>
-              <rect class="fv-bg" width="320" height="180" rx="10"/>
-              <g fill="none" stroke="#3a4f63" stroke-width="2"><rect x="20" y="20" width="280" height="140" rx="4"/>
-                <path d="M110 20 V92 M200 20 V70 M20 110 H150 M200 70 H300 M240 110 V160"/></g>
-              <g class="fv-heat"><circle class="h1" cx="70" cy="60" r="44" fill="url(#heat-en)"/><circle class="h2" cx="250" cy="130" r="38" fill="url(#heat-en)"/><circle class="h3" cx="170" cy="120" r="30" fill="url(#heat-en)"/></g>
-              <path class="fv-route" pathLength="100" d="M160 158 C160 130 120 128 90 112 S60 70 80 50 S150 40 170 60 S230 100 262 128" fill="none"/>
-            </svg>
+            <div class="osd-bar"><span>Store plan</span><span class="osd-rec">18:20</span></div>
+            <div class="viz viz-flow">
+              <svg viewBox="0 0 400 190">
+                <defs>
+                  <radialGradient id="heat-en"><stop offset="0" stop-color="#e5484d" stop-opacity=".75"/><stop offset=".45" stop-color="#f0b429" stop-opacity=".4"/><stop offset="1" stop-color="#f0b429" stop-opacity="0"/></radialGradient>
+                </defs>
+                <g class="plan"><rect x="16" y="14" width="368" height="162" rx="8"/>
+                  <path d="M136 14 V96 M254 14 V70 M16 112 H186 M254 70 H384 M302 112 V176"/></g>
+                <g class="fv-heat"><circle class="h1" cx="76" cy="62" r="54" fill="url(#heat-en)"/><circle class="h2" cx="330" cy="140" r="46" fill="url(#heat-en)"/><circle class="h3" cx="214" cy="128" r="36" fill="url(#heat-en)"/></g>
+                <path class="fv-route" pathLength="100" d="M200 174 C200 146 150 138 112 124 S74 76 100 50 S188 38 214 62 S288 108 330 140"/>
+                <circle class="route-end" cx="330" cy="140" r="4"/>
+              </svg>
+            </div>
           </div>
-          <div class="feat-text">
+          <div class="tile-text">
             <h3>Flow and heatmap</h3>
             <p>On your floor plan: which sections draw people in and how shoppers move.</p>
             <ul class="ticks">
@@ -622,20 +893,23 @@
             </ul>
           </div>
         </li>
-        <li class="feat feat-safety">
+        <li class="tile feat-safety">
           <div class="fv fv-safety" aria-hidden="true">
-            <svg viewBox="0 0 320 180">
-              <rect class="fv-bg" width="320" height="180" rx="10"/>
-              <line x1="20" y1="152" x2="300" y2="152" stroke="#3a4f63" stroke-width="3"/>
-              <circle class="fv-ring" cx="196" cy="140" r="36"/>
-              <g class="fv-fig" fill="none" stroke-width="3" stroke-linecap="round">
-                <circle cx="126" cy="58" r="10"/>
-                <path d="M126 68 V112 M114 112 H138 M118 112 L116 152 M134 112 L136 152 M126 76 L112 104 M126 76 L140 104"/>
-              </g>
-              <g class="fv-sms"><rect x="232" y="26" width="68" height="34" rx="8"/><text x="266" y="49" text-anchor="middle">SMS</text></g>
-            </svg>
+            <div class="osd-bar"><span>Camera 4 · Floor</span><span class="osd-rec">22:51</span></div>
+            <div class="viz viz-safety">
+              <svg viewBox="0 0 400 190">
+                <line class="floor" x1="20" y1="160" x2="380" y2="160"/>
+                <circle class="fv-ring" cx="196" cy="146" r="40"/>
+                <g class="fv-fig">
+                  <circle class="fig-b" cx="148" cy="64" r="12"/>
+                  <path class="fig-b" d="M132 84 q16 -7 32 0 l-3 44 q-13 4 -26 0 z"/>
+                  <rect class="fig-l" x="136" y="126" width="8" height="34" rx="4"/><rect class="fig-l" x="152" y="126" width="8" height="34" rx="4"/>
+                </g>
+              </svg>
+              <div class="alert fv-sms"><b>SMS</b><span>22:51</span></div>
+            </div>
           </div>
-          <div class="feat-text">
+          <div class="tile-text">
             <h3>Safety</h3>
             <p>Someone fell, someone came in after hours, a crowd at the tills.</p>
             <ul class="ticks">
@@ -645,29 +919,23 @@
             </ul>
           </div>
         </li>
-        <li class="feat feat-report">
+        <li class="tile feat-report">
           <div class="fv fv-report" aria-hidden="true">
-            <svg viewBox="0 0 480 200">
-              <rect class="fv-bg" width="480" height="200" rx="10"/>
-              <line x1="28" y1="132" x2="452" y2="132" stroke="#3a4f63" stroke-width="2"/>
-              <rect class="fv-col c1" x="44" y="86" width="34" height="46" rx="4"/>
-              <text class="fv-d" x="61" y="150" text-anchor="middle">Mo</text>
-              <rect class="fv-col c2" x="102" y="74" width="34" height="58" rx="4"/>
-              <text class="fv-d" x="119" y="150" text-anchor="middle">Tu</text>
-              <rect class="fv-col c3" x="160" y="80" width="34" height="52" rx="4"/>
-              <text class="fv-d" x="177" y="150" text-anchor="middle">We</text>
-              <rect class="fv-col c4" x="218" y="68" width="34" height="64" rx="4"/>
-              <text class="fv-d" x="235" y="150" text-anchor="middle">Th</text>
-              <rect class="fv-col c5" x="276" y="54" width="34" height="78" rx="4"/>
-              <text class="fv-d" x="293" y="150" text-anchor="middle">Fr</text>
-              <rect class="fv-col c6 hot" x="334" y="34" width="34" height="98" rx="4"/>
-              <text class="fv-d" x="351" y="150" text-anchor="middle">Sa</text>
-              <rect class="fv-col c7" x="392" y="62" width="34" height="70" rx="4"/>
-              <text class="fv-d" x="409" y="150" text-anchor="middle">Su</text>
-              <g class="fv-tip"><rect x="90" y="162" width="300" height="28" rx="14"/><text x="240" y="181" text-anchor="middle">Saturday 5 pm — open till 2</text></g>
-            </svg>
+            <div class="osd-bar"><span>Daily report</span><span class="osd-rec">09:00</span></div>
+            <div class="viz viz-report">
+              <div class="cols">
+                <div class="col"><i></i><span>Mo</span></div>
+                <div class="col"><i></i><span>Tu</span></div>
+                <div class="col"><i></i><span>We</span></div>
+                <div class="col"><i></i><span>Th</span></div>
+                <div class="col"><i></i><span>Fr</span></div>
+                <div class="col hot"><i></i><span>Sa</span></div>
+                <div class="col"><i></i><span>Su</span></div>
+              </div>
+              <span class="fv-tip">Saturday 17:00 — open till 2</span>
+            </div>
           </div>
-          <div class="feat-text">
+          <div class="tile-text">
             <h3>Reports and recommendations</h3>
             <p>Every morning for yesterday, every Monday for last week: numbers and specific advice.</p>
             <ul class="ticks">
@@ -682,27 +950,44 @@
   </section>
 
   <!-- ======================================================================== kimlar uchun -->
-  <section id="kimlar" class="sec alt">
+  <section id="kimlar" class="sec who-sec">
     <div class="wrap who-in">
-      <div>
-        <h2>Who it&#39;s for</h2>
+      <div class="sec-head">
+        <h2 class="rh">Who it&#39;s for</h2>
         <p class="sub">Every store has different problems — settings and zones are chosen to match.</p>
       </div>
-      <dl class="who">
-        <div><dt>Supermarkets and convenience stores</dt><dd>Checkout queues, peak hours and small-item theft.</dd></div>
-        <div><dt>Clothing and footwear</dt><dd>Items hidden under clothing, fitting-room areas, movement between sections.</dd></div>
-        <div><dt>Pharmacies and cosmetics</dt><dd>Small, valuable items, the till area and after-hours entry.</dd></div>
-        <div><dt>Electronics and phone shops</dt><dd>Lingering at display cases, items going into bags, night-time security.</dd></div>
-        <div><dt>Retail chains</dt><dd>Each branch runs on its own computer; the owner sees them all in the cloud dashboard.</dd></div>
-      </dl>
+      <ul class="who">
+        <li>
+          <svg class="i who-i" viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M3 4h2l2.4 11.2a1 1 0 0 0 1 .8h8.9a1 1 0 0 0 1-.8L20 8H6 M8 20a1.2 1.2 0 1 0 2.4 0a1.2 1.2 0 1 0-2.4 0 M15.5 20a1.2 1.2 0 1 0 2.4 0a1.2 1.2 0 1 0-2.4 0"/></svg>
+          <div><h3>Supermarkets and convenience stores</h3><p>Checkout queues, peak hours and small-item theft.</p></div>
+        </li>
+        <li>
+          <svg class="i who-i" viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M10 5.5a2 2 0 1 1 2 2v1L3.4 14.9a1.2 1.2 0 0 0 .7 2.1h15.8a1.2 1.2 0 0 0 .7-2.1L12 8.5"/></svg>
+          <div><h3>Clothing and footwear</h3><p>Items hidden under clothing, fitting-room areas, movement between sections.</p></div>
+        </li>
+        <li>
+          <svg class="i who-i" viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M9.5 3.5h5v6h6v5h-6v6h-5v-6h-6v-5h6z"/></svg>
+          <div><h3>Pharmacies and cosmetics</h3><p>Small, valuable items, the till area and after-hours entry.</p></div>
+        </li>
+        <li>
+          <svg class="i who-i" viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M7.5 2.5h9a1 1 0 0 1 1 1v17a1 1 0 0 1-1 1h-9a1 1 0 0 1-1-1v-17a1 1 0 0 1 1-1z M11 18h2"/></svg>
+          <div><h3>Electronics and phone shops</h3><p>Lingering at display cases, items going into bags, night-time security.</p></div>
+        </li>
+        <li>
+          <svg class="i who-i" viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M9.5 3h5v4.5h-5z M12 7.5V11 M5 14v-3h14v3 M3 14h4v6H3z M10 14h4v6h-4z M17 14h4v6h-4z"/></svg>
+          <div><h3>Retail chains</h3><p>Each branch runs on its own computer; the owner sees them all in the cloud dashboard.</p></div>
+        </li>
+      </ul>
     </div>
   </section>
 
   <!-- ======================================================================== ekranlar -->
-  <section id="ekranlar" class="sec">
+  <section id="ekranlar" class="sec shots-sec">
     <div class="wrap">
-      <h2>What it looks like</h2>
-      <p class="sub">Screenshots from the demo store (the dashboard is in Uzbek; the numbers are sample data).</p>
+      <div class="sec-head">
+        <h2 class="rh">The dashboard</h2>
+        <p class="sub">Screenshots from the demo store (the dashboard is in Uzbek; the numbers are sample data).</p>
+      </div>
       <div class="tabs" role="tablist" aria-label="Dashboard screens">
         <button role="tab" aria-selected="true" aria-controls="sh-0" id="tb-0">Home</button>
         <button role="tab" aria-selected="false" aria-controls="sh-1" id="tb-1" tabindex="-1">Events</button>
@@ -714,31 +999,45 @@
       </div>
       <div class="shots">
         <figure class="shot" role="tabpanel" id="sh-0" aria-labelledby="tb-0">
-          <div class="frame"><img src="../img/panel.jpg" alt="Store dashboard home: today&#39;s events, visitors, checkout queues and cameras" width="1280" height="800" loading="lazy"></div>
+          <div class="frame">
+<div class="frame-bar" aria-hidden="true"><i></i><i></i><i></i><span>Home</span></div>            <img src="../img/panel.jpg" alt="Store dashboard home: today&#39;s events, visitors, checkout queues and cameras" width="1280" height="800" loading="lazy">
+          </div>
           <figcaption>Today at a glance: alerts, visitors, queues and live cameras.</figcaption>
         </figure>
         <figure class="shot" role="tabpanel" id="sh-1" aria-labelledby="tb-1">
-          <div class="frame"><img src="../img/hodisalar.jpg" alt="Event list: a photo, type, time and the guard&#39;s answer for every alert" width="1280" height="800" loading="lazy"></div>
+          <div class="frame">
+<div class="frame-bar" aria-hidden="true"><i></i><i></i><i></i><span>Events</span></div>            <img src="../img/hodisalar.jpg" alt="Event list: a photo, type, time and the guard&#39;s answer for every alert" width="1280" height="800" loading="lazy">
+          </div>
           <figcaption>Every alert with photo, video, reason and who answered when. Unreviewed ones kept separate.</figcaption>
         </figure>
         <figure class="shot" role="tabpanel" id="sh-2" aria-labelledby="tb-2">
-          <div class="frame"><img src="../img/navbat.jpg" alt="Queue page: the tills right now, today&#39;s waiting time and an hourly chart" width="1280" height="800" loading="lazy"></div>
+          <div class="frame">
+<div class="frame-bar" aria-hidden="true"><i></i><i></i><i></i><span>Queues</span></div>            <img src="../img/navbat.jpg" alt="Queue page: the tills right now, today&#39;s waiting time and an hourly chart" width="1280" height="800" loading="lazy">
+          </div>
           <figcaption>The tills right now: people in line, whether a cashier is there; average and longest wait today.</figcaption>
         </figure>
         <figure class="shot" role="tabpanel" id="sh-3" aria-labelledby="tb-3">
-          <div class="frame"><img src="../img/oqim.jpg" alt="Heatmap on the store plan and visits by section" width="1280" height="800" loading="lazy"></div>
+          <div class="frame">
+<div class="frame-bar" aria-hidden="true"><i></i><i></i><i></i><span>Flow (heatmap)</span></div>            <img src="../img/oqim.jpg" alt="Heatmap on the store plan and visits by section" width="1280" height="800" loading="lazy">
+          </div>
           <figcaption>Busy spots on your floor plan, section visits and the most common route.</figcaption>
         </figure>
         <figure class="shot" role="tabpanel" id="sh-4" aria-labelledby="tb-4">
-          <div class="frame"><img src="../img/hisobot.jpg" alt="Daily report: visitors, queues, alerts and recommendations" width="1280" height="800" loading="lazy"></div>
+          <div class="frame">
+<div class="frame-bar" aria-hidden="true"><i></i><i></i><i></i><span>Daily report</span></div>            <img src="../img/hisobot.jpg" alt="Daily report: visitors, queues, alerts and recommendations" width="1280" height="800" loading="lazy">
+          </div>
           <figcaption>Every morning in Telegram: yesterday&#39;s numbers and 2–3 specific recommendations.</figcaption>
         </figure>
         <figure class="shot" role="tabpanel" id="sh-5" aria-labelledby="tb-5">
-          <div class="frame"><img src="../img/taqqoslash.jpg" alt="Cloud dashboard: branch comparison table and recommendations" width="1280" height="800" loading="lazy"></div>
+          <div class="frame">
+<div class="frame-bar" aria-hidden="true"><i></i><i></i><i></i><span>Branches (cloud)</span></div>            <img src="../img/taqqoslash.jpg" alt="Cloud dashboard: branch comparison table and recommendations" width="1280" height="800" loading="lazy">
+          </div>
           <figcaption>With several branches — the cloud dashboard: branches compared, roles for owner, manager and guard.</figcaption>
         </figure>
         <figure class="shot phone" role="tabpanel" id="sh-6" aria-labelledby="tb-6">
-          <div class="frame"><img src="../img/telefon.jpg" alt="Cloud dashboard on a phone: branch status and unreviewed alerts" width="390" height="760" loading="lazy"></div>
+          <div class="frame">
+            <img src="../img/telefon.jpg" alt="Cloud dashboard on a phone: branch status and unreviewed alerts" width="390" height="760" loading="lazy">
+          </div>
           <figcaption>On the phone too: branch status and unreviewed alerts at a glance.</figcaption>
         </figure>
       </div>
@@ -746,11 +1045,13 @@
   </section>
 
   <!-- ======================================================================== maxfiylik va talablar -->
-  <section id="maxfiylik" class="sec alt">
+  <section id="maxfiylik" class="sec trust-sec">
     <div class="wrap">
-      <h2>Privacy and requirements</h2>
+      <div class="sec-head">
+        <h2 class="rh">Privacy and requirements</h2>
+      </div>
       <div class="trust">
-        <div>
+        <div class="trust-col">
           <h3>Privacy</h3>
           <ul class="ticks big">
             <li>No face recognition — the system judges actions, not identities.</li>
@@ -759,7 +1060,7 @@
             <li>A person checks every alert; the false-alarm rate is shown openly in reports.</li>
           </ul>
         </div>
-        <div>
+        <div class="trust-col">
           <h3>What you need</h3>
           <dl class="req">
             <div><dt>Computer</dt><dd>Windows 10 or 11, 8 GB RAM, a 4–6-core processor (recommended). We measure how many cameras it can handle during the site visit.</dd></div>
@@ -773,11 +1074,13 @@
   </section>
 
   <!-- ======================================================================== ishga tushirish -->
-  <section id="ishga-tushirish" class="sec">
+  <section id="ishga-tushirish" class="sec steps-sec">
     <div class="wrap">
-      <h2>How we get started</h2>
-      <p class="sub">From the first meeting to pilot results — usually about a month.</p>
-      <ol class="steps">
+      <div class="sec-head">
+        <h2 class="rh">Getting started</h2>
+        <p class="sub">From the first meeting to pilot results — usually about a month.</p>
+      </div>
+      <ol class="steps" id="steps">
         <li><b>We assess</b><span>We look at the cameras, computer and internet together (in store or on a video call). Existing IP cameras or a DVR/NVR are usually enough.</span></li>
         <li><b>We install</b><span>Software on the store computer, cameras connected, zones drawn (shelves, till, entrance). Usually within a day.</span></li>
         <li><b>We connect Telegram</b><span>To the owner&#39;s, manager&#39;s and guard&#39;s phones — you choose who gets what.</span></li>
@@ -786,12 +1089,20 @@
     </div>
   </section>
 
-  <!-- ======================================================================== pilot -->
-  <section id="pilot" class="sec alt">
+  <!-- ======================================================================== pilot va narx -->
+  <section id="pilot" class="sec pilot-sec">
     <div class="wrap pilot-in">
-      <div>
-        <h2>A pilot judged by numbers, not promises</h2>
-        <p class="sub">We judge the 4-week pilot by criteria agreed in advance. You can follow everything in the dashboard&#39;s Pilot section.</p>
+      <div class="pilot-text">
+        <div class="sec-head">
+          <h2 class="rh">Pilot</h2>
+          <p class="sub">We judge the 4-week pilot by criteria agreed in advance. You can follow everything in the dashboard&#39;s Pilot section.</p>
+        </div>
+        <div class="price-box" id="narx">
+          <span class="price-k">Pricing</span>
+          <strong id="price">on request</strong>
+          <p>Pricing depends on the number of cameras, branches and whether you need the cloud dashboard. We make an exact offer after the pilot.</p>
+          <a class="btn ghost" href="#aloqa">Request an offer</a>
+        </div>
       </div>
       <table class="gate">
         <caption>Pilot criteria</caption>
@@ -807,106 +1118,123 @@
     </div>
   </section>
 
-  <!-- ======================================================================== narx -->
-  <section id="narx" class="sec">
-    <div class="wrap price">
-      <div>
-        <h2>Pricing</h2>
-        <p class="sub">Pricing depends on the number of cameras, branches and whether you need the cloud dashboard. We make an exact offer after the pilot.</p>
-      </div>
-      <div class="price-box">
-        <strong id="price">on request</strong>
-        <a class="btn" href="#aloqa">Request an offer</a>
-      </div>
-    </div>
-  </section>
-
   <!-- ======================================================================== savollar -->
-  <section id="savollar" class="sec alt">
-    <div class="wrap faq">
-      <h2>Frequently asked questions</h2>
-      <details>
-        <summary>Do I need to buy new cameras?</summary>
-        <p>Usually not: IP cameras with an RTSP stream or a DVR/NVR can be connected. During the visit we tell you which camera suits which job (for queues, for example, a camera that sees the till from above works best).</p>
-      </details>
-      <details>
-        <summary>What happens if the internet goes down?</summary>
-        <p>Analysis runs on the computer in your store, so monitoring continues without the internet. Alerts and numbers reach Telegram and the cloud once the connection is back.</p>
-      </details>
-      <details>
-        <summary>Where is the video stored?</summary>
-        <p>The video archive stays on the computer in your store. Only a short clip and a photo of each alert go to Telegram; if you use the cloud dashboard, alert clips and totals go there too — never a continuous stream.</p>
-      </details>
-      <details>
-        <summary>Does the system make mistakes?</summary>
-        <p>Yes, like any camera system. That&#39;s why a person checks every alert, the false-alarm rate is shown openly in reports, and zones and sensitivity are tuned from those numbers.</p>
-      </details>
-      <details>
-        <summary>Does it recognise faces?</summary>
-        <p>No. The system does not identify anyone — it judges actions: hands, bags, lingering at a shelf, queues, crossing a line.</p>
-      </details>
-      <details>
-        <summary>I have several branches — can I see them all in one place?</summary>
-        <p>Yes: the computer in each branch connects to the cloud dashboard. The owner sees every branch; managers and guards see only their own. Every Monday a summary comparing branches arrives.</p>
-      </details>
-      <details>
-        <summary>What if the computer goes off?</summary>
-        <p>The software starts with Windows and restarts itself if it hangs. If a camera goes offline you get a Telegram message; if a branch drops off the network, the cloud dashboard shows it.</p>
-      </details>
-      <details>
-        <summary>What language are the dashboard and bot in?</summary>
-        <p>Uzbek (Latin script) for now. If you need Russian or English, mention it in your request.</p>
-      </details>
+  <section id="savollar" class="sec faq-sec">
+    <div class="wrap faq-in">
+      <div class="sec-head">
+        <h2 class="rh">Questions</h2>
+        <p class="sub">Didn't find your answer? <a href="#aloqa">Leave a request</a> and we'll get in touch.</p>
+      </div>
+      <div class="faq">
+        <details>
+          <summary>Do I need to buy new cameras?</summary>
+          <p>Usually not: IP cameras with an RTSP stream or a DVR/NVR can be connected. During the visit we tell you which camera suits which job (for queues, for example, a camera that sees the till from above works best).</p>
+        </details>
+        <details>
+          <summary>What happens if the internet goes down?</summary>
+          <p>Analysis runs on the computer in your store, so monitoring continues without the internet. Alerts and numbers reach Telegram and the cloud once the connection is back.</p>
+        </details>
+        <details>
+          <summary>Where is the video stored?</summary>
+          <p>The video archive stays on the computer in your store. Only a short clip and a photo of each alert go to Telegram; if you use the cloud dashboard, alert clips and totals go there too — never a continuous stream.</p>
+        </details>
+        <details>
+          <summary>Does the system make mistakes?</summary>
+          <p>Yes, like any camera system. That&#39;s why a person checks every alert, the false-alarm rate is shown openly in reports, and zones and sensitivity are tuned from those numbers.</p>
+        </details>
+        <details>
+          <summary>Does it recognise faces?</summary>
+          <p>No. The system does not identify anyone — it judges actions: hands, bags, lingering at a shelf, queues, crossing a line.</p>
+        </details>
+        <details>
+          <summary>I have several branches — can I see them all in one place?</summary>
+          <p>Yes: the computer in each branch connects to the cloud dashboard. The owner sees every branch; managers and guards see only their own. Every Monday a summary comparing branches arrives.</p>
+        </details>
+        <details>
+          <summary>What if the computer goes off?</summary>
+          <p>The software starts with Windows and restarts itself if it hangs. If a camera goes offline you get a Telegram message; if a branch drops off the network, the cloud dashboard shows it.</p>
+        </details>
+        <details>
+          <summary>What language are the dashboard and bot in?</summary>
+          <p>Uzbek (Latin script) for now. If you need Russian or English, mention it in your request.</p>
+        </details>
+      </div>
     </div>
   </section>
 
   <!-- ======================================================================== aloqa -->
   <section id="aloqa" class="sec contact">
-    <div class="wrap contact-in">
-      <div class="contact-text">
-        <h2>Leave a request</h2>
-        <p class="sub">Leave your phone number — we&#39;ll get in touch to arrange a look at your store.</p>
-        <ul class="contacts" id="contacts"></ul>
+    <div class="wrap">
+      <div class="contact-in">
+        <div class="contact-text">
+          <h2 class="rh">Leave a request</h2>
+          <p class="sub">Leave your phone number — we&#39;ll get in touch to arrange a look at your store.</p>
+          <ul class="contacts" id="contacts"></ul>
+          <ol class="next" id="next">
+            <li>We get in touch and agree on a convenient time</li>
+            <li>We look at your cameras and computer together</li>
+            <li>If it fits, we start a 4-week pilot</li>
+          </ol>
+        </div>
+        <form class="form" id="lead-form" novalidate>
+          <div class="row2">
+            <label class="field"><span>Your name *</span>
+              <input name="name" autocomplete="name" maxlength="100" required></label>
+            <label class="field"><span>Phone *</span>
+              <input name="phone" type="tel" inputmode="tel" autocomplete="tel" placeholder="+998 90 123 45 67" maxlength="25" required></label>
+          </div>
+          <div class="row2">
+            <label class="field"><span>Store name</span>
+              <input name="store" autocomplete="organization" maxlength="200"></label>
+            <label class="field"><span>City</span>
+              <input name="city" autocomplete="address-level2" maxlength="100"></label>
+          </div>
+          <label class="field"><span>Number of branches / stores</span>
+            <select name="branches">
+              <option value="">Choose</option>
+              <option value="1">1</option>
+              <option value="2–3">2–3</option>
+              <option value="4–10">4–10</option>
+              <option value="10 dan ko&#39;p">more than 10</option>
+            </select></label>
+          <label class="field"><span>Comment</span>
+            <textarea name="message" rows="3" maxlength="2000" placeholder="For example: 6 cameras, long queues at the till"></textarea></label>
+          <label class="hp" aria-hidden="true">Leave this field empty <input name="hp_extra" tabindex="-1" autocomplete="off"></label>
+          <button class="btn wide" type="submit">Send request</button>
+          <div class="form-done">
+            <svg class="done-ico" viewBox="0 0 52 52" aria-hidden="true"><circle pathLength="1" cx="26" cy="26" r="23"/><path pathLength="1" d="M15 27l7 7 15-16"/></svg>
+            <p class="form-msg" id="form-msg" role="status" aria-live="polite"></p>
+          </div>
+          <p class="fine">We only use your number to contact you.</p>
+        </form>
       </div>
-      <form class="form" id="lead-form" novalidate>
-        <div class="row2">
-          <label class="field"><span>Your name *</span>
-            <input name="name" autocomplete="name" maxlength="100" required></label>
-          <label class="field"><span>Phone *</span>
-            <input name="phone" type="tel" inputmode="tel" autocomplete="tel" placeholder="+998 90 123 45 67" maxlength="25" required></label>
-        </div>
-        <div class="row2">
-          <label class="field"><span>Store name</span>
-            <input name="store" autocomplete="organization" maxlength="200"></label>
-          <label class="field"><span>City</span>
-            <input name="city" autocomplete="address-level2" maxlength="100"></label>
-        </div>
-        <label class="field"><span>Number of branches / stores</span>
-          <select name="branches">
-            <option value="">Choose</option>
-            <option value="1">1</option>
-            <option value="2–3">2–3</option>
-            <option value="4–10">4–10</option>
-            <option value="10 dan ko&#39;p">more than 10</option>
-          </select></label>
-        <label class="field"><span>Comment</span>
-          <textarea name="message" rows="3" maxlength="2000" placeholder="For example: 6 cameras, long queues at the till"></textarea></label>
-        <label class="hp" aria-hidden="true">Leave this field empty <input name="hp_extra" tabindex="-1" autocomplete="off"></label>
-        <button class="btn wide" type="submit">Send request</button>
-        <div class="form-done">
-          <svg class="done-ico" viewBox="0 0 52 52" aria-hidden="true"><circle pathLength="1" cx="26" cy="26" r="23"/><path pathLength="1" d="M15 27l7 7 15-16"/></svg>
-          <p class="form-msg" id="form-msg" role="status" aria-live="polite"></p>
-        </div>
-        <p class="fine">We only use your number to contact you.</p>
-      </form>
     </div>
   </section>
 </main>
 
 <footer class="foot">
   <div class="wrap foot-in">
-    <span><img src="../img/belgi.svg" alt="" width="20" height="20"> Hushyor AI</span>
-    <span><a class="foot-link" href="/login/">For customers: sign in to the dashboard</a> <span class="muted" id="foot-ver"></span></span>
+    <div class="foot-brand">
+      <a class="brand" href="./"><img src="../img/belgi.svg" alt="" width="28" height="28"><span>Hushyor AI</span></a>
+      <p>AI for store cameras: theft alerts, visitor counts, checkout queues and a daily report.</p>
+    </div>
+    <nav class="foot-nav" aria-label="Site sections">
+      <a href="#qanday">How it works</a>
+      <a href="#imkoniyatlar">Features</a>
+      <a href="#ekranlar">Dashboard</a>
+      <a href="#pilot">Pilot</a>
+      <a href="#savollar">FAQ</a>
+    </nav>
+    <div class="foot-side">
+      <p class="foot-langs"><a href="../" hreflang="uz" lang="uz">Oʻzbekcha</a><a href="../ru/" hreflang="ru" lang="ru">Русский</a><a href="./" hreflang="en" lang="en">English</a></p>
+      <a class="foot-link" href="/login/">For customers: sign in to the dashboard</a>
+    </div>
+  </div>
+  <div class="wrap foot-base-wrap">
+    <div class="foot-base">
+      <span>© Hushyor AI</span>
+      <span>Made in Tashkent</span>
+    </div>
   </div>
 </footer>
 </body>

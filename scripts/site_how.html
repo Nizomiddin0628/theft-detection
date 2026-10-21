@@ -1,0 +1,331 @@
+{#- 3.3.0: «Qanday ishlaydi» — qadamlar ro'yxati + sahna. Har qadamda sahnada o'z kichik ko'rinishi jonlanadi:
+    kameralar devori → do'kon kompyuteridagi tahlil → Telegram xabari va javob → do'kon paneli → bulut → hisobot va SMS.
+    Matnlar: site_text.py (t.hw), egri chiziqlar: build_site.py (how). Hamma rang — mavzu tokenlari (yorug'/tungi). -#}
+{% set h = t.hw %}
+{% macro man(x, y, s=1, cls="") -%}
+<g transform="translate({{ x }} {{ y }}) scale({{ s }})"><g class="hw-walk {{ cls }}">
+  <rect class="c-legs hw-lg hw-lg1" x="-5" y="-22" width="4.4" height="22" rx="2"/>
+  <rect class="c-legs hw-lg hw-lg2" x="0.6" y="-22" width="4.4" height="22" rx="2"/>
+  <path class="c-torso" d="M-7 -40 Q0 -43 7 -40 L6 -20 Q0 -18 -6 -20 Z"/>
+  <path class="c-limb" d="M-6.5 -39 L-8 -24 M6.5 -39 L8 -24" stroke-width="3.2" stroke-linecap="round" fill="none"/>
+  <circle cx="0" cy="-46.5" r="5.2" fill="#b39b86"/>
+  <path d="M-5.2 -47.5 Q-5 -52.6 0 -52.6 Q5 -52.6 5.2 -47.8 Q2.5 -49.8 0 -49.6 Q-2.8 -49.6 -5.2 -47.5 Z" fill="#3a3330"/>
+</g></g>
+{%- endmacro %}
+{% macro shelf(x, y, w, rows, start=0) -%}
+<rect class="c-side" x="{{ x }}" y="{{ y }}" width="{{ w }}" height="{{ rows * 17 + 3 }}" rx="1.5"/>
+{% for r in range(rows) %}
+<rect class="c-edge" x="{{ x }}" y="{{ y + 15 + r * 17 }}" width="{{ w }}" height="2.4"/>
+{% for c in range((w - 4) // 11) %}
+<rect class="c-p{{ (start + r * 2 + c) % 6 + 1 }}" x="{{ x + 3 + c * 11 }}" y="{{ y + 4 + r * 17 }}" width="8" height="11" rx="1"/>
+{% endfor %}
+{% endfor %}
+{%- endmacro %}
+{% macro ico(d, cls="") -%}
+<svg class="i {{ cls }}" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="{{ d }}"/></svg>
+{%- endmacro %}
+{% set I_LOCK = "M6 11h12v9H6z M8.5 11V8a3.5 3.5 0 0 1 7 0v3" %}
+{% set I_OUT = "M7 17 17 7 M9 7h8v8" %}
+{% set I_OK = "M5 12.5l4.2 4.2L19 7" %}
+{% set I_CLOUD = "M7 18h10.5a4 4 0 0 0 .4-8A6 6 0 0 0 6.3 11.3 3.4 3.4 0 0 0 7 18z" %}
+{% set I_WOFF = "M3 3l18 18 M8.5 16.4a5 5 0 0 1 6.2-.6 M5.2 12.6a10 10 0 0 1 3.9-2.4 M13.6 10a10 10 0 0 1 5.2 2.6 M2.2 8.9a15 15 0 0 1 3.9-2.5 M10.4 5.1A15 15 0 0 1 21.8 8.9 M12 19.6h.01" %}
+{% set I_VOFF = "M3 3l18 18 M15 10.5l6-3v9l-6-3 M15 17H4a1 1 0 0 1-1-1V8a1 1 0 0 1 1-1h2.5 M10 7h4a1 1 0 0 1 1 1v3.5" %}
+{% set I_STORE = "M4 9.5 5.5 4h13L20 9.5 M4 9.5h16 M5 9.5V20h14V9.5 M9.5 20v-5h5v5" %}
+{% set I_GUARD = "M12 3 5 6v5c0 4.4 2.9 8.2 7 9.5 4.1-1.3 7-5.1 7-9.5V6z" %}
+{% set I_CHART = "M5 20V11 M10.5 20V5 M16 20v-6 M3 20h18" %}
+{% set I_SMS = "M4 5h16v11H9.5L4 20z M8 9.5h8 M8 12.5h5" %}
+      <div class="vas" id="vas" data-step="cams" data-zone="in">
+        <ol class="vas-list" id="vas-list">
+          {% for it in t.vas_items %}
+          <li><button type="button" class="vas-it" data-k="{{ it[0] }}" data-zone="{{ how.zones[it[0]] }}" aria-pressed="false" aria-describedby="vas-d{{ loop.index }}"><b>{{ it[1] }}</b></button>
+            <div class="vas-d" id="vas-d{{ loop.index }}"><p>{{ it[2] }}</p></div></li>
+          {% endfor %}
+        </ol>
+        <!-- telefonda: faol qadam izohi qator ostida (hammasi bir katakda — balandlik eng uzun izohga teng, sakramaydi) -->
+        <div class="vas-desc" id="vas-desc" aria-hidden="true">
+          {% for it in t.vas_items %}
+          <p data-k="{{ it[0] }}">{{ it[2] }}</p>
+          {% endfor %}
+        </div>
+        <div class="vas-stage">
+        <div class="vas-fig" role="img" aria-label="{{ t.vas_title }}">
+          <div class="hw-zone" aria-hidden="true">
+            <span class="hw-z hw-z-in">{{ ico(I_LOCK) }}<span class="zl">{{ h.zone_in }}</span><span class="zs">{{ h.zone_in_s }}</span></span>
+            <span class="hw-z hw-z-out">{{ ico(I_OUT) }}<span class="zl">{{ h.zone_out }}</span><span class="zs">{{ h.zone_out_s }}</span></span>
+          </div>
+
+          <!-- 1. kameralar: do'kondagi to'rt kamera (kunduz yoki kechki do'kon — mavzuga qarab) -->
+          <div class="vas-sc sc-cams" data-k="cams">
+            <div class="hw-wall">
+              {% for name in t.cams %}
+              <div class="hw-feed f{{ loop.index }}">
+                <svg viewBox="0 0 160 100" aria-hidden="true">
+                  <rect class="c-wall" width="160" height="100"/>
+                  <rect class="hw-floor" y="72" width="160" height="28"/>
+                  <path class="c-fline" d="M40 72 22 100 M120 72 138 100" stroke-width="1" fill="none"/>
+                  {% if loop.index == 1 %}
+                  <rect class="c-back" x="56" y="16" width="50" height="57"/>
+                  <path class="hw-frame" d="M56 73V16h50v57 M81 16v57"/>
+                  <rect class="c-edge" x="51" y="73" width="60" height="3.5" rx="1"/>
+                  {{ shelf(8, 30, 30, 2, 1) }}
+                  {{ shelf(126, 30, 30, 2, 4) }}
+                  {{ man(81, 90, 0.92, "w-a") }}
+                  {% elif loop.index == 2 %}
+                  {{ shelf(8, 18, 60, 3, 0) }}
+                  {{ shelf(92, 18, 60, 3, 3) }}
+                  {{ man(110, 88, 0.78, "w-c") }}
+                  {{ man(78, 94, 0.92, "w-b") }}
+                  {% elif loop.index == 3 %}
+                  {{ shelf(6, 22, 36, 3, 2) }}
+                  {{ man(134, 76, 0.8, "w-0") }}
+                  <rect class="c-side" x="64" y="57" width="92" height="19" rx="1.5"/>
+                  <rect class="c-edge" x="64" y="55" width="92" height="3" rx="1"/>
+                  <rect class="c-edge" x="104" y="41" width="17" height="11" rx="1.5"/>
+                  <rect class="c-edge" x="111" y="52" width="3" height="4"/>
+                  <rect class="c-p3" x="74" y="50" width="7" height="5" rx="1"/><rect class="c-p4" x="84" y="51" width="6" height="4" rx="1"/>
+                  {{ man(90, 92, 0.92, "w-0") }}
+                  {{ man(58, 94, 0.94, "w-d") }}
+                  {% else %}
+                  <rect class="c-edge" x="10" y="14" width="3" height="60"/><rect class="c-edge" x="80" y="14" width="3" height="60"/>
+                  <rect class="c-edge" x="10" y="34" width="73" height="2.6"/><rect class="c-edge" x="10" y="55" width="73" height="2.6"/>
+                  <g class="hw-box"><rect x="15" y="20" width="22" height="14" rx="1"/><rect x="40" y="23" width="17" height="11" rx="1"/>
+                  <rect x="60" y="18" width="18" height="16" rx="1"/><rect x="15" y="41" width="18" height="14" rx="1"/>
+                  <rect x="36" y="39" width="24" height="16" rx="1"/><rect x="63" y="44" width="15" height="11" rx="1"/>
+                  <rect x="112" y="56" width="24" height="18" rx="1"/><rect x="116" y="40" width="18" height="16" rx="1"/>
+                  <rect x="138" y="60" width="16" height="14" rx="1"/></g>
+                  {{ man(98, 92, 0.9, "w-e") }}
+                  {% endif %}
+                </svg>
+                <span class="hw-osd"><b>{{ loop.index }}</b>{{ name }}</span>
+                <i class="hw-rec"></i>
+              </div>
+              {% endfor %}
+            </div>
+            <p class="hw-pill hw-c-ok">{{ ico(I_OK) }}<b>{{ h.cams_ok }}</b><span>{{ h.cams_kind }}</span></p>
+          </div>
+
+          <!-- 2. do'kon kompyuteri: bitta kadr tahlili (odam, 17 nuqta, qo'l, buyum, ball) -->
+          <div class="vas-sc sc-heart" data-k="heart">
+            <div class="hw-an-feed">
+              <div class="hw-feed hw-big">
+                <svg viewBox="0 0 320 200" aria-hidden="true">
+                  <rect class="c-wall" width="320" height="200"/>
+                  <rect class="hw-floor" y="150" width="320" height="50"/>
+                  <path class="c-fline" d="M70 150 40 200 M250 150 280 200" stroke-width="1.4" fill="none"/>
+                  <rect class="c-side" x="200" y="24" width="108" height="128" rx="2"/>
+                  {% for r in range(4) %}
+                  <rect class="c-edge" x="200" y="{{ 52 + r * 32 }}" width="108" height="4"/>
+                  {% for c in range(6) %}
+                  {% if not (r == 1 and c == 0) %}<rect class="c-p{{ (r * 2 + c) % 6 + 1 }}" x="{{ 205 + c * 17 }}" y="{{ 32 + r * 32 }}" width="13" height="20" rx="1.5"/>{% endif %}
+                  {% endfor %}
+                  {% endfor %}
+                  <rect class="hw-item hw-it-shelf" x="205" y="64" width="13" height="20" rx="1.5"/>
+                  <!-- xaridor (yon tomondan) -->
+                  <rect class="c-legs" x="138" y="118" width="10" height="50" rx="4"/>
+                  <rect class="c-legs" x="152" y="118" width="10" height="50" rx="4"/>
+                  <path class="c-torso" d="M132 70 Q150 62 168 70 L165 124 Q150 128 135 124 Z"/>
+                  <path class="c-limb" d="M136 72 L132 98 L134 120" stroke-width="8" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+                  <circle cx="150" cy="52" r="12" fill="#b39b86"/>
+                  <path d="M138 50 Q139 38 150 38 Q161 38 162 49 Q156 44 150 44 Q143 44 138 50 Z" fill="#3a3330"/>
+                  <!-- skelet: 17 nuqta (o'ng qo'l alohida — u harakatlanadi) -->
+                  <g class="hw-sk">
+                    <path class="hw-bone" pathLength="1" d="M150 64 V72 M136 72 H164 M136 72 L141 120 M164 72 L159 120 M141 120 H159 M141 120 L142 144 L143 166 M159 120 L158 144 L157 166 M136 72 L132 98 L134 120"/>
+                  </g>
+                  <g class="hw-kp">
+                    <circle cx="154" cy="55" r="2"/><circle cx="151" cy="50.5" r="1.6"/><circle cx="157" cy="50.5" r="1.6"/>
+                    <circle cx="146" cy="52" r="1.6"/><circle cx="160" cy="52.5" r="1.6"/>
+                    <circle cx="136" cy="72" r="3"/><circle cx="164" cy="72" r="3"/><circle cx="132" cy="98" r="3"/>
+                    <circle cx="134" cy="120" r="3"/><circle cx="141" cy="120" r="3"/><circle cx="159" cy="120" r="3"/>
+                    <circle cx="142" cy="144" r="3"/><circle cx="158" cy="144" r="3"/><circle cx="143" cy="166" r="3"/>
+                    <circle cx="157" cy="166" r="3"/>
+                  </g>
+                  <!-- o'ng qo'l: yelka (164,72) va tirsak (186,82) atrofida aylanadi; chizilgan holat — polkaga uzatilgan -->
+                  <g class="hw-au">
+                    <line class="c-limb" x1="164" y1="72" x2="186" y2="82" stroke-width="8" stroke-linecap="round"/>
+                    <line class="hw-bone" pathLength="1" x1="164" y1="72" x2="186" y2="82"/>
+                    <g class="hw-af">
+                      <line class="c-limb" x1="186" y1="82" x2="205" y2="84" stroke-width="7" stroke-linecap="round"/>
+                      <circle cx="206" cy="84" r="4.5" fill="#b39b86"/>
+                      <rect class="hw-item hw-it-hand" x="200" y="76" width="13" height="20" rx="1.5"/>
+                      <line class="hw-bone" pathLength="1" x1="186" y1="82" x2="205" y2="84"/>
+                      <circle class="hw-kpd" cx="186" cy="82" r="3"/>
+                      <circle class="hw-kpd hw-wr" cx="205" cy="84" r="3.6"/>
+                    </g>
+                  </g>
+                  <circle class="hw-seek" cx="207" cy="80" r="24"/>
+                  <rect class="hw-ibox" x="201" y="60" width="21" height="28" rx="2"/>
+                  <circle class="hw-pocket" cx="160" cy="118" r="11"/>
+                  <path class="hw-pbox" pathLength="8" d="M122 50 v-16 h16 M162 34 h16 v16 M178 156 v16 h-16 M138 172 h-16 v-16"/>
+                </svg>
+                <span class="hw-osd"><b>2</b>{{ t.cams[1] }}</span>
+                <span class="hw-fps"><em class="fa">{{ h.fps[0] }}</em><em class="fb">{{ h.fps[1] }}</em></span>
+              </div>
+              <p class="hw-noface">{{ ico("M3 3l18 18 M9.9 4.6A8 8 0 0 1 19.4 14 M17.7 17.7A8 8 0 0 1 6.3 6.3 M9 15c1.7 1.3 4.3 1.3 6 0") }}{{ h.no_face }}</p>
+            </div>
+            <div class="hw-card hw-an">
+              <h4>{{ h.an_title }}</h4>
+              <ol class="hw-steps">
+                {% for r in h.an_rows %}
+                <li class="r{{ loop.index }}{% if loop.last %} bad{% endif %}"><i class="hw-st"></i><span>{{ r }}</span></li>
+                {% endfor %}
+              </ol>
+              <div class="hw-risk">
+                <span>{{ h.an_risk }}</span><b class="hw-c v82"></b>
+                <i class="hw-rb"><i></i></i>
+              </div>
+            </div>
+          </div>
+
+          <!-- 3–4. Telegram: xabar keladi (rasm, sabab, klip); javob qaytadi va tizim o'rganadi -->
+          <div class="vas-sc sc-tg" data-k="tg back">
+            <div class="hw-side">
+              <div class="hw-card hw-route">
+                <h4>{{ h.route_title }}</h4>
+                <ul>
+                  {% for r in h.route %}
+                  <li class="p{{ loop.index }}"><i class="hw-av">{{ ico([I_GUARD, I_STORE, I_CHART][loop.index0]) }}</i><span><b>{{ r[0] }}</b>{{ r[1] }}</span><i class="hw-sw"></i></li>
+                  {% endfor %}
+                </ul>
+              </div>
+              <div class="hw-card hw-learn">
+                <h4>{{ h.learn_title }}</h4>
+                <p class="hw-tally"><span class="ok">✅ <b>26</b></span><span class="no">❌ <b>2</b></span><small>{{ h.learn_week }}</small></p>
+                <p class="hw-lk"><span>{{ h.learn_k }}</span><b class="hw-c v7 pct"></b></p>
+                <svg class="hw-spark" viewBox="0 0 220 92" aria-hidden="true">
+                  <path class="hw-grid" d="M0 84.5H220 M0 46.5H220 M0 8.5H220"/>
+                  <path class="hw-area" d="{{ how.learn_area }}"/>
+                  <path class="hw-line" pathLength="1" d="{{ how.learn }}"/>
+                  <circle class="hw-end" cx="{{ how.learn_end[0] }}" cy="{{ how.learn_end[1] }}" r="4"/>
+                  <text class="hw-sv" x="{{ how.learn_start[0] + 7 }}" y="{{ how.learn_start[1] - 6 }}">24%</text>
+                </svg>
+                <p class="hw-axis"><span>{{ h.learn_weeks[0] }}</span><span>{{ h.learn_weeks[1] }}</span></p>
+                <p class="hw-note">{{ h.learn_note }}</p>
+              </div>
+            </div>
+            <svg class="hw-ret" viewBox="0 0 64 440" aria-hidden="true">
+              <path class="hw-ret-l" pathLength="1" d="M60 382 C30 382 34 222 6 222"/>
+              <path class="hw-ret-h" d="M13 215.5 6 222l7 6.5"/>
+            </svg>
+            <div class="hw-phone">
+              <div class="hw-ph-bar"><span>14:32</span><i></i><span class="hw-sig"><i></i><i></i><i></i></span></div>
+              <div class="hw-ph-head"><img src="{{ base }}img/belgi.svg" alt="" width="30" height="30"><span><b>Hushyor AI</b><small>{{ h.bot }}</small></span></div>
+              <div class="hw-chat">
+                <div class="hw-typing"><i></i><i></i><i></i></div>
+                <div class="hw-msg hw-m1">
+                  <div class="hw-snap">
+                    <svg viewBox="0 0 160 60" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
+                      <rect class="c-wall" width="160" height="60"/>
+                      <rect class="hw-floor" y="47" width="160" height="13"/>
+                      <rect class="c-side" x="100" y="6" width="56" height="42" rx="1"/>
+                      <rect class="c-edge" x="100" y="20" width="56" height="2"/><rect class="c-edge" x="100" y="34" width="56" height="2"/>
+                      <rect class="c-p1" x="104" y="10" width="7" height="10"/><rect class="c-p3" x="114" y="10" width="7" height="10"/>
+                      <rect class="c-p5" x="124" y="10" width="7" height="10"/><rect class="c-p2" x="134" y="10" width="7" height="10"/>
+                      <rect class="c-p6" x="114" y="24" width="7" height="10"/><rect class="c-p4" x="124" y="24" width="7" height="10"/>
+                      {{ man(72, 52, 0.76, "w-0") }}
+                      <rect class="hw-snapbox" x="60" y="9" width="24" height="46" rx="1.5"/>
+                    </svg>
+                    <b class="hw-snaptag">82</b>
+                  </div>
+                  <p><b>{{ t.tg_title }}</b><br>{{ t.tg_where }}<br><span>{{ t.tg_why }}</span></p>
+                </div>
+                <div class="hw-msg hw-m2">
+                  <div class="hw-clip"><i class="hw-play"></i><span>{{ h.clip }} · 0:20</span></div>
+                  <div class="hw-scrub"><i></i><b></b></div>
+                  <p class="hw-span"><span>{{ h.clip_span[0] }}</span><span>{{ h.clip_span[1] }}</span></p>
+                </div>
+                <div class="hw-kb">
+                  <span class="hw-k ok"><i class="hw-tap"></i><em class="s1">{{ t.tg_confirm }}</em><em class="s2">{{ t.tg_confirmed }}</em></span>
+                  <span class="hw-k no">{{ t.tg_false }}</span>
+                </div>
+                <p class="hw-done">{{ t.tg_done }}</p>
+              </div>
+            </div>
+            <p class="hw-mini">{{ h.learn_k }}: <b>24% → 7%</b></p>
+          </div>
+
+          <!-- 5. do'kon paneli (brauzerda, internetsiz ham) -->
+          <div class="vas-sc sc-panel" data-k="panel">
+            <div class="hw-win">
+              <div class="hw-wbar"><i></i><i></i><i></i><b>{{ h.panel_title }}</b><span>{{ h.panel_local }}</span></div>
+              <div class="hw-wbody">
+                <div class="hw-wside" aria-hidden="true"><i class="on"></i><i></i><i></i><i></i><i></i></div>
+                <div class="hw-wmain">
+                  <ul class="hw-kpis">
+                    {% for k in h.kpi %}
+                    <li class="k{{ loop.index }}"><span>{{ k }}</span>{% if loop.index < 4 %}<b class="hw-c {{ ['v127', 'v18', 'v3'][loop.index0] }}"></b>{% else %}<b>2:10</b>{% endif %}</li>
+                    {% endfor %}
+                  </ul>
+                  <div class="hw-wrow">
+                    <div class="hw-chart">
+                      <span class="hw-ck">{{ h.chart_k }}</span>
+                      <svg viewBox="0 0 300 112" aria-hidden="true">
+                        <path class="hw-grid" d="M0 104.5H300 M0 60.5H300 M0 16.5H300"/>
+                        <path class="hw-area" d="{{ how.visits_area }}"/>
+                        <path class="hw-line" pathLength="1" d="{{ how.visits }}"/>
+                        <circle class="hw-live" cx="{{ how.visits_end[0] }}" cy="{{ how.visits_end[1] }}" r="9"/>
+                        <circle class="hw-end" cx="{{ how.visits_end[0] }}" cy="{{ how.visits_end[1] }}" r="4"/>
+                      </svg>
+                      <p class="hw-axis"><span>09</span><span>13</span><span>17</span><span>21</span></p>
+                    </div>
+                    <div class="hw-evs">
+                      <span class="hw-ck">{{ h.events_k }}</span>
+                      <ul>
+                        {% for e in h.events %}
+                        <li class="e{{ loop.index }}"><time>{{ e[0] }}</time><span>{{ e[1] }}</span></li>
+                        {% endfor %}
+                      </ul>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <p class="hw-pill hw-off">{{ ico(I_WOFF) }}<b>{{ h.offline }}</b></p>
+          </div>
+
+          <!-- 6. bulut: filiallar → bitta panel (faqat hodisa va raqamlar; internet uzilsa — navbatda kutadi) -->
+          <div class="vas-sc sc-cloud" data-k="cloud">
+            <div class="hw-card hw-cl">
+              <div class="hw-cl-h">{{ ico(I_CLOUD) }}<b>{{ h.cloud_title }}</b><span>{{ h.cloud_sub }}</span></div>
+              <ul class="hw-cl-rows">
+                {% for b in h.branches %}
+                <li class="b{{ loop.index }}"><span>{{ b }}</span><i class="hw-bar"><i></i></i><b class="hw-c {{ ['v127', 'v98', 'v64'][loop.index0] }}"></b></li>
+                {% endfor %}
+              </ul>
+            </div>
+            <div class="hw-links" aria-hidden="true">
+              {% for b in h.branches %}
+              <div class="hw-link l{{ loop.index }}"><i class="hw-pk p1">{{ h.pk[0] }}</i><i class="hw-pk p2">{{ h.pk[1] }}</i></div>
+              {% endfor %}
+            </div>
+            <ul class="hw-brs">
+              {% for b in h.branches %}
+              <li class="b{{ loop.index }}">{{ ico(I_STORE) }}<b>{{ b }}</b>
+                {% if loop.last %}<span class="sts"><span class="st qd">{{ ico(I_WOFF) }}{{ h.b_queue }}</span><span class="st on s2">{{ h.b_sent }}</span></span>
+                {% else %}<span class="sts"><span class="st on">{{ h.b_on }}</span></span>{% endif %}</li>
+              {% endfor %}
+            </ul>
+            <p class="hw-pill hw-nov">{{ ico(I_VOFF) }}<b>{{ h.no_video }}</b></p>
+          </div>
+
+          <!-- 7. kunlik hisobot (Telegram/PDF) va kritik holatda SMS -->
+          <div class="vas-sc sc-report" data-k="report">
+            <div class="hw-card hw-doc">
+              <div class="hw-doc-h"><img src="{{ base }}img/belgi.svg" alt="" width="28" height="28"><span><b>{{ h.rep_title }}</b><small>{{ h.rep_meta }}</small></span><i class="hw-pdf">PDF</i></div>
+              <dl class="hw-rows">
+                {% for r in h.rep_rows %}
+                <div class="r{{ loop.index }}"><dt>{{ r[0] }}</dt><dd><b>{{ r[1] }}</b>{% if r[2] %}<span>{{ r[2] }}</span>{% endif %}</dd></div>
+                {% endfor %}
+              </dl>
+              <p class="hw-tip">{{ t.fv_tip }}</p>
+            </div>
+            <div class="hw-sms">
+              <p class="hw-sms-h">{{ ico(I_SMS) }}<b>{{ h.sms_from }}</b><time>02:14</time></p>
+              <p class="hw-sms-t">{{ h.sms_text }}</p>
+            </div>
+          </div>
+        </div>
+        <button class="hw-pause" type="button" id="vas-pause" data-state="pause" data-l-pause="{{ h.pause }}" data-l-play="{{ h.play }}" aria-label="{{ h.pause }}" title="{{ h.pause }}" hidden>
+          <svg class="i" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path class="hw-pp" d="M9 6v12 M15 6v12"/><path class="hw-pl" d="M8 5.5v13l10.5-6.5z"/></svg>
+        </button>
+        </div>
+      </div>

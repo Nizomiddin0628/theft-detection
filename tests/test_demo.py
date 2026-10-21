@@ -76,6 +76,39 @@ def wait(fn, timeout: float, step: float = 0.3) -> bool:
 
 
 # ============================================================================ 1. edge demo
+# 3.3.0: «Qanday ishlaydi» — joriy sahnada kesilgan narsa yo'qmi: sahna chegarasidan chiqqan, o'z qutisiga sig'magan
+# (overflow: hidden) yoki telefon chatining tepasi sarlavha ostida qolgan elementlar ro'yxati (bo'sh — hammasi joyida)
+VAS_CUT_JS = """() => {
+  const fig = document.querySelector('.vas-fig').getBoundingClientRect();
+  const sc = document.querySelector('.vas-sc.cur');
+  const ok = ['hw-chat', 'hw-feed', 'hw-snap', 'hw-clip', 'hw-phone', 'hw-rb', 'hw-bar', 'hw-scrub', 'hw-win', 'hw-k'];
+  const out = [];
+  for (const e of sc.querySelectorAll('*')) {
+    if (e.closest('svg') && e.tagName.toLowerCase() !== 'svg') continue;
+    const cs = getComputedStyle(e);
+    if (cs.display === 'none' || cs.visibility === 'hidden' || +cs.opacity === 0) continue;
+    const r = e.getBoundingClientRect();
+    if (!r.width || !r.height) continue;
+    const name = (e.className.baseVal ?? e.className) || e.tagName;
+    if (r.left < fig.left - 1 || r.right > fig.right + 1 || r.top < fig.top - 1 || r.bottom > fig.bottom + 1)
+      out.push('chegaradan tashqarida: ' + name);
+    if (cs.overflow !== 'visible' && !ok.some(c => e.classList.contains(c)) && e.scrollHeight > e.clientHeight + 1)
+      out.push("sig'madi: " + name);
+  }
+  const chat = sc.querySelector('.hw-chat');
+  if (chat) {
+    const top = chat.getBoundingClientRect().top;
+    const first = [...chat.children].find(x => getComputedStyle(x).position !== 'absolute');
+    if (first.getBoundingClientRect().top < top - 1) out.push('chat tepasi yopilgan');
+    for (const x of chat.querySelectorAll('.hw-done, .hw-kb'))
+      if (getComputedStyle(x).opacity !== '0' && x.scrollHeight > x.clientHeight + 1) out.push("sig'madi: " + x.className);
+  }
+  const win = sc.querySelector('.hw-win');
+  if (win && win.scrollHeight > win.clientHeight + 1) out.push('panel oynasi kesilgan');
+  return out;
+}"""
+
+
 def edge_suite() -> None:
     print("\n--- Edge demo: ma'lumot, sahifalar, tayyorlik ---")
     from app import demo, pilot, reports, web
@@ -343,20 +376,31 @@ def cloud_suite(label: str) -> None:
         shown = re.sub(r'data-i18n="[^"]*"', "", html_).replace('placeholder="+998 90 123 45 67"', "")
         ok(f"{pre}: saytda soxta telefon raqami yo'q (namuna faqat maydon ichida va xato xabarida)",
            not re.search(r"\+998\s?\d{2}\s?\d{3}", shown))
-        ok(f"{pre}: «Qanday ishlaydi» sxemasi (7 izoh) va 6 imkoniyat sahnasi", html_.count('class="vas-it"') == 7
-           and len(re.findall(r'class="fv fv-', html_)) == 6 and 'class="vas-svg vas-h"' in html_)
-        ok(f"{pre}: sxema — bitta tavsif (role=img), SVG'lar ekran o'quvchidan yashirin, impulslarda filtr yo'q",
+        # 3.3.0: «Qanday ishlaydi» — 7 qadam va sahna: har qadamning o'z ko'rinishi (Telegram sahnasi — tg va back)
+        vas_keys = re.findall(r'class="vas-it" data-k="(\w+)" data-zone="(in|out)"', html_)
+        sc_keys = sum((k.split() for k in re.findall(r'class="vas-sc [\w-]+" data-k="([\w ]+)"', html_)), [])
+        ok(f"{pre}: «Qanday ishlaydi» — 7 qadam, har biriga sahna; 6 imkoniyat kataki", len(vas_keys) == 7
+           and sorted(sc_keys) == sorted(k for k, _ in vas_keys) and len(re.findall(r'class="fv fv-', html_)) == 6,
+           f"{vas_keys} {sc_keys}")
+        ok(f"{pre}: sahna — bitta tavsif (role=img), pauza tugmasi skriptgacha yashirin, hech narsa bosilmagan",
            re.search(r'class="vas-fig" role="img" aria-label="[^"]{40,}"', html_) is not None
-           and len(re.findall(r'<svg class="vas-svg vas-[hv]"[^>]*aria-hidden="true"', html_)) == 2
-           and 'aria-pressed="true"' not in html_ and not re.search(r'class="vf[^"]*"[^>]*filter=', html_))
-        # 3.0.0: mavzu tugmasi — theme.js <head> da (CSS'dan oldin, versiya bilan), tugma va uch belgi, tungi tokenlar
+           and re.search(r'<button class="hw-pause"[^>]*id="vas-pause"[^>]*hidden>', html_) is not None
+           and 'aria-pressed="true"' not in html_ and 'data-step="cams"' in html_)
+        # 3.0.0: mavzu tugmasi — theme.js <head> da (CSS'dan oldin, versiya bilan); 3.3.0: bitta belgi (quyosh ⇄ oy)
         head = html_.split("</head>", 1)[0]
-        ok(f"{pre}: mavzu tugmasi (tizim/yorug'/tungi) va theme.js <head> da, CSS'dan oldin",
+        ok(f"{pre}: mavzu tugmasi (quyosh/oy) va theme.js <head> da, CSS'dan oldin",
            re.search(r'<script src="(?:\.\./)?theme\.js\?v=[\w.]+"></script>', head) is not None
            and head.index("theme.js") < head.index("style.css") and 'id="theme-btn"' in html_
-           and 'data-mode="system"' in html_ and all(f"ti-{m}" in html_ for m in ("system", "light", "dark"))
-           and re.search(r'id="theme-btn"[^>]*aria-label="[^"]{12,}"', html_) is not None
+           and 'data-mode="system"' in html_ and 'class="i sunmoon"' in html_
+           and re.search(r'id="theme-btn"[^>]*aria-label="[^"]{10,}"', html_) is not None
            and '<meta name="color-scheme" content="light dark">' in head)
+        # 3.3.0: til tanlash — ochiladigan ro'yxat (skriptsiz ham: <details>), menyu telefonda, shriftlar oldindan
+        ok(f"{pre}: til ro'yxati (3 til, joriysi belgilangan), telefon menyusi, shrift oldindan yuklanadi",
+           re.search(r'<details class="lang" id="lang">', html_) is not None and html_.count('class="pop lang-menu"') == 1
+           and all(f'hreflang="{x}" lang="{x}"' in html_ for x in ("uz", "ru", "en"))
+           and '<details class="menu" id="menu">' in html_
+           and re.search(r'<link rel="preload" href="(?:\.\./)?fonts/(onest|unbounded)-(latin|cyrillic)\.woff2"', head)
+           is not None and ("cyrillic" in head) == (lg == "ru"))
     css = (ROOT / "site" / "style.css").read_text(encoding="utf-8")
     ok(f"{label}: sayt CSS — tungi mavzu: tizim sozlamasi va majburiy tanlov (bir xil tokenlar)",
        ':root:not([data-theme="light"])' in css and ':root[data-theme="dark"]' in css
@@ -364,9 +408,11 @@ def cloud_suite(label: str) -> None:
        and "hushyor-theme" in c.get("/sayt/theme.js").text)
     ok(f"{label}: /sayt/ru → /sayt/ru/ (qiyshiq chiziqsiz ham ochiladi)",
        c.get("/sayt/ru", follow_redirects=True).status_code == 200)
-    ok(f"{label}: shrift va litsenziyasi beriladi, app.js va style.css bor",
-       c.get("/sayt/fonts/ibm-plex-sans-latin.woff2").headers.get("content-type", "").startswith("font/woff2")
-       and c.get("/sayt/fonts/OFL.txt").status_code == 200
+    fonts = [f"{n}-{s}.woff2" for n in ("onest", "unbounded") for s in ("latin", "cyrillic")]
+    ok(f"{label}: shriftlar (Onest, Unbounded — lotin va kirill) va litsenziyasi beriladi, app.js va style.css bor",
+       all(c.get("/sayt/fonts/" + f).headers.get("content-type", "").startswith("font/woff2") for f in fonts)
+       and all(f"fonts/{f}" in (ROOT / "site" / "style.css").read_text(encoding="utf-8") for f in fonts)
+       and c.get("/sayt/fonts/OFL.txt").status_code == 200 and "Unbounded" in c.get("/sayt/fonts/OFL.txt").text
        and all(c.get("/sayt/" + f).status_code == 200 for f in ("app.js", "style.css"))
        and "@import" not in (ROOT / "site" / "style.css").read_text(encoding="utf-8"))
     if label == "SQLite":
@@ -714,9 +760,13 @@ def browser_suite() -> None:
                 pg.wait_for_load_state("networkidle")
                 sw = pg.evaluate("document.documentElement.scrollWidth")
                 ok(f"{name}: gorizontal siljish yo'q, xato yo'q", sw <= vp["width"] and not errs, f"{sw} {errs[:2]}")
-                ok(f"{name}: shrift o'zimizdan yuklandi (IBM Plex Sans)", pg.evaluate(
-                    "document.fonts.load('16px \"IBM Plex Sans\"').then(f => f.length > 0 && "
-                    "f.every(x => x.status === 'loaded'))"))
+                # 3.3.0: «Qanday ishlaydi» ko'rinmaguncha unda hech narsa harakatlanmaydi (psevdo-elementlar ham)
+                ok(f"{name}: «Qanday ishlaydi» ekranda emas — animatsiyalar to'xtab turadi", pg.evaluate(
+                    "document.getElementById('vas').getAnimations({subtree: true})"
+                    ".filter(a => a.playState === 'running').length") == 0)
+                ok(f"{name}: shriftlar o'zimizdan yuklandi (Onest, Unbounded)", pg.evaluate(
+                    "Promise.all([document.fonts.load('16px \"Onest\"'), document.fonts.load('600 40px \"Unbounded\"')])"
+                    ".then(r => r.every(f => f.length > 0 && f.every(x => x.status === 'loaded')))"))
                 # 2.8.0: bosh sahna — ekranga chiqqanda o'ynaydi (telefonda u birinchi ekrandan pastda), oxirida
                 # Telegram xabari va "Yana ko'rish"
                 anims = "document.getElementById('stage').getAnimations({subtree: true})"
@@ -739,9 +789,13 @@ def browser_suite() -> None:
                 pg.wait_for_timeout(300)
                 ok(f"{name}: 'Yana ko'rish' sahnani boshidan o'ynatadi", pg.evaluate(tg_op) == 0 and pg.evaluate(
                     anims + ".some(a => a.playState === 'running')"))
-                # 2.9.0: «Qanday ishlaydi» — tomir tizimi sxemasi (kompyuterda gorizontal, telefonda vertikal)
-                ok(f"{name}: sxemaning to'g'ri ko'rinishi ({'vertikal' if mob else 'gorizontal'})",
-                   pg.is_visible(".vas-v" if mob else ".vas-h") and not pg.is_visible(".vas-h" if mob else ".vas-v"))
+                # 3.3.0: «Qanday ishlaydi» — chapda qadamlar, o'ngda sahna (telefonda: sahna, tugmachalar qatori, izoh)
+                lay = pg.evaluate("""() => [getComputedStyle(document.querySelector('.vas-list')).display,
+                    getComputedStyle(document.getElementById('vas-desc')).display,
+                    document.querySelectorAll('.vas-sc.cur').length, !document.getElementById('vas-pause').hidden]""")
+                ok(f"{name}: «Qanday ishlaydi» ko'rinishi ({'tugmachalar qatori' if mob else 'qadamlar ro\'yxati'})",
+                   pg.is_visible(".vas-fig") and lay[2] == 1 and lay[3]
+                   and (lay[:2] == ["flex", "grid"] if mob else lay[:2] == ["grid", "none"]), str(lay))
                 # (sichqoncha sxema ustida qolmasin — u yerda almashinuv to'xtab turadi; html'da silliq aylantirish bor —
                 # sinovda darhol aylantiriladi; qat'iy kutish o'rniga — holat kelguncha so'raladi)
                 pg.mouse.move(1, 1)
@@ -749,7 +803,7 @@ def browser_suite() -> None:
                 cur_js = "(document.querySelector('.vas-it.tour, .vas-it[aria-pressed=\"true\"]') || {dataset: {}}).dataset.k"
                 order = pg.evaluate("Array.from(document.querySelectorAll('.vas-it')).map(b => b.dataset.k)")
 
-                def wait_change(k_from, tries=40):        # izohlar ~3,8 s da almashadi; sekin kompyuterda ≤ 10 s
+                def wait_change(k_from, tries=48):        # qadamlar 6–7,5 s da almashadi; sekin kompyuterda ≤ 12 s
                     for _ in range(tries):
                         k = pg.evaluate(cur_js)
                         if k != k_from:
@@ -758,43 +812,62 @@ def browser_suite() -> None:
                     return pg.evaluate(cur_js)
                 k0 = pg.evaluate(cur_js)
                 k1 = wait_change(k0)
-                ok(f"{name}: sxema izohlari o'zi navbat bilan almashadi (keyingisi; aria-pressed — faqat bosilganda)",
+                rail = pg.evaluate("getComputedStyle(document.querySelector('.vas-it.tour'), '::before').animationName")
+                ok(f"{name}: qadamlar o'zi navbat bilan almashadi (keyingisi; aria-pressed — faqat bosilganda), "
+                   f"navbat chizig'i {'tugmacha ostida' if mob else 'qadam yonida'}",
                    k0 in order and k1 == order[(order.index(k0) + 1) % len(order)] and pg.evaluate(
-                       "document.querySelectorAll('.vas-it[aria-pressed=\"true\"]').length") == 0, f"{k0} → {k1}")
+                       "document.querySelectorAll('.vas-it[aria-pressed=\"true\"]').length") == 0
+                   and rail == ("vas-rail-x" if mob else "vas-rail-y"), f"{k0} → {k1} {rail}")
                 if not mob:
                     pg.hover('.vas-it[data-k="report"]')
                     kh = pg.evaluate(cur_js)
                     pg.wait_for_timeout(4200)
                     held = pg.evaluate(cur_js) == kh and kh != "report"
                     pg.mouse.move(1, 1)
-                    ok(f"{name}: sichqoncha izohlar ustida — almashinuv to'xtab turadi, ketganda davom etadi",
+                    ok(f"{name}: sichqoncha qadamlar ustida — almashinuv to'xtab turadi, ketganda davom etadi",
                        held and wait_change(kh) != kh, kh)
                 pg.click('.vas-it[data-k="cloud"]')
-                vis = ".vas-v" if mob else ".vas-h"
                 pressed = "document.querySelector('.vas-it[aria-pressed=\"true\"]').dataset.k"
-                ok(f"{name}: izoh bosilsa — sxemada o'sha yo'l yonadi (Bulut), qolgani xiralashadi", pg.evaluate(pressed)
-                   == "cloud" and pg.evaluate("document.querySelectorAll('.vas-it.tour').length") == 0
-                   and pg.evaluate(f"document.querySelector('{vis} .node[data-k=\"cloud\"]').classList.contains('on')")
-                   and not pg.evaluate(f"document.querySelector('{vis} .node[data-k=\"tg\"]').classList.contains('on')"))
+                st_js = ("(() => { const v = document.getElementById('vas'); return [v.dataset.step, v.dataset.zone, "
+                         "Array.from(document.querySelectorAll('.vas-sc.cur')).map(s => s.dataset.k).join('|')]; })()")
+                ok(f"{name}: qadam bosilsa — sahnada o'sha ko'rinish (Bulut, «tashqariga»), avto-ko'rsatuv to'xtaydi",
+                   pg.evaluate(pressed) == "cloud" and pg.evaluate("document.querySelectorAll('.vas-it.tour').length") == 0
+                   and pg.evaluate(st_js) == ["cloud", "out", "cloud"]
+                   and pg.get_attribute("#vas-pause", "data-state") == "play", str(pg.evaluate(st_js)))
                 pg.mouse.move(1, 1)
                 pg.wait_for_timeout(4200)
                 ok(f"{name}: tanlangandan keyin o'zi almashmaydi", pg.evaluate(pressed) == "cloud")
-                pg.evaluate("document.getElementById('imkoniyatlar').scrollIntoView({behavior: 'instant'})")
-                live_js = "document.querySelector('.fv-theft').classList.contains('live')"
+                pg.click('.vas-it[data-k="back"]')
+                ok(f"{name}: «Javob qaytadi» — Telegram sahnasi qoladi, ichida javob holati",
+                   pg.evaluate(st_js) == ["back", "out", "tg back"], str(pg.evaluate(st_js)))
+                pg.click("#vas-pause")
+                pg.mouse.move(1, 1)
+                ok(f"{name}: «davom ettirish» — avto-ko'rsatuv shu qadamdan qayta boshlanadi",
+                   pg.evaluate("document.querySelectorAll('.vas-it[aria-pressed=\"true\"]').length") == 0
+                   and pg.evaluate(cur_js) == "back" and wait_change("back") == "panel"
+                   and pg.get_attribute("#vas-pause", "data-state") == "pause")
+                # 3.3.0: kataklar ko'ringanda bir marta jonlanadi (ungacha to'xtab turadi), cheksiz animatsiya yo'q
+                rep_js = ("(() => { const f = document.querySelector('.fv-report'); return [f.classList.contains('on'), "
+                          "f.getAnimations({subtree: true}).length > 0 && "
+                          "f.getAnimations({subtree: true}).every(a => a.playState === 'paused')]; })()")
+                pre = pg.evaluate(rep_js)
+                pg.evaluate("document.querySelector('.feat-theft').scrollIntoView({behavior: 'instant', block: 'start'})")
+                on_js = "document.querySelector('.fv-theft').classList.contains('on')"
                 for _ in range(20):
-                    if pg.evaluate(live_js):
+                    if pg.evaluate(on_js):
                         break
                     pg.wait_for_timeout(100)
-                live = pg.evaluate(live_js)
-                pg.evaluate("window.scrollTo({top: 0, behavior: 'instant'})")
-                for _ in range(20):
-                    if not pg.evaluate(live_js):
+                on = pg.evaluate(on_js)
+                fin_js = ("document.querySelector('.fv-theft').getAnimations({subtree: true}).length > 0 && document"
+                          ".querySelector('.fv-theft').getAnimations({subtree: true}).every(a => a.playState === 'finished')")
+                for _ in range(80):                      # ~3,5 s; sekin kompyuterda ≤ 8 s
+                    if pg.evaluate(fin_js):
                         break
                     pg.wait_for_timeout(100)
-                pg.wait_for_timeout(100)
-                ok(f"{name}: imkoniyat sahnalari faqat ekranda o'ynaydi (ko'rinmasa — to'xtaydi)", live and not pg.evaluate(
-                    live_js) and pg.evaluate(
-                    "document.querySelector('.fv-theft .fv-arm').getAnimations()[0].playState") == "paused")
+                fin = pg.evaluate(fin_js)
+                post = pg.evaluate(rep_js)
+                ok(f"{name}: kataklar ko'ringanda bir marta jonlanadi (ungacha to'xtab turadi, keyin tugaydi)",
+                   pre == [False, True] and on and fin and post == [False, True], f"{pre} {on} {fin} {post}")
                 pg.click('[role="tab"]:has-text("Kassa navbati")')
                 ok(f"{name}: ekranlar tablari ishlaydi", pg.is_visible("#sh-2") and not pg.is_visible("#sh-0")
                    and not pg.is_visible("#sh-1"))
@@ -832,12 +905,50 @@ def browser_suite() -> None:
             k1 = pg.evaluate(cur_js)
             pg.evaluate("document.getElementById('vas').scrollIntoView({behavior: 'instant'})")
             pg.wait_for_timeout(4200)
-            ok("harakat kamaytirilgan: sxema izohlari o'zi almashmaydi, sahnalar oxirgi holatda (SMS, 82)",
-               k1 == "cams" and pg.evaluate(cur_js) == k1
+            ok("harakat kamaytirilgan: qadamlar o'zi almashmaydi, pauza tugmasi yo'q, kataklar oxirgi holatda (SMS, 82)",
+               k1 == "cams" and pg.evaluate(cur_js) == k1 and not pg.is_visible("#vas-pause")
                and pg.evaluate("getComputedStyle(document.querySelector('.fv-sms')).opacity") == "1")
+            order = pg.evaluate("Array.from(document.querySelectorAll('.vas-it')).map(b => b.dataset.k)")
+            cut = {}
+            for k in order:
+                pg.click(f'.vas-it[data-k="{k}"]')
+                bad = pg.evaluate(VAS_CUT_JS)
+                if bad:
+                    cut[k] = bad
+            ok("harakat kamaytirilgan, kompyuter: «Qanday ishlaydi» sahnalarida hech narsa kesilmagan", not cut, str(cut)[:300])
+            mctx = b.new_context(viewport={"width": 360, "height": 740}, is_mobile=True, has_touch=True,
+                                 reduced_motion="reduce")
+            mpg = mctx.new_page()
+            mpg.goto(f"http://127.0.0.1:{port}/sayt/ru/")       # ruscha — eng uzun matnlar
+            mpg.wait_for_load_state("networkidle")
+            mcut = {}
+            for k in order:
+                mpg.click(f'.vas-it[data-k="{k}"]')
+                bad = mpg.evaluate(VAS_CUT_JS)
+                if bad:
+                    mcut[k] = bad
+            ok("harakat kamaytirilgan, telefon (ruscha): «Qanday ishlaydi» sahnalarida hech narsa kesilmagan", not mcut,
+               str(mcut)[:300])
+            mctx.close()
+            pg.click('.vas-it[data-k="back"]')
+            ok("harakat kamaytirilgan: bosilgan qadam darhol oxirgi holatda (javob: «Tasdiqlandi», 7%)",
+               pg.evaluate("getComputedStyle(document.querySelector('.sc-tg')).opacity") == "1"
+               and pg.evaluate("getComputedStyle(document.querySelector('.hw-k.ok .s2')).opacity") == "1"
+               and pg.evaluate("getComputedStyle(document.querySelector('.hw-learn')).visibility") == "visible"
+               and pg.evaluate("document.getAnimations().length") == 0)
             ctx.close()
-            # 3.0.0: mavzu tugmasi — tizim bo'yicha → yorug' → tungi → tizim; tanlov qayta yuklashda saqlanadi
+            # 3.3.0: mavzu tugmasi — yorug' ⇄ tungi; tizimdagidan farqli tanlov saqlanadi (qayta yuklashda ham),
+            # tizimdagiga qaytsa — tanlov o'chiriladi (sayt yana tizimga ergashadi). O'tish View Transitions bilan —
+            # holat bir kadrdan keyin o'zgaradi, shuning uchun kutiladi
             theme_js = "document.documentElement.getAttribute('data-theme')"
+
+            def theme_wait(want, tries=40):
+                for _ in range(tries):
+                    if pg.evaluate(theme_js) == want:
+                        break
+                    pg.wait_for_timeout(50)
+                pg.wait_for_timeout(700)                 # doira animatsiyasi tugasin
+                return pg.evaluate(theme_js)
 
             def dark_bg(p) -> bool:
                 rgb = [int(x) for x in re.findall(r"\d+", p.evaluate("getComputedStyle(document.body).backgroundColor"))[:3]]
@@ -849,22 +960,22 @@ def browser_suite() -> None:
             pg.goto(f"http://127.0.0.1:{port}/sayt/en/")
             pg.wait_for_load_state("networkidle")
             t0, light0 = pg.evaluate(theme_js), not dark_bg(pg)
+            lab0 = pg.get_attribute("#theme-btn", "aria-label") or ""
             pg.click("#theme-btn")
-            t1 = pg.evaluate(theme_js)
-            pg.click("#theme-btn")
-            t2, dark2 = pg.evaluate(theme_js), dark_bg(pg)
+            t1, dark1 = theme_wait("dark"), dark_bg(pg)
             lab = pg.get_attribute("#theme-btn", "aria-label") or ""
             pg.reload()
             pg.wait_for_load_state("networkidle")
-            t3, dark3 = pg.evaluate(theme_js), dark_bg(pg)
+            t2, dark2 = pg.evaluate(theme_js), dark_bg(pg)
             tg_ink = pg.evaluate("getComputedStyle(document.querySelector('.tg')).color")
-            ok("mavzu: tugma tizim → yorug' → tungi, tanlov qayta yuklashda saqlanadi, fon haqiqatan to'q",
-               t0 is None and light0 and t1 == "light" and t2 == "dark" and dark2 and t3 == "dark" and dark3
-               and lab.startswith("Theme: dark") and not errs, f"{t0} {t1} {t2} {t3} {lab!r} {errs[:2]}")
+            ok("mavzu: yorug' tizimda bosish — tungi, tanlov qayta yuklashda saqlanadi, fon haqiqatan to'q, yozuv to'g'ri",
+               t0 is None and light0 and lab0 == "Switch to dark theme" and t1 == "dark" and dark1 and t2 == "dark"
+               and dark2 and lab == "Switch to light theme" and not errs, f"{t0} {t1} {t2} {lab0!r} {lab!r} {errs[:2]}")
             ok("mavzu: tungi rejimda Telegram kartasi yorug' qoladi (matn to'q)", tg_ink == "rgb(19, 32, 47)", tg_ink)
             pg.click("#theme-btn")
-            ok("mavzu: uchinchi bosish — yana tizim bo'yicha (tanlov o'chiriladi)", pg.evaluate(theme_js) is None
-               and pg.evaluate("localStorage.getItem('hushyor-theme')") is None and not dark_bg(pg))
+            ok("mavzu: yana bosish — yorug' = tizimdagi, tanlov o'chiriladi (sayt tizimga ergashadi)",
+               theme_wait(None) is None and pg.evaluate("localStorage.getItem('hushyor-theme')") is None
+               and not dark_bg(pg) and pg.get_attribute("#theme-btn", "data-mode") == "system")
             ctx.close()
             ctx = b.new_context(viewport={"width": 360, "height": 740}, is_mobile=True, color_scheme="dark")
             pg = ctx.new_page()

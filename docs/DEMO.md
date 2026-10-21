@@ -86,11 +86,22 @@ uzilsa, videolar qayerda, xato qiladimi, yuzni taniydimi, ko'p filial.
 * 2.8.0: bosh qismda jonli sahna — mahsulotning o'z ko'rinishi: kamera → skelet (xavf rangi yashil → sariq → qizil) va
   "#7 xavf 82" ramkasi → Telegram xabari → qo'riqchi ✅ bosadi; ostida shu 4 qadam bir vaqtda yonadi. Animatsiya CSS da
   (~6,5 s, bir marta; sahna ekranga chiqqanda boshlanadi, "Yana ko'rish" — qaytadan; skript o'chiq bo'lsa ham o'ynaydi,
-  faqat tugmasiz). Tizimda "harakatni kamaytirish" yoqilgan bo'lsa — sahna darhol oxirgi holatda. Shrift — IBM Plex Sans (`site/fonts`,
-  OFL litsenziyasi), bulut paneli bilan bir xil. Tablar, savollar va yuborilgan forma bosilganda yumshoq animatsiya.
+  faqat tugmasiz). Tizimda "harakatni kamaytirish" yoqilgan bo'lsa — sahna darhol oxirgi holatda. Tablar, savollar va yuborilgan forma bosilganda yumshoq animatsiya.
 * 2.9.0: uch til — `/sayt/` (o'zbekcha), `/sayt/ru/`, `/sayt/en/`. Sahifalar yasaladi: matnlar `scripts/site_text.py`,
   shablon `scripts/site_template.html`, keyin `python scripts/build_site.py` (natija `site/` ga yoziladi va commit
   qilinadi). «Qanday ishlaydi» — tomir tizimi sxemasi, imkoniyatlar — mini-sahnalar bilan.
+* 3.3.0: yangi dizayn. Shriftlar o'zimizda (OFL): Onest — hamma matn va raqamlar, Unbounded — sarlavhalar (lotin va
+  kirill qismlari; ruscha sahifa endi tizim shriftiga tushmaydi). Yorug'/tungi mavzu: hamma narsa mavzuga qarab o'zgaradi
+  (kamera sahnasi ranglari — `--sc-*`, grafika — `--viz-*`, aloqa paneli — `--cta-*` tokenlari). Mavzu — bitta tugma
+  (quyosh ⇄ oy); tanlov tizimdagiga teng bo'lsa saqlanmaydi (sayt yana tizimga ergashadi). Til — ochiladigan ro'yxat
+  (`<details>`, skriptsiz ham ishlaydi), 1120 px dan torda — menyu tugmasi. Imkoniyatlar kataklari — HTML mini-panellar
+  (yozuvlar sahifa shrifti bilan, SVG ichida emas); ular birinchi ko'ringanda (app.js `.on`) bir marta jonlanadi, ungacha
+  animatsiyalar to'xtab turadi. «Qanday ishlaydi» — qadamlar va sahna: belgilash `scripts/site_how.html`, matnlar
+  `site_text.py` (`hw`), egri chiziqlar `build_site.py: how()`; app.js faqat `.vas[data-step]`, `.vas-sc.cur` va
+  `aria-pressed` ni almashtiradi, hamma harakat — CSS da (sahnaning asosiy holati — oxirgi kadr). Mavzu almashganda
+  tugmadan doira yoyiladi (View Transitions).
+  "Harakatni kamaytirish" yoqilgan bo'lsa — hammasi oxirgi holatda, animatsiyasiz. Inline style yo'q: skript faqat klass
+  va CSS o'zgaruvchilarini o'zgartiradi (CSP o'zgarmadi).
 * Bulut serveri `/sayt/` da beradi. Aloqa qatorlari **`.env` dan** (berilmagani ko'rsatilmaydi — raqam o'ylab
   topilmaydi):
 
